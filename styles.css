@@ -194,3 +194,21 @@ td { font-size: .9rem; }
 @media (min-width: 720px) {
   .assignment-item { grid-template-columns: 1fr auto; align-items: center; }
 }
+
+.assignment-bucket { display: grid; gap: 10px; }
+.assignment-bucket h4 { margin: 6px 0 0; color: var(--ocean); font-size: .95rem; text-transform: uppercase; letter-spacing: .1em; }
+.assignment-detail-grid { display: grid; gap: 5px; min-width: min(100%, 280px); }
+.assignment-detail-grid span { color: var(--ink); }
+.assignment-detail-grid .badge { justify-self: start; }
+.payroll-week small, td small { color: var(--muted); }
+.inline-payment-form { display: grid; gap: 7px; min-width: 210px; }
+.inline-payment-form input, .inline-payment-form select, .crew-dashboard select { border: 1px solid var(--line); border-radius: 10px; padding: 8px 9px; background: white; color: var(--ink); }
+.muted-text { color: var(--muted); font-size: .85rem; }
+.crew-dashboard { overflow: hidden; }
+.crew-dashboard-body { display: grid; gap: 14px; padding: 14px; }
+.crew-dashboard-body h4 { margin: 0 0 8px; color: var(--ocean); }
+.crew-dashboard-body .empty-state { padding: 14px; }
+@media (min-width: 900px) {
+  .crew-dashboard-body { grid-template-columns: 1.1fr .9fr .9fr; align-items: start; }
+  .assignment-detail-grid { min-width: 360px; }
+}
