@@ -92,8 +92,8 @@ const crudConfig = {
   },
   trips: {
     title: 'Trips', eyebrow: 'Daily operations', summary: 'Create trips, assign vessels and crew, detect assignment conflicts, and calculate separated owner/captain/mate payroll.', collection: 'trips', addLabel: 'Create trip',
-    fields: [['customer','Customer name','text'], ['phone','Phone number','tel'], ['email','Email','email'], ['bookingSource','Booking source','select:bookingSources'], ['tripDate','Date','date'], ['startTime','Time','time'], ['passengers','Guest count','number'], ['hours','Hours','number'], ['tourPrice','Tour price','number'], ['depositPaid','Deposit paid','number'], ['balanceDue','Balance due','number'], ['vessel','Assigned vessel','select:vessels'], ['captain','Assigned captain','select:crew'], ['mate','Assigned mate','select:crewOptional'], ['status','Trip status','select:tripStatus'], ['passengerManifest','Passenger manifest (one passenger per line)','textarea'], ['notes','Notes','textarea']],
-    columns: [['tripDate','Date'], ['startTime','Time'], ['customer','Customer'], ['passengers','Guests'], ['bookingSource','Source'], ['tourPrice','Price'], ['depositPaid','Deposit'], ['balanceDue','Balance'], ['vessel','Vessel'], ['captain','Captain'], ['mate','Mate'], ['status','Status'], ['passengerManifest','Manifest']]
+    fields: [['customer','Customer name','text'], ['phone','Phone number','tel'], ['email','Email','email'], ['bookingSource','Booking source','select:bookingSources'], ['tripDate','Date','date'], ['startTime','Departure time','time'], ['passengers','Guest count','number'], ['hours','Hours','number'], ['tourType','Tour type','text'], ['tourPrice','Tour price','number'], ['depositPaid','Deposit paid','number'], ['balanceDue','Balance due','number'], ['vessel','Assigned vessel','select:vessels'], ['captain','Assigned captain','select:crew'], ['mate','Assigned mate','select:crewOptional'], ['status','Trip status','select:tripStatus'], ['passengerManifest','Passenger manifest (one passenger per line)','textarea'], ['notes','Notes','textarea']],
+    columns: [['tripDate','Date'], ['startTime','Time'], ['customer','Customer'], ['passengers','Guests'], ['tourType','Tour type'], ['bookingSource','Source'], ['tourPrice','Price'], ['depositPaid','Deposit'], ['balanceDue','Balance'], ['vessel','Vessel'], ['captain','Captain'], ['mate','Mate'], ['status','Status'], ['passengerManifest','Manifest']]
   },
   crew: {
     title: 'Crew', eyebrow: 'Simple CRUD', summary: 'Maintain the seeded crew roster, roles, and active status in the new app data layer.', collection: 'crew', addLabel: 'Add crew',
@@ -175,6 +175,7 @@ function normalizeTrip(trip = {}) {
     balanceDue: Number(trip.balanceDue ?? trip.balance ?? 0),
     passengers: Number(trip.passengers ?? trip.guests ?? 0),
     hours: Number(trip.hours || 4),
+    tourType: trip.tourType || trip.product || (trip.hours ? `${trip.hours} hour tour` : ''),
     status: trip.status || 'Scheduled',
     passengerManifest: trip.passengerManifest || '',
     captainNotes: trip.captainNotes || '',
@@ -391,7 +392,8 @@ function updateAssignmentStatus(tripId, role, status) {
   if (!trip) return;
   trip.assignmentStatus = normalizeAssignmentStatus(trip);
   trip.assignmentStatus[role] = status;
-  if (status === 'Completed' && role === 'captain') trip.status = trip.status === 'Scheduled' ? 'Completed' : trip.status;
+  if (status !== 'Completed' && trip.status === 'Completed') trip.status = 'Scheduled';
+  if (trip.assignmentStatus.captain === 'Completed' && trip.assignmentStatus.mate === 'Completed' && trip.status === 'Scheduled') trip.status = 'Completed';
   const person = trip[role] || role;
   const label = `${role === 'captain' ? 'Captain' : 'Mate'} assignment ${status}`;
   addAudit('updated', 'Assignments', `${label} for ${person} on ${trip.customer || 'trip'}.`, { tripId, role, status });
@@ -402,20 +404,36 @@ function updateAssignmentStatus(tripId, role, status) {
   toast(`${label}.`);
 }
 
+function tripSortValue(trip) {
+  return String((trip.tripDate || '') + (trip.startTime || ''));
+}
+
+function isCompletedTrip(trip) {
+  return trip.status === 'Completed' || ['Completed'].includes(normalizeAssignmentStatus(trip).captain) && ['Completed'].includes(normalizeAssignmentStatus(trip).mate);
+}
+
 function renderCrewRoleDashboard(role) {
   const route = `${role}-dashboard`;
   const page = document.getElementById(`page-${route}`);
   const roleLabel = role === 'captain' ? 'Captain' : 'Mate';
   const selected = page.querySelector('[data-role-person]')?.value || getOptions('crew')[0] || '';
-  const trips = store.trips.filter((trip) => trip[role] === selected && trip.status !== 'Cancelled').sort(byDate);
-  page.innerHTML = `<div class="page-stack"><div class="section-heading"><div><p class="eyebrow">Phase 4 crew portal</p><h1>${roleLabel} Dashboard</h1><p class="section-summary">Review upcoming assigned trips, accept or decline work, and submit operational notes${role === 'captain' ? ' and photos' : ''}.</p></div><select data-role-person onchange="renderCrewRoleDashboard('${role}')">${getOptions('crew').map((name) => `<option value="${escapeHtml(name)}" ${name === selected ? 'selected' : ''}>${escapeHtml(name)}</option>`).join('')}</select></div><div class="role-trip-list">${trips.length ? trips.map((trip) => renderRoleTripCard(trip, role)).join('') : '<div class="card card-pad empty-state">No upcoming assignments for this crew member.</div>'}</div></div>`;
+  const assigned = store.trips.filter((trip) => trip[role] === selected && trip.status !== 'Cancelled').sort((a, b) => tripSortValue(a).localeCompare(tripSortValue(b)));
+  const upcoming = assigned.filter((trip) => !isCompletedTrip(trip));
+  const completed = assigned.filter(isCompletedTrip);
+  page.innerHTML = `<div class="page-stack"><div class="section-heading"><div><p class="eyebrow">Phase 4A crew portal</p><h1>${roleLabel} Dashboard</h1><p class="section-summary">Assigned trips appear immediately, upcoming work stays visible until completed, and completed trips move into the archive below.</p></div><select data-role-person onchange="renderCrewRoleDashboard('${role}')">${getOptions('crew').map((name) => `<option value="${escapeHtml(name)}" ${name === selected ? 'selected' : ''}>${escapeHtml(name)}</option>`).join('')}</select></div><div class="grid kpi-grid dashboard-kpis">${kpi('Assigned', assigned.length, `${roleLabel} trip cards`)}${kpi('Upcoming', upcoming.length, 'Not completed or cancelled')}${kpi('Accepted', assigned.filter((trip) => normalizeAssignmentStatus(trip)[role] === 'Accepted').length, 'Accepted status')}${kpi('Completed archive', completed.length, 'Archived completed trips')}</div><div class="role-trip-list">${upcoming.length ? upcoming.map((trip) => renderRoleTripCard(trip, role)).join('') : '<div class="card card-pad empty-state">No upcoming assignments for this crew member.</div>'}</div><div class="card"><div class="card-header"><h3>Completed Trip Archive</h3><span class="badge green">${completed.length} completed</span></div><div class="role-archive-list">${completed.length ? completed.map((trip) => renderRoleArchiveTrip(trip, role)).join('') : '<p class="empty-state">Completed trips will archive here.</p>'}</div></div></div>`;
+}
+
+function renderRoleArchiveTrip(trip, role) {
+  const status = normalizeAssignmentStatus(trip)[role];
+  return `<div class="stat-row"><span>${escapeHtml(formatDate(trip.tripDate))} · ${escapeHtml(formatTime(trip.startTime))}</span><strong>${escapeHtml(trip.customer || 'Trip')}<br><small>${escapeHtml(trip.vessel || 'No vessel')} · ${escapeHtml(role === 'captain' ? 'Captain' : 'Mate')} ${escapeHtml(status)}</small></strong></div>`;
 }
 
 function renderRoleTripCard(trip, role) {
   const roleLabel = role === 'captain' ? 'Captain' : 'Mate';
   const notesKey = role === 'captain' ? 'captainNotes' : 'mateNotes';
   const status = normalizeAssignmentStatus(trip)[role];
-  return `<div class="card role-trip-card"><div class="card-header"><div><h3>${escapeHtml(trip.customer || 'Trip')}</h3><p>${escapeHtml(formatDate(trip.tripDate))} · ${escapeHtml(formatTime(trip.startTime))} · ${escapeHtml(trip.vessel || 'No vessel')}</p></div>${assignmentStatusBadge(status)}</div><div class="assignment-actions"><button class="btn btn-primary btn-small" onclick="acceptAssignment('${trip.id}','${role}')">Accept Assignment</button><button class="btn btn-danger btn-small" onclick="declineAssignment('${trip.id}','${role}')">Decline Assignment</button><button class="btn btn-outline btn-small" onclick="completeAssignment('${trip.id}','${role}')">Mark Completed</button></div><div class="field"><label>${roleLabel} notes</label><textarea data-trip-notes="${trip.id}" data-note-role="${role}">${escapeHtml(trip[notesKey] || '')}</textarea></div><div class="form-actions"><button class="btn btn-outline btn-small" onclick="saveCrewTripNotes('${trip.id}','${role}')">Submit Notes</button>${role === 'captain' ? `<label class="btn btn-outline btn-small">Upload Photos<input type="file" accept="image/*" multiple hidden onchange="saveCaptainPhotos('${trip.id}', this.files)"></label>` : ''}</div>${role === 'captain' ? renderPhotoList(trip.captainPhotos) : ''}</div>`;
+  const readiness = calculateDispatchReadiness(trip);
+  return `<div class="card role-trip-card ${readinessColorClass(readiness)}"><div class="card-header"><div class="role-card-title">${crewAvatar(trip[role], roleLabel)}<div><h3>${escapeHtml(trip.customer || 'Trip')}</h3><p>${escapeHtml(formatDate(trip.tripDate))} · ${escapeHtml(formatTime(trip.startTime))} · ${escapeHtml(trip.vessel || 'No vessel')} · ${Number(trip.passengers || 0)} guests</p></div></div><div>${assignmentStatusBadge(status)} ${readinessBadge(readiness)}</div></div>${readinessChecklistHtml(trip)}<div class="assignment-actions"><button class="btn btn-primary btn-small" onclick="acceptAssignment('${trip.id}','${role}')">Accept Assignment</button><button class="btn btn-danger btn-small" onclick="declineAssignment('${trip.id}','${role}')">Decline Assignment</button><button class="btn btn-outline btn-small" onclick="completeAssignment('${trip.id}','${role}')">Mark Completed</button></div><div class="field"><label>${roleLabel} notes</label><textarea data-trip-notes="${trip.id}" data-note-role="${role}">${escapeHtml(trip[notesKey] || '')}</textarea></div><div class="form-actions"><button class="btn btn-outline btn-small" onclick="saveCrewTripNotes('${trip.id}','${role}')">Submit Notes</button>${role === 'captain' ? `<label class="btn btn-outline btn-small">Upload Photos<input type="file" accept="image/*" multiple hidden onchange="saveCaptainPhotos('${trip.id}', this.files)"></label>` : ''}</div>${role === 'captain' ? renderPhotoList(trip.captainPhotos) : ''}</div>`;
 }
 
 function saveCrewTripNotes(tripId, role) {
@@ -530,7 +548,9 @@ function saveRecord(event, route) {
     }
     data.status = data.status || 'Scheduled';
     const previous = editing[route] ? store.trips.find((trip) => trip.id === editing[route]) : null;
-    data.assignmentStatus = normalizeAssignmentStatus({ ...previous, ...data });
+    data.assignmentStatus = normalizeAssignmentStatus(data);
+    if (previous?.captain === data.captain && previous.assignmentStatus?.captain) data.assignmentStatus.captain = previous.assignmentStatus.captain;
+    if (previous?.mate === data.mate && previous.assignmentStatus?.mate) data.assignmentStatus.mate = previous.assignmentStatus.mate;
     data.preTripChecklistStatus = previous?.preTripChecklistStatus || data.preTripChecklistStatus || 'Not Started';
     data.postTripChecklistStatus = previous?.postTripChecklistStatus || data.postTripChecklistStatus || 'Not Started';
     data.dispatchReadinessStatus = calculateDispatchReadiness({ ...previous, ...data });
@@ -702,23 +722,66 @@ function latestChecklistStatus(trip, type) {
   return record?.status || trip[type === 'Pre Trip' ? 'preTripChecklistStatus' : 'postTripChecklistStatus'] || 'Not Started';
 }
 
-function calculateDispatchReadiness(trip) {
+function readinessChecklist(trip) {
   const assignment = normalizeAssignmentStatus(trip);
   const conflicts = trip.id ? findTripConflicts(trip, trip.id) : [];
   const vessel = vesselForTrip(trip);
-  if (!trip.vessel || !trip.captain || !trip.mate || trip.mate === 'None' || !trip.tripDate || !trip.startTime) return 'Not Ready';
-  if (assignment.captain === 'Declined' || assignment.mate === 'Declined') return 'Not Ready';
-  if (conflicts.length) return 'Not Ready';
-  if (vessel && !['', 'Operational'].includes(vessel.readinessStatus || vessel.status || '')) return 'Needs Review';
-  if (latestChecklistStatus(trip, 'Pre Trip') !== 'Completed') return 'Needs Review';
-  if (!['Accepted', 'Completed'].includes(assignment.captain) || !['Accepted', 'Completed'].includes(assignment.mate)) return 'Needs Review';
+  const vesselStatus = vessel?.readinessStatus || vessel?.status || '';
+  const vesselReady = Boolean(trip.vessel) && (!vessel || ['', 'Operational'].includes(vesselStatus));
+  const preTripComplete = latestChecklistStatus(trip, 'Pre Trip') === 'Completed';
+  const captainAssigned = Boolean(trip.captain) && assignment.captain !== 'Declined';
+  const mateAssigned = Boolean(trip.mate) && trip.mate !== 'None' && assignment.mate !== 'Declined';
+  return {
+    vesselAssigned: Boolean(trip.vessel),
+    captainAssigned,
+    mateAssigned,
+    vesselReady,
+    preTripComplete,
+    hasConflicts: conflicts.length > 0,
+    captainAccepted: ['Accepted', 'Completed'].includes(assignment.captain),
+    mateAccepted: ['Accepted', 'Completed'].includes(assignment.mate),
+    vesselStatus: vesselStatus || (trip.vessel ? 'Operational' : 'Unassigned')
+  };
+}
+
+function calculateDispatchReadiness(trip) {
+  const checks = readinessChecklist(trip);
   if (trip.status === 'Completed' && latestChecklistStatus(trip, 'Post Trip') === 'Completed') return 'Completed';
-  return 'Ready';
+  if (!checks.vesselAssigned || !checks.captainAssigned || !checks.mateAssigned || checks.hasConflicts) return 'Not Ready';
+  if (checks.vesselReady && checks.preTripComplete && checks.captainAccepted && checks.mateAccepted) return 'Dispatch Ready';
+  return 'Partial';
 }
 
 function readinessBadge(status) {
-  const color = status === 'Ready' || status === 'Completed' ? 'green' : status === 'Not Ready' ? 'red' : 'gold';
-  return `<span class="badge ${color}">${escapeHtml(status || 'Needs Review')}</span>`;
+  const normalized = status === 'Ready' ? 'Dispatch Ready' : status === 'Needs Review' ? 'Partial' : status;
+  const color = normalized === 'Dispatch Ready' || normalized === 'Completed' ? 'green' : normalized === 'Not Ready' ? 'red' : 'gold';
+  return `<span class="badge ${color}">${escapeHtml(normalized || 'Partial')}</span>`;
+}
+
+function readinessColorClass(status) {
+  const normalized = status === 'Ready' ? 'Dispatch Ready' : status === 'Needs Review' ? 'Partial' : status;
+  return normalized === 'Dispatch Ready' || normalized === 'Completed' ? 'ready-green' : normalized === 'Not Ready' ? 'ready-red' : 'ready-yellow';
+}
+
+function crewAvatar(name, role = '') {
+  const initials = String(name || role || '?').split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join('') || '?';
+  return `<span class="crew-avatar" aria-hidden="true">${escapeHtml(initials)}</span>`;
+}
+
+function renderCrewPill(name, role, status) {
+  return `<div class="crew-pill">${crewAvatar(name, role)}<div><span class="crew-role-label">${escapeHtml(role)}</span><strong>${escapeHtml(name || 'Unassigned')}</strong>${assignmentStatusBadge(status)}</div></div>`;
+}
+
+function readinessChecklistHtml(trip) {
+  const checks = readinessChecklist(trip);
+  const item = (ok, label, detail = '') => `<span class="readiness-chip ${ok ? 'ok' : 'pending'}">${ok ? '✓' : '•'} ${escapeHtml(label)}${detail ? ` <small>${escapeHtml(detail)}</small>` : ''}</span>`;
+  return `<div class="readiness-chips">
+    ${item(checks.vesselAssigned, 'Vessel Assigned', trip.vessel || '')}
+    ${item(checks.captainAssigned, 'Captain Assigned', trip.captain || '')}
+    ${item(checks.mateAssigned, 'Mate Assigned', trip.mate && trip.mate !== 'None' ? trip.mate : '')}
+    ${item(checks.vesselReady, 'Vessel Ready', checks.vesselStatus)}
+    ${item(checks.preTripComplete, 'Pre Trip Complete', latestChecklistStatus(trip, 'Pre Trip'))}
+  </div>`;
 }
 
 function renderAssignmentBoard() {
@@ -731,25 +794,34 @@ function renderAssignmentBoard() {
     board.dataset.assignmentBoard = 'true';
     page.querySelector('.record-form').after(board);
   }
-  const trips = [...store.trips].filter((trip) => trip.status !== 'Cancelled').sort((a, b) => String(a.tripDate + a.startTime).localeCompare(String(b.tripDate + b.startTime)));
-  const buckets = ['Today', 'Tomorrow', 'This Week', 'Future'];
-  const grouped = buckets.reduce((acc, bucket) => ({ ...acc, [bucket]: [] }), {});
-  trips.forEach((trip) => grouped[tripBucket(trip)].push(trip));
-  board.innerHTML = `<div class="card-header"><h3>Trip Assignment Board</h3><span class="badge blue">${trips.length} active trips</span></div><div class="assignment-list">${trips.length ? buckets.map((bucket) => renderAssignmentBucket(bucket, grouped[bucket])).join('') : '<div class="empty-state">No trips assigned yet. Create a trip with a vessel, captain, mate, date, and start time to populate the board.</div>'}</div>`;
-}
-
-function renderAssignmentBucket(bucket, trips) {
-  return `<section class="assignment-bucket"><h4>${escapeHtml(bucket)}</h4>${trips.length ? trips.map(renderAssignmentTrip).join('') : '<p class="empty-state">No trips in this group.</p>'}</section>`;
+  const trips = [...store.trips].filter((trip) => trip.status !== 'Cancelled').sort((a, b) => String((a.tripDate || '') + (a.startTime || '')).localeCompare(String((b.tripDate || '') + (b.startTime || ''))));
+  const readyCounts = trips.reduce((acc, trip) => {
+    const status = calculateDispatchReadiness(trip);
+    acc[status] = (acc[status] || 0) + 1;
+    return acc;
+  }, {});
+  board.innerHTML = `<div class="card-header assignment-board-header"><div><h3>Operational Trip Assignment Board</h3><p class="muted-text">Card view for crew assignment, vessel readiness, and dispatch decisions.</p></div><div class="assignment-board-legend"><span class="legend-dot red"></span>Not Ready <span class="legend-dot yellow"></span>Partial <span class="legend-dot green"></span>Dispatch Ready</div></div><div class="assignment-summary-strip"><span>${trips.length} active trips</span><span>${readyCounts['Dispatch Ready'] || 0} dispatch ready</span><span>${readyCounts.Partial || 0} partial</span><span>${readyCounts['Not Ready'] || 0} not ready</span></div><div class="assignment-list assignment-card-list">${trips.length ? trips.map(renderAssignmentTrip).join('') : '<div class="empty-state">No trips assigned yet. Create a trip with a vessel, captain, mate, date, and start time to populate the board.</div>'}</div>`;
 }
 
 function renderAssignmentTrip(trip) {
-  const payroll = trip.payroll || calculateTripPayroll(trip);
   const assignment = normalizeAssignmentStatus(trip);
   const readiness = calculateDispatchReadiness(trip);
   const preStatus = latestChecklistStatus(trip, 'Pre Trip');
   const postStatus = latestChecklistStatus(trip, 'Post Trip');
-  const manifest = passengerManifestSummary(trip.passengerManifest);
-  return `<div class="assignment-item"><div><strong>${escapeHtml(trip.customer || 'Unassigned customer')}</strong><span>${escapeHtml(formatDate(trip.tripDate))} · ${escapeHtml(formatTime(trip.startTime))} · ${Number(trip.hours || 4)} hrs</span><span>${escapeHtml(trip.bookingSource || 'No source')} · ${Number(trip.passengers || 0)} guests · Manifest: ${escapeHtml(manifest)} · Status: ${escapeHtml(trip.status || 'Scheduled')}</span><span>Phone: ${escapeHtml(trip.phone || '—')} · Email: ${escapeHtml(trip.email || '—')}</span><span>${trip.notes ? `Notes: ${escapeHtml(trip.notes)}` : ''}</span><div class="assignment-actions"><button class="btn btn-outline btn-small" onclick="notifyAssignment('${trip.id}','captain')">Notify Captain</button><button class="btn btn-outline btn-small" onclick="notifyAssignment('${trip.id}','mate')">Notify Mate</button><button class="btn btn-primary btn-small" onclick="completeAssignment('${trip.id}','captain');completeAssignment('${trip.id}','mate')">Mark Crew Completed</button></div></div><div class="assignment-detail-grid"><span class="badge blue">${escapeHtml(trip.vessel || 'No vessel')}</span><span>Dispatch: ${readinessBadge(readiness)}</span><span>Pre Trip: ${readinessBadge(preStatus)}</span><span>Post Trip: ${readinessBadge(postStatus)}</span><span>Captain: ${escapeHtml(trip.captain || 'Unassigned')} ${assignmentStatusBadge(assignment.captain)}</span><span>Mate: ${escapeHtml(trip.mate || 'None')} ${assignmentStatusBadge(assignment.mate)}</span><span>Tour: <strong>${money(trip.tourPrice)}</strong></span><span>Deposit: <strong>${money(trip.depositPaid)}</strong></span><span>Balance: <strong>${money(trip.balanceDue)}</strong></span><span>Payroll: ${payroll.map((entry) => `${escapeHtml(entry.role)} ${money(entry.amount)}`).join(' · ')}</span></div></div>`;
+  const vessel = vesselForTrip(trip);
+  const vesselReady = readinessChecklist(trip).vesselReady;
+  return `<article class="assignment-card ${readinessColorClass(readiness)}"><div class="assignment-card-top"><div><p class="eyebrow">${escapeHtml(formatDate(trip.tripDate))} · ${escapeHtml(formatTime(trip.startTime))}</p><h3>${escapeHtml(trip.customer || 'Unassigned customer')}</h3><p>${escapeHtml(trip.tourType || `${Number(trip.hours || 4)} hour tour`)} · ${Number(trip.passengers || 0)} guests</p></div><div class="dispatch-status">${readinessBadge(readiness)}</div></div>
+    <div class="assignment-card-metrics">
+      <div><span>Vessel</span><strong>${escapeHtml(trip.vessel || 'Unassigned')}</strong></div>
+      <div><span>Price</span><strong>${money(trip.tourPrice)}</strong></div>
+      <div><span>Deposit</span><strong>${money(trip.depositPaid)}</strong></div>
+      <div><span>Balance</span><strong>${money(trip.balanceDue)}</strong></div>
+    </div>
+    <div class="crew-visual-row">${renderCrewPill(trip.captain, 'Captain', assignment.captain)}${renderCrewPill(trip.mate && trip.mate !== 'None' ? trip.mate : '', 'Mate', assignment.mate)}</div>
+    ${readinessChecklistHtml(trip)}
+    <div class="vessel-verification-row"><span class="badge ${vesselReady ? 'green' : 'gold'}">Fuel Verified: ${vesselReady ? 'Ready' : 'Needs check'}</span><span class="badge ${vesselReady ? 'green' : 'gold'}">Safety Equipment Verified: ${vesselReady ? 'Ready' : 'Needs check'}</span><span class="badge ${vesselReady ? 'green' : 'gold'}">Vessel Ready: ${escapeHtml(vessel?.readinessStatus || vessel?.status || (trip.vessel ? 'Operational' : 'Unassigned'))}</span></div>
+    <div class="assignment-card-footer"><div><strong>Acceptance:</strong> Captain ${assignmentStatusBadge(assignment.captain)} Mate ${assignmentStatusBadge(assignment.mate)} <span class="muted-text">Trip ${escapeHtml(trip.status || 'Scheduled')} · Pre ${escapeHtml(preStatus)} · Post ${escapeHtml(postStatus)}</span></div><div class="assignment-actions"><button class="btn btn-outline btn-small" onclick="notifyAssignment('${trip.id}','captain')">Notify Captain</button><button class="btn btn-outline btn-small" onclick="notifyAssignment('${trip.id}','mate')">Notify Mate</button><button class="btn btn-primary btn-small" onclick="completeAssignment('${trip.id}','captain');completeAssignment('${trip.id}','mate')">Mark Crew Completed</button></div></div>
+  </article>`;
 }
 
 
@@ -899,28 +971,120 @@ function startVoiceFill(button) {
   voiceRecognition.start();
 }
 
+function spokenNumberToNumber(value) {
+  if (!value) return null;
+  const text = String(value).toLowerCase().replace(/-/g, ' ').trim();
+  if (/^\d+(?:\.\d+)?$/.test(text)) return Number(text);
+  const numbers = { zero: 0, one: 1, two: 2, too: 2, to: 2, three: 3, four: 4, for: 4, five: 5, six: 6, seven: 7, eight: 8, ate: 8, nine: 9, ten: 10, eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16, seventeen: 17, eighteen: 18, nineteen: 19, twenty: 20, thirty: 30, forty: 40, fifty: 50, sixty: 60, seventy: 70, eighty: 80, ninety: 90, hundred: 100 };
+  const parts = text.split(/\s+/).filter(Boolean);
+  let total = 0;
+  let current = 0;
+  let found = false;
+  parts.forEach((part) => {
+    if (numbers[part] == null) return;
+    found = true;
+    if (part === 'hundred') current = (current || 1) * 100;
+    else current += numbers[part];
+  });
+  total += current;
+  return found ? total : null;
+}
+
+function normalizeVoiceText(transcript) {
+  return String(transcript || '').replace(/\s+/g, ' ').trim();
+}
+
+function extractVoiceSegment(transcript, patterns) {
+  for (const pattern of patterns) {
+    const match = transcript.match(pattern);
+    if (match?.[1]) return match[1].trim().replace(/^(is|as|for)\s+/i, '').replace(/\s+(please|thanks)$/i, '').trim();
+  }
+  return '';
+}
+
+function setFormValue(form, key, value) {
+  if (!form.elements[key] || value == null || value === '') return false;
+  const element = form.elements[key];
+  if (element.tagName === 'SELECT') setSelectLikeValue(element, value);
+  else element.value = value;
+  if (typeof Event !== 'undefined' && element.dispatchEvent) element.dispatchEvent(new Event('change', { bubbles: true }));
+  return true;
+}
+
+function setMoneyField(form, key, transcript, labels) {
+  const labelPattern = labels.join('|');
+  const match = transcript.match(new RegExp(`(?:${labelPattern})\\s*(?:is|of|for)?\\s*\\$?\\s*([0-9]+(?:\\.[0-9]{1,2})?|[a-z -]+?)(?=\\s*(?:dollars?|bucks?)?(?:[,.;]|$|\\s+(?:balance|deposit|amount|paid|for|on)))`, 'i'));
+  if (!match) return false;
+  const parsed = spokenNumberToNumber(match[1]);
+  return setFormValue(form, key, parsed != null ? parsed : match[1].replace(/[^0-9.]/g, ''));
+}
+
 function applyVoiceTranscript(form, transcript) {
+  const clean = normalizeVoiceText(transcript);
+  const lower = clean.toLowerCase();
   const notes = form.elements.notes || form.elements.description || form.elements.actionsTaken;
-  if (notes) notes.value = [notes.value, transcript].filter(Boolean).join(notes.value ? '\n' : '');
-  const customerMatch = transcript.match(/customer\s+([^,.]+)/i);
-  if (customerMatch && form.elements.customer) form.elements.customer.value = customerMatch[1].trim();
-  const guestsMatch = transcript.match(/(?:guests|passengers)\s+(\d+)/i);
-  if (guestsMatch && form.elements.passengers) form.elements.passengers.value = guestsMatch[1];
-  if (guestsMatch && form.elements.guests) form.elements.guests.value = guestsMatch[1];
-  const amountMatch = transcript.match(/(?:amount|cost|expense)\s+\$?(\d+(?:\.\d{1,2})?)/i);
-  if (amountMatch && form.elements.amount) form.elements.amount.value = amountMatch[1];
-  const vesselMatch = transcript.match(/vessel\s+([^,.]+)/i);
-  if (vesselMatch && form.elements.vessel) setSelectLikeValue(form.elements.vessel, vesselMatch[1].trim());
-  const captainMatch = transcript.match(/captain\s+([^,.]+)/i);
-  if (captainMatch && form.elements.captain) setSelectLikeValue(form.elements.captain, captainMatch[1].trim());
-  const mateMatch = transcript.match(/mate\s+([^,.]+)/i);
-  if (mateMatch && form.elements.mate) setSelectLikeValue(form.elements.mate, mateMatch[1].trim());
-  const severityMatch = transcript.match(/severity\s+(low|medium|high|critical)/i);
+  if (notes) notes.value = [notes.value, clean].filter(Boolean).join(notes.value ? '\n' : '');
+
+  const firstPhrase = clean.split(/[,.;]/)[0]?.trim();
+  const customer = extractVoiceSegment(clean, [/customer(?: name)?\s+(?:is\s+)?([^,.]+)/i, /(?:book|booking|trip)\s+(?:for|under)\s+([^,.]+)/i]) || (form.elements.customer && firstPhrase && !/\b(guest|passenger|captain|mate|vessel|tour|deposit|balance|phone|email|expense|incident)\b/i.test(firstPhrase) ? firstPhrase : '');
+  if (customer) setFormValue(form, 'customer', customer);
+
+  const phone = extractVoiceSegment(clean, [/(?:phone|mobile|cell)(?: number)?\s+(?:is\s+)?([+0-9 ()-]{7,}|(?:\d\s*){7,})/i]);
+  if (phone) setFormValue(form, 'phone', phone.replace(/\s+/g, '').replace(/(\d{3})(\d{3})(\d{4})$/, '$1-$2-$3'));
+
+  const email = extractVoiceSegment(clean, [/(?:email|e-mail)\s+(?:is\s+)?([^,.;\s]+(?:\s*(?:at|@)\s*[^,.;\s]+)?(?:\s*(?:dot|\.)\s*[^,.;\s]+)?)/i]);
+  if (email) setFormValue(form, 'email', email.replace(/\s+at\s+/i, '@').replace(/\s+dot\s+/gi, '.').replace(/\s+/g, ''));
+
+  const guestsPhrase = extractVoiceSegment(clean, [/(\d+|[a-z -]+)\s+(?:guests?|passengers?|people|pax)\b/i, /(?:guest count|guests?|passengers?)\s+(?:is\s+)?(\d+|[a-z -]+)/i]);
+  const guests = spokenNumberToNumber(guestsPhrase);
+  if (guests != null) { setFormValue(form, 'passengers', guests); setFormValue(form, 'guests', guests); }
+
+  const hoursPhrase = extractVoiceSegment(clean, [/(\d+|[a-z -]+)\s*(?:hour|hr)\s+(?:tour|charter|trip)/i]);
+  const hours = spokenNumberToNumber(hoursPhrase);
+  if (hours != null) setFormValue(form, 'hours', hours);
+
+  const tourType = extractVoiceSegment(clean, [/(?:tour type|tour|charter|trip type)\s+(?:is\s+)?([^,.]+)/i, /((?:\d+|[a-z -]+)\s*(?:hour|hr)\s+(?:tour|charter|trip))/i]);
+  if (tourType) { setFormValue(form, 'tourType', tourType); setFormValue(form, 'product', tourType); }
+
+  const departure = extractVoiceSegment(clean, [/(?:departure time|depart(?:ure)?|leave|leaves|time)\s+(?:is\s+|at\s+)?(\d{1,2}(?::\d{2})?\s*(?:a\.?m\.?|p\.?m\.?)?)/i]);
+  if (departure) { setFormValue(form, 'startTime', normalizeTimeInput(departure)); setFormValue(form, 'time', normalizeTimeInput(departure)); }
+
+  const vessel = extractVoiceSegment(clean, [/(?:vessel|boat)\s+(?:is\s+)?([^,.]+)/i]);
+  if (vessel) setFormValue(form, 'vessel', vessel);
+  const captain = extractVoiceSegment(clean, [/captain\s+(?:is\s+)?([^,.]+)/i]);
+  if (captain) setFormValue(form, 'captain', captain);
+  const mate = extractVoiceSegment(clean, [/mate\s+(?:is\s+)?([^,.]+)/i]);
+  if (mate) setFormValue(form, 'mate', mate);
+
+  setMoneyField(form, 'depositPaid', lower, ['deposit', 'deposit paid']);
+  setMoneyField(form, 'balanceDue', lower, ['balance', 'balance due']);
+  setMoneyField(form, 'balance', lower, ['balance', 'balance due']);
+  setMoneyField(form, 'amount', lower, ['expense amount', 'incident amount', 'amount', 'cost', 'expense']);
+
+  const expenseDescription = extractVoiceSegment(clean, [/(?:expense description|expense|description)\s+(?:is\s+|for\s+)?([^,.]+)/i]);
+  if (expenseDescription && form.elements.notes && currentRoute === 'expenses') form.elements.notes.value = expenseDescription;
+  const incidentDescription = extractVoiceSegment(clean, [/(?:incident description|incident)\s+(?:is\s+)?([^,.]+)/i]);
+  if (incidentDescription && form.elements.description) form.elements.description.value = incidentDescription;
+  const operationalNotes = extractVoiceSegment(clean, [/(?:operational notes?|notes?)\s+(?:are\s+|is\s+)?(.+)/i]);
+  if (operationalNotes && notes) notes.value = operationalNotes;
+
+  const severityMatch = clean.match(/severity\s+(low|medium|high|critical)/i);
   if (severityMatch && form.elements.severity) form.elements.severity.value = severityMatch[1][0].toUpperCase() + severityMatch[1].slice(1).toLowerCase();
-  addAudit('voice-fill', currentRoute, `Voice fill captured notes for ${currentRoute}.`, { transcriptLength: transcript.length });
+  if (currentRoute === 'trips') { updateBalanceDue(form); updateTripConflictPreview(form); }
+  addAudit('voice-fill', currentRoute, `Voice fill parsed fields for ${currentRoute}.`, { transcriptLength: clean.length });
   saveStore();
-  if (currentRoute === 'trips') updateTripConflictPreview(form);
-  toast('Voice fill added transcript and field suggestions. Review before saving.');
+  toast('Voice fill populated matching fields. Review before saving.');
+}
+
+function normalizeTimeInput(value) {
+  const text = String(value || '').toLowerCase().replace(/\./g, '').trim();
+  const match = text.match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/);
+  if (!match) return value;
+  let hour = Number(match[1]);
+  const minute = match[2] || '00';
+  if (match[3] === 'pm' && hour < 12) hour += 12;
+  if (match[3] === 'am' && hour === 12) hour = 0;
+  return `${String(hour).padStart(2, '0')}:${minute}`;
 }
 
 function setSelectLikeValue(element, text) {
