@@ -238,3 +238,59 @@ td { font-size: .9rem; }
 @media (min-width: 1080px) {
   .readiness-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }
+
+.assignment-board-header { align-items: flex-start; }
+.assignment-board-header p { margin: 5px 0 0; }
+.assignment-board-legend, .assignment-summary-strip { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; color: var(--muted); font-weight: 850; font-size: .82rem; }
+.legend-dot { width: 12px; height: 12px; border-radius: 999px; display: inline-block; }
+.legend-dot.red { background: var(--red); }
+.legend-dot.yellow { background: var(--amber); }
+.legend-dot.green { background: var(--green); }
+.assignment-summary-strip { padding: 12px 14px; border-bottom: 1px solid var(--line); background: #f8fbfc; }
+.assignment-summary-strip span { border: 1px solid var(--line); border-radius: 999px; padding: 7px 10px; background: white; color: var(--ocean); }
+.assignment-card-list { grid-template-columns: 1fr; }
+.assignment-card { border: 2px solid var(--line); border-left-width: 10px; border-radius: 18px; background: white; padding: 14px; display: grid; gap: 14px; box-shadow: 0 12px 28px rgba(10,61,98,.08); }
+.assignment-card.ready-red, .role-trip-card.ready-red { border-left-color: var(--red); }
+.assignment-card.ready-yellow, .role-trip-card.ready-yellow { border-left-color: var(--amber); }
+.assignment-card.ready-green, .role-trip-card.ready-green { border-left-color: var(--green); }
+.assignment-card-top, .assignment-card-footer { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; align-items: flex-start; }
+.assignment-card-top h3 { margin: 2px 0 4px; font-size: clamp(1.35rem, 5vw, 2rem); letter-spacing: -.04em; }
+.assignment-card-top p { margin: 0; color: var(--muted); font-weight: 750; }
+.dispatch-status .badge { font-size: .9rem; padding: 8px 12px; }
+.assignment-card-metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.assignment-card-metrics div { border: 1px solid var(--line); border-radius: 14px; padding: 10px; background: #f8fbfc; }
+.assignment-card-metrics span, .crew-role-label { display: block; color: var(--muted); font-size: .68rem; text-transform: uppercase; letter-spacing: .09em; font-weight: 950; }
+.assignment-card-metrics strong { display: block; margin-top: 3px; font-size: 1rem; }
+.crew-visual-row { display: grid; grid-template-columns: 1fr; gap: 10px; }
+.crew-pill { display: grid; grid-template-columns: auto 1fr; gap: 10px; align-items: center; border: 1px solid var(--line); border-radius: 16px; padding: 11px; background: #f8fbfc; min-width: 0; }
+.crew-pill strong { display: block; font-size: 1.05rem; margin: 2px 0 5px; }
+.crew-avatar { width: 46px; height: 46px; border-radius: 50%; display: inline-grid; place-items: center; background: linear-gradient(135deg, var(--ocean), var(--sky)); color: white; font-weight: 950; box-shadow: inset 0 0 0 3px rgba(255,255,255,.26); }
+.readiness-chips, .vessel-verification-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.readiness-chip { border-radius: 999px; padding: 7px 10px; font-weight: 900; font-size: .78rem; }
+.readiness-chip.ok { background: #e8f8ee; color: var(--green); }
+.readiness-chip.pending { background: #fff5da; color: #805b00; }
+.readiness-chip small { opacity: .78; margin-left: 3px; }
+.role-card-title { display: grid; grid-template-columns: auto 1fr; gap: 10px; align-items: center; }
+.role-trip-card.ready-red, .role-trip-card.ready-yellow, .role-trip-card.ready-green { border-left-width: 10px; }
+.role-archive-list { display: grid; gap: 10px; padding: 14px; }
+
+@media (min-width: 700px) {
+  .assignment-card-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .crew-visual-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .assignment-card-metrics { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+
+@media (min-width: 1180px) {
+  .assignment-card-list { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+@media (max-width: 540px) {
+  .content { padding: 12px; }
+  .card-header, .assignment-card-top, .assignment-card-footer { flex-direction: column; align-items: stretch; }
+  .assignment-card { padding: 12px; border-left-width: 8px; }
+  .assignment-card-metrics { grid-template-columns: 1fr; }
+  .crew-avatar { width: 42px; height: 42px; }
+  .btn { width: 100%; }
+  .topbar-actions .btn { width: auto; }
+  .role-pill { max-width: 96px; }
+}
