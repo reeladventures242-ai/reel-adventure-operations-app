@@ -1,10 +1,10 @@
 const STORE_KEY = 'rat_ops_v1_store';
-const STORE_VERSION = 5;
+const STORE_VERSION = 6;
 
 const navItems = [
   ['dashboard', '🏠', 'Dashboard'], ['bookings', '📘', 'Bookings'], ['invoices', '🧾', 'Invoices'],
-  ['trips', '🧭', 'Trips'], ['vessels', '⛵', 'Vessels'], ['crew', '👥', 'Crew'],
-  ['payroll', '💸', 'Payroll'], ['expenses', '💳', 'Expenses'], ['inventory', '📦', 'Inventory'],
+  ['trips', '🧭', 'Trips'], ['captain-dashboard', '🧢', 'Captain Dashboard'], ['mate-dashboard', '⚓', 'Mate Dashboard'], ['owner-dashboard', '👑', 'Owner Dashboard'], ['vessels', '⛵', 'Vessels'], ['crew', '👥', 'Crew'],
+  ['payroll', '💸', 'Payroll'], ['expenses', '💳', 'Expenses'], ['inventory', '📦', 'Inventory'], ['incident-reports', '🚨', 'Incident Reports'],
   ['pre-trip-checklist', '✅', 'Pre Trip Checklist'], ['post-trip-checklist', '🧽', 'Post Trip Checklist'],
   ['cruise-schedule', '🚢', 'Cruise Schedule'], ['reports', '📊', 'Reports'],
   ['notifications', '🔔', 'Notifications'], ['audit', '🧾', 'Audit Trail'], ['settings', '⚙️', 'Settings']
@@ -78,7 +78,10 @@ const seedData = {
   trips: [],
   payrollPayments: [],
   notifications: [],
-  auditTrail: []
+  auditTrail: [],
+  expenses: [],
+  incidentReports: [],
+  checklistRecords: []
 };
 
 const crudConfig = {
@@ -89,8 +92,8 @@ const crudConfig = {
   },
   trips: {
     title: 'Trips', eyebrow: 'Daily operations', summary: 'Create trips, assign vessels and crew, detect assignment conflicts, and calculate separated owner/captain/mate payroll.', collection: 'trips', addLabel: 'Create trip',
-    fields: [['customer','Customer name','text'], ['phone','Phone number','tel'], ['email','Email','email'], ['bookingSource','Booking source','select:bookingSources'], ['tripDate','Date','date'], ['startTime','Time','time'], ['passengers','Guest count','number'], ['hours','Hours','number'], ['tourPrice','Tour price','number'], ['depositPaid','Deposit paid','number'], ['balanceDue','Balance due','number'], ['vessel','Assigned vessel','select:vessels'], ['captain','Assigned captain','select:crew'], ['mate','Assigned mate','select:crewOptional'], ['status','Trip status','select:tripStatus'], ['notes','Notes','textarea']],
-    columns: [['tripDate','Date'], ['startTime','Time'], ['customer','Customer'], ['passengers','Guests'], ['bookingSource','Source'], ['tourPrice','Price'], ['depositPaid','Deposit'], ['balanceDue','Balance'], ['vessel','Vessel'], ['captain','Captain'], ['mate','Mate'], ['status','Status']]
+    fields: [['customer','Customer name','text'], ['phone','Phone number','tel'], ['email','Email','email'], ['bookingSource','Booking source','select:bookingSources'], ['tripDate','Date','date'], ['startTime','Time','time'], ['passengers','Guest count','number'], ['hours','Hours','number'], ['tourPrice','Tour price','number'], ['depositPaid','Deposit paid','number'], ['balanceDue','Balance due','number'], ['vessel','Assigned vessel','select:vessels'], ['captain','Assigned captain','select:crew'], ['mate','Assigned mate','select:crewOptional'], ['status','Trip status','select:tripStatus'], ['passengerManifest','Passenger manifest (one passenger per line)','textarea'], ['notes','Notes','textarea']],
+    columns: [['tripDate','Date'], ['startTime','Time'], ['customer','Customer'], ['passengers','Guests'], ['bookingSource','Source'], ['tourPrice','Price'], ['depositPaid','Deposit'], ['balanceDue','Balance'], ['vessel','Vessel'], ['captain','Captain'], ['mate','Mate'], ['status','Status'], ['passengerManifest','Manifest']]
   },
   crew: {
     title: 'Crew', eyebrow: 'Simple CRUD', summary: 'Maintain the seeded crew roster, roles, and active status in the new app data layer.', collection: 'crew', addLabel: 'Add crew',
@@ -99,8 +102,18 @@ const crudConfig = {
   },
   vessels: {
     title: 'Vessels', eyebrow: 'Simple CRUD', summary: 'Manage boats and owner payout defaults from the documented legacy payout rules.', collection: 'vessels', addLabel: 'Add vessel',
-    fields: [['name','Vessel name','text'], ['model','Model','text'], ['owner','Owner','select:owners'], ['capacity','Capacity','number'], ['status','Status','text'], ['notes','Notes','textarea']],
-    columns: [['name','Vessel'], ['model','Model'], ['owner','Owner'], ['capacity','Capacity'], ['status','Status'], ['notes','Notes']]
+    fields: [['name','Vessel name','text'], ['model','Model','text'], ['owner','Owner','select:owners'], ['capacity','Capacity','number'], ['status','Status','text'], ['readinessStatus','Readiness status','select:vesselReadiness'], ['notes','Notes','textarea']],
+    columns: [['name','Vessel'], ['model','Model'], ['owner','Owner'], ['capacity','Capacity'], ['status','Status'], ['readinessStatus','Readiness'], ['notes','Notes']]
+  },
+  expenses: {
+    title: 'Expenses', eyebrow: 'Operations costs', summary: 'Capture operating expenses, receipt/photo notes, and vessel cost alerts while the legacy operations app remains available.', collection: 'expenses', addLabel: 'Add expense',
+    fields: [['date','Expense date','date'], ['vessel','Vessel','select:vessels'], ['category','Category','select:expenseCategories'], ['amount','Amount','number'], ['paidBy','Paid by','select:crew'], ['status','Status','select:expenseStatus'], ['receiptPhotos','Receipt/photo notes','textarea'], ['notes','Notes','textarea']],
+    columns: [['date','Date'], ['vessel','Vessel'], ['category','Category'], ['amount','Amount'], ['paidBy','Paid by'], ['status','Status']]
+  },
+  'incident-reports': {
+    title: 'Incident Reports', eyebrow: 'Safety and operations', summary: 'Document guest, vessel, weather, injury, and equipment incidents for operational follow-up.', collection: 'incidentReports', addLabel: 'Add incident',
+    fields: [['date','Incident date','date'], ['tripId','Related trip','select:trips'], ['vessel','Vessel','select:vessels'], ['reportedBy','Reported by','select:crew'], ['severity','Severity','select:incidentSeverity'], ['category','Category','select:incidentCategories'], ['status','Status','select:incidentStatus'], ['description','Description','textarea'], ['actionsTaken','Actions taken','textarea'], ['photos','Photo notes','textarea']],
+    columns: [['date','Date'], ['vessel','Vessel'], ['reportedBy','Reported by'], ['severity','Severity'], ['category','Category'], ['status','Status']]
   }
 };
 
@@ -131,19 +144,56 @@ function seedStore(existing = {}) {
 function migrateStore(existing = {}) {
   const next = { ...structuredClone(seedData), ...existing, version: STORE_VERSION, updatedAt: existing.updatedAt || new Date().toISOString() };
   next.payrollPayments = Array.isArray(next.payrollPayments) ? next.payrollPayments : [];
-  next.notifications = Array.isArray(next.notifications) ? next.notifications : [];
+  next.notifications = (Array.isArray(next.notifications) ? next.notifications : []).map(normalizeNotification);
   next.auditTrail = Array.isArray(next.auditTrail) ? next.auditTrail : [];
-  next.trips = (Array.isArray(next.trips) ? next.trips : []).map((trip) => ({
+  next.expenses = Array.isArray(next.expenses) ? next.expenses : [];
+  next.incidentReports = Array.isArray(next.incidentReports) ? next.incidentReports : [];
+  next.checklistRecords = Array.isArray(next.checklistRecords) ? next.checklistRecords : [];
+  next.vessels = (Array.isArray(next.vessels) ? next.vessels : []).map((vessel) => ({ ...vessel, readinessStatus: vessel.readinessStatus || vessel.status || 'Operational' }));
+  next.trips = (Array.isArray(next.trips) ? next.trips : []).map((trip) => normalizeTrip(trip));
+  localStorage.setItem(STORE_KEY, JSON.stringify(next));
+  return next;
+}
+
+
+function normalizeNotification(notice = {}) {
+  return {
+    ...notice,
+    level: notice.level || 'info',
+    read: Boolean(notice.read),
+    recipientRole: notice.recipientRole || notice.metadata?.recipientRole || 'All',
+    recipientName: notice.recipientName || notice.metadata?.recipientName || '',
+    category: notice.category || notice.metadata?.category || 'General'
+  };
+}
+
+function normalizeTrip(trip = {}) {
+  const next = {
     ...trip,
     bookingSource: trip.bookingSource || trip.source || '',
     depositPaid: Number(trip.depositPaid || 0),
     balanceDue: Number(trip.balanceDue ?? trip.balance ?? 0),
     passengers: Number(trip.passengers ?? trip.guests ?? 0),
     hours: Number(trip.hours || 4),
-    status: trip.status || 'Scheduled'
-  }));
-  localStorage.setItem(STORE_KEY, JSON.stringify(next));
+    status: trip.status || 'Scheduled',
+    passengerManifest: trip.passengerManifest || '',
+    captainNotes: trip.captainNotes || '',
+    mateNotes: trip.mateNotes || '',
+    captainPhotos: Array.isArray(trip.captainPhotos) ? trip.captainPhotos : [],
+    preTripChecklistStatus: trip.preTripChecklistStatus || 'Not Started',
+    postTripChecklistStatus: trip.postTripChecklistStatus || 'Not Started'
+  };
+  next.assignmentStatus = normalizeAssignmentStatus(next);
+  next.dispatchReadinessStatus = trip.dispatchReadinessStatus || 'Needs Review';
   return next;
+}
+
+function normalizeAssignmentStatus(trip = {}) {
+  const existing = trip.assignmentStatus || {};
+  return {
+    captain: trip.captain ? existing.captain || 'Assigned' : 'Unassigned',
+    mate: trip.mate && trip.mate !== 'None' ? existing.mate || 'Assigned' : 'Unassigned'
+  };
 }
 
 function saveStore() {
@@ -165,9 +215,9 @@ function addAudit(action, area, detail, metadata = {}) {
   store.auditTrail = store.auditTrail.slice(0, 250);
 }
 
-function addNotification(title, message, level = 'info', metadata = {}) {
+function addNotification(title, message, level = 'info', metadata = {}, recipientRole = metadata.recipientRole || 'All', recipientName = metadata.recipientName || '', category = metadata.category || 'General') {
   store.notifications = Array.isArray(store.notifications) ? store.notifications : [];
-  store.notifications.unshift({ id: makeId('notice'), at: new Date().toISOString(), title, message, level, read: false, metadata });
+  store.notifications.unshift({ id: makeId('notice'), at: new Date().toISOString(), title, message, level, read: false, recipientRole, recipientName, category, metadata });
   store.notifications = store.notifications.slice(0, 100);
 }
 
@@ -188,7 +238,14 @@ function getOptions(kind) {
     owners: [...new Set([...store.vessels.map((v) => v.owner), ...store.vesselOwnerPayoutRates.map((r) => r.owner)])].filter(Boolean),
     vessels: store.vessels.map((v) => v.name),
     crew: store.crew.filter((c) => c.active !== 'No').map((c) => c.name),
-    crewOptional: ['None', ...store.crew.filter((c) => c.active !== 'No').map((c) => c.name)]
+    crewOptional: ['None', ...store.crew.filter((c) => c.active !== 'No').map((c) => c.name)],
+    vesselReadiness: ['Operational', 'Needs Review', 'Out of Service', 'Maintenance Hold'],
+    expenseCategories: ['Fuel', 'Ice', 'Supplies', 'Maintenance', 'Dockage', 'Reimbursement', 'Other'],
+    expenseStatus: ['Submitted', 'Approved', 'Paid', 'Needs Review'],
+    incidentSeverity: ['Low', 'Medium', 'High', 'Critical'],
+    incidentCategories: ['Guest', 'Crew', 'Vessel', 'Weather', 'Injury', 'Equipment', 'Other'],
+    incidentStatus: ['Open', 'Needs Review', 'Resolved'],
+    trips: store.trips.map((t) => `${t.id}|${formatDate(t.tripDate)} ${t.startTime || ''} ${t.customer || 'Trip'}`)
   };
   return maps[kind] || [];
 }
@@ -225,6 +282,8 @@ function wireEvents() {
     if (event.target.closest('[data-export-store]')) exportStoreData();
     if (event.target.closest('[data-reset-store]')) { addAudit('reset', 'Settings', 'Reset local data to seed defaults.'); localStorage.removeItem(STORE_KEY); store = seedStore({ auditTrail: store.auditTrail, notifications: store.notifications }); renderRoute(currentRoute); toast('Seed data restored.'); }
     if (event.target.closest('[data-mark-notices-read]')) markNotificationsRead();
+    const markNotice = event.target.closest('[data-mark-notice-read]');
+    if (markNotice) markNotificationRead(markNotice.dataset.markNoticeRead);
   });
   document.body.addEventListener('change', (event) => {
     if (event.target.matches('[data-import-store]')) importStoreData(event.target.files[0]);
@@ -260,6 +319,11 @@ function renderRoute(route) {
   if (crudConfig[route]) renderCrud(route);
   else if (route === 'dashboard') renderDashboard();
   else if (route === 'payroll') renderPayroll();
+  else if (route === 'captain-dashboard') renderCrewRoleDashboard('captain');
+  else if (route === 'mate-dashboard') renderCrewRoleDashboard('mate');
+  else if (route === 'owner-dashboard') renderOwnerDashboard();
+  else if (route === 'pre-trip-checklist') renderChecklistPage('Pre Trip');
+  else if (route === 'post-trip-checklist') renderChecklistPage('Post Trip');
   else if (route === 'notifications') renderNotifications();
   else if (route === 'audit') renderAuditTrail();
   else if (route === 'legacy') renderLegacy();
@@ -296,6 +360,93 @@ function renderDashboard() {
 }
 function kpi(label, value, sub) { return `<div class="card kpi"><div class="kpi-label">${label}</div><div class="kpi-value">${value}</div><div class="kpi-sub">${sub}</div></div>`; }
 
+function assignmentStatusBadge(status) {
+  const color = status === 'Accepted' || status === 'Completed' ? 'green' : status === 'Declined' ? 'red' : status === 'Notified' ? 'gold' : 'blue';
+  return `<span class="badge ${color}">${escapeHtml(status || 'Assigned')}</span>`;
+}
+
+function addRoleNotification(recipientRole, recipientName, title, message, level = 'info', category = 'General', metadata = {}) {
+  addNotification(title, message, level, { ...metadata, recipientRole, recipientName, category }, recipientRole, recipientName, category);
+}
+
+function ownerForVesselName(vesselName) {
+  return store.vessels.find((vessel) => vessel.name === vesselName)?.owner || '';
+}
+
+function notifyAssignment(tripId, role) {
+  updateAssignmentStatus(tripId, role, 'Notified');
+}
+function acceptAssignment(tripId, role) {
+  updateAssignmentStatus(tripId, role, 'Accepted');
+}
+function declineAssignment(tripId, role) {
+  updateAssignmentStatus(tripId, role, 'Declined');
+}
+function completeAssignment(tripId, role) {
+  updateAssignmentStatus(tripId, role, 'Completed');
+}
+
+function updateAssignmentStatus(tripId, role, status) {
+  const trip = store.trips.find((item) => item.id === tripId);
+  if (!trip) return;
+  trip.assignmentStatus = normalizeAssignmentStatus(trip);
+  trip.assignmentStatus[role] = status;
+  if (status === 'Completed' && role === 'captain') trip.status = trip.status === 'Scheduled' ? 'Completed' : trip.status;
+  const person = trip[role] || role;
+  const label = `${role === 'captain' ? 'Captain' : 'Mate'} assignment ${status}`;
+  addAudit('updated', 'Assignments', `${label} for ${person} on ${trip.customer || 'trip'}.`, { tripId, role, status });
+  addRoleNotification(role === 'captain' ? 'Captain' : 'Mate', person, label, `${trip.customer || 'A trip'} is now ${status.toLowerCase()} for ${formatDate(trip.tripDate)}.`, status === 'Declined' ? 'critical' : 'info', 'Assignment', { tripId, role, status });
+  if (status === 'Declined') addRoleNotification('Operations', '', 'Assignment declined', `${person} declined ${trip.customer || 'a trip'} on ${formatDate(trip.tripDate)}.`, 'critical', 'Assignment', { tripId, role });
+  saveStore();
+  renderRoute(currentRoute);
+  toast(`${label}.`);
+}
+
+function renderCrewRoleDashboard(role) {
+  const route = `${role}-dashboard`;
+  const page = document.getElementById(`page-${route}`);
+  const roleLabel = role === 'captain' ? 'Captain' : 'Mate';
+  const selected = page.querySelector('[data-role-person]')?.value || getOptions('crew')[0] || '';
+  const trips = store.trips.filter((trip) => trip[role] === selected && trip.status !== 'Cancelled').sort(byDate);
+  page.innerHTML = `<div class="page-stack"><div class="section-heading"><div><p class="eyebrow">Phase 4 crew portal</p><h1>${roleLabel} Dashboard</h1><p class="section-summary">Review upcoming assigned trips, accept or decline work, and submit operational notes${role === 'captain' ? ' and photos' : ''}.</p></div><select data-role-person onchange="renderCrewRoleDashboard('${role}')">${getOptions('crew').map((name) => `<option value="${escapeHtml(name)}" ${name === selected ? 'selected' : ''}>${escapeHtml(name)}</option>`).join('')}</select></div><div class="role-trip-list">${trips.length ? trips.map((trip) => renderRoleTripCard(trip, role)).join('') : '<div class="card card-pad empty-state">No upcoming assignments for this crew member.</div>'}</div></div>`;
+}
+
+function renderRoleTripCard(trip, role) {
+  const roleLabel = role === 'captain' ? 'Captain' : 'Mate';
+  const notesKey = role === 'captain' ? 'captainNotes' : 'mateNotes';
+  const status = normalizeAssignmentStatus(trip)[role];
+  return `<div class="card role-trip-card"><div class="card-header"><div><h3>${escapeHtml(trip.customer || 'Trip')}</h3><p>${escapeHtml(formatDate(trip.tripDate))} · ${escapeHtml(formatTime(trip.startTime))} · ${escapeHtml(trip.vessel || 'No vessel')}</p></div>${assignmentStatusBadge(status)}</div><div class="assignment-actions"><button class="btn btn-primary btn-small" onclick="acceptAssignment('${trip.id}','${role}')">Accept Assignment</button><button class="btn btn-danger btn-small" onclick="declineAssignment('${trip.id}','${role}')">Decline Assignment</button><button class="btn btn-outline btn-small" onclick="completeAssignment('${trip.id}','${role}')">Mark Completed</button></div><div class="field"><label>${roleLabel} notes</label><textarea data-trip-notes="${trip.id}" data-note-role="${role}">${escapeHtml(trip[notesKey] || '')}</textarea></div><div class="form-actions"><button class="btn btn-outline btn-small" onclick="saveCrewTripNotes('${trip.id}','${role}')">Submit Notes</button>${role === 'captain' ? `<label class="btn btn-outline btn-small">Upload Photos<input type="file" accept="image/*" multiple hidden onchange="saveCaptainPhotos('${trip.id}', this.files)"></label>` : ''}</div>${role === 'captain' ? renderPhotoList(trip.captainPhotos) : ''}</div>`;
+}
+
+function saveCrewTripNotes(tripId, role) {
+  const trip = store.trips.find((item) => item.id === tripId);
+  const field = document.querySelector(`[data-trip-notes="${tripId}"][data-note-role="${role}"]`);
+  if (!trip || !field) return;
+  const key = role === 'captain' ? 'captainNotes' : 'mateNotes';
+  trip[key] = field.value;
+  addAudit('updated', `${role === 'captain' ? 'Captain' : 'Mate'} Dashboard`, `Submitted notes for ${trip.customer || 'trip'}.`, { tripId });
+  addRoleNotification('Operations', '', 'Crew notes submitted', `${trip[role] || role} submitted notes for ${trip.customer || 'a trip'}.`, 'info', 'Assignment', { tripId, role });
+  saveStore();
+  toast('Notes saved.');
+}
+
+function saveCaptainPhotos(tripId, files) {
+  const trip = store.trips.find((item) => item.id === tripId);
+  if (!trip || !files?.length) return;
+  trip.captainPhotos = Array.isArray(trip.captainPhotos) ? trip.captainPhotos : [];
+  Array.from(files).forEach((file) => trip.captainPhotos.push({ name: file.name, size: file.size, addedAt: new Date().toISOString() }));
+  addAudit('uploaded', 'Captain Dashboard', `Added ${files.length} captain photo record(s) for ${trip.customer || 'trip'}.`, { tripId });
+  addRoleNotification('Operations', '', 'Captain photos uploaded', `${trip.captain || 'Captain'} added ${files.length} photo record(s) for ${trip.customer || 'a trip'}.`, 'info', 'Trip Completion', { tripId });
+  saveStore();
+  renderCrewRoleDashboard('captain');
+  toast('Photo records saved locally.');
+}
+
+function renderPhotoList(photos = []) {
+  return photos.length ? `<div class="photo-list">${photos.map((photo) => `<span class="badge blue">📷 ${escapeHtml(photo.name)}</span>`).join('')}</div>` : '<p class="muted-text">No photo records uploaded yet.</p>';
+}
+
+
 function renderCrud(route) {
   const config = crudConfig[route];
   const page = document.getElementById(`page-${route}`);
@@ -309,10 +460,12 @@ function renderCrud(route) {
   template.querySelector('thead').innerHTML = `<tr>${config.columns.map(([, label]) => `<th>${label}</th>`).join('')}<th>Actions</th></tr>`;
   page.innerHTML = '';
   page.appendChild(template);
+  if (route === 'expenses') page.querySelector('.section-heading').insertAdjacentHTML('beforeend', '<button class="btn btn-outline" data-route="legacy" data-embed-legacy="ReelAdventureTours_App_v5.html">Open legacy expenses</button>');
   page.querySelector('.search-input').addEventListener('input', () => renderTable(route));
   renderForm(route);
   if (route === 'trips') renderAssignmentBoard();
   if (route === 'crew') renderCrewDashboard();
+  if (route === 'vessels') renderVesselReadinessPanel();
   renderTable(route);
 }
 
@@ -331,7 +484,7 @@ function renderForm(route, record = {}) {
 }
 
 function voiceFillButton(route) {
-  if (!['bookings', 'trips'].includes(route)) return '';
+  if (!['bookings', 'trips', 'expenses', 'pre-trip-checklist', 'post-trip-checklist', 'incident-reports'].includes(route)) return '';
   return '<button class="btn btn-outline" type="button" data-voice-fill>🎙️ Voice fill</button>';
 }
 
@@ -376,16 +529,39 @@ function saveRecord(event, route) {
       return;
     }
     data.status = data.status || 'Scheduled';
+    const previous = editing[route] ? store.trips.find((trip) => trip.id === editing[route]) : null;
+    data.assignmentStatus = normalizeAssignmentStatus({ ...previous, ...data });
+    data.preTripChecklistStatus = previous?.preTripChecklistStatus || data.preTripChecklistStatus || 'Not Started';
+    data.postTripChecklistStatus = previous?.postTripChecklistStatus || data.postTripChecklistStatus || 'Not Started';
+    data.dispatchReadinessStatus = calculateDispatchReadiness({ ...previous, ...data });
     data.payroll = calculateTripPayroll(data);
   }
   const action = editing[route] ? 'updated' : 'created';
+  const savedId = editing[route] || makeId(config.collection);
+  data.id = savedId;
   if (editing[route]) {
     store[config.collection] = store[config.collection].map((item) => item.id === editing[route] ? { ...item, ...data } : item);
   } else {
-    store[config.collection].push({ id: makeId(config.collection), ...data });
+    store[config.collection].push({ ...data });
   }
   addAudit(action, config.title, `${config.title.slice(0, -1)} ${summarizeRecord(data)} ${action}.`, { route });
-  if (route === 'trips') addNotification('Trip saved', `${data.customer || 'A trip'} is ${data.status || 'Scheduled'} for ${formatDate(data.tripDate)}.`, 'success', { route });
+  if (route === 'trips') {
+    addNotification('Trip saved', `${data.customer || 'A trip'} is ${data.status || 'Scheduled'} for ${formatDate(data.tripDate)}.`, 'success', { route, category: 'Assignment' });
+    if (data.captain) addRoleNotification('Captain', data.captain, 'New captain assignment', `${data.customer || 'A trip'} is assigned for ${formatDate(data.tripDate)}.`, 'info', 'Assignment', { route, tripId: savedId });
+    if (data.mate && data.mate !== 'None') addRoleNotification('Mate', data.mate, 'New mate assignment', `${data.customer || 'A trip'} is assigned for ${formatDate(data.tripDate)}.`, 'info', 'Assignment', { route, tripId: savedId });
+    const owner = ownerForVesselName(data.vessel);
+    if (owner) addRoleNotification('Owner', owner, 'Owner assignment alert', `${data.vessel} is assigned to ${data.customer || 'a trip'} on ${formatDate(data.tripDate)}.`, 'info', 'Assignment', { route, tripId: savedId, vessel: data.vessel });
+  }
+  if (route === 'expenses') {
+    addRoleNotification('Operations', '', 'Expense alert', `${data.category || 'Expense'} ${money(data.amount)} was saved for ${data.vessel || 'operations'}.`, 'warning', 'Expense', { route, vessel: data.vessel });
+    const owner = ownerForVesselName(data.vessel);
+    if (owner) addRoleNotification('Owner', owner, 'Expense alert', `${data.category || 'Expense'} ${money(data.amount)} was saved for ${data.vessel}.`, 'warning', 'Expense', { route, vessel: data.vessel });
+  }
+  if (route === 'incident-reports') {
+    addRoleNotification('Operations', '', 'Incident alert', `${data.severity || 'Incident'} report saved for ${data.vessel || 'operations'}.`, data.severity === 'Critical' ? 'critical' : 'warning', 'Incident', { route, vessel: data.vessel });
+    const owner = ownerForVesselName(data.vessel);
+    if (owner) addRoleNotification('Owner', owner, 'Incident alert', `${data.severity || 'Incident'} report saved for ${data.vessel}.`, data.severity === 'Critical' ? 'critical' : 'warning', 'Incident', { route, vessel: data.vessel });
+  }
   editing[route] = null;
   saveStore();
   renderCrud(route);
@@ -402,6 +578,7 @@ function deleteRecord(route, id) {
   saveStore();
   if (route === 'trips') renderAssignmentBoard();
   if (route === 'crew') renderCrewDashboard();
+  if (route === 'vessels') renderVesselReadinessPanel();
   renderTable(route);
   toast(`${config.title.slice(0, -1)} deleted locally.`);
 }
@@ -415,8 +592,9 @@ function renderTable(route) {
   tbody.innerHTML = rows.length ? rows.map((item) => `<tr>${config.columns.map(([key]) => `<td>${formatCell(key, item[key])}</td>`).join('')}<td><div class="row-actions"><button class="btn btn-outline btn-small" onclick="showForm('${route}','${item.id}')">Edit</button><button class="btn btn-danger btn-small" onclick="deleteRecord('${route}','${item.id}')">Delete</button></div></td></tr>`).join('') : `<tr><td colspan="${config.columns.length + 1}" class="empty-state">No records found.</td></tr>`;
 }
 function formatCell(key, value) {
-  if (['balance', 'tourPrice', 'depositPaid', 'balanceDue', 'defaultPayout'].includes(key)) return value === '' || value == null ? '—' : money(value);
-  if (key === 'status') return `<span class="badge blue">${escapeHtml(value || '—')}</span>`;
+  if (['balance', 'tourPrice', 'depositPaid', 'balanceDue', 'defaultPayout', 'amount'].includes(key)) return value === '' || value == null ? '—' : money(value);
+  if (key === 'passengerManifest') return passengerManifestSummary(value);
+  if (key === 'status' || key === 'readinessStatus') return `<span class="badge blue">${escapeHtml(value || '—')}</span>`;
   if (key === 'active') return `<span class="badge ${value === 'Yes' ? 'green' : 'red'}">${escapeHtml(value || '—')}</span>`;
   return escapeHtml(value || '—');
 }
@@ -509,6 +687,40 @@ function updateTripConflictPreview(form) {
   }
 }
 
+
+function passengerManifestSummary(value) {
+  const count = String(value || '').split(/\n|,/).map((item) => item.trim()).filter(Boolean).length;
+  return count ? `${count} passenger${count === 1 ? '' : 's'}` : '—';
+}
+
+function vesselForTrip(trip) {
+  return store.vessels.find((vessel) => vessel.name === trip.vessel);
+}
+
+function latestChecklistStatus(trip, type) {
+  const record = (store.checklistRecords || []).filter((item) => item.tripId === trip.id && item.type === type).sort((a, b) => String(b.submittedAt || '').localeCompare(String(a.submittedAt || '')))[0];
+  return record?.status || trip[type === 'Pre Trip' ? 'preTripChecklistStatus' : 'postTripChecklistStatus'] || 'Not Started';
+}
+
+function calculateDispatchReadiness(trip) {
+  const assignment = normalizeAssignmentStatus(trip);
+  const conflicts = trip.id ? findTripConflicts(trip, trip.id) : [];
+  const vessel = vesselForTrip(trip);
+  if (!trip.vessel || !trip.captain || !trip.mate || trip.mate === 'None' || !trip.tripDate || !trip.startTime) return 'Not Ready';
+  if (assignment.captain === 'Declined' || assignment.mate === 'Declined') return 'Not Ready';
+  if (conflicts.length) return 'Not Ready';
+  if (vessel && !['', 'Operational'].includes(vessel.readinessStatus || vessel.status || '')) return 'Needs Review';
+  if (latestChecklistStatus(trip, 'Pre Trip') !== 'Completed') return 'Needs Review';
+  if (!['Accepted', 'Completed'].includes(assignment.captain) || !['Accepted', 'Completed'].includes(assignment.mate)) return 'Needs Review';
+  if (trip.status === 'Completed' && latestChecklistStatus(trip, 'Post Trip') === 'Completed') return 'Completed';
+  return 'Ready';
+}
+
+function readinessBadge(status) {
+  const color = status === 'Ready' || status === 'Completed' ? 'green' : status === 'Not Ready' ? 'red' : 'gold';
+  return `<span class="badge ${color}">${escapeHtml(status || 'Needs Review')}</span>`;
+}
+
 function renderAssignmentBoard() {
   const page = document.getElementById('page-trips');
   if (!page) return;
@@ -532,7 +744,12 @@ function renderAssignmentBucket(bucket, trips) {
 
 function renderAssignmentTrip(trip) {
   const payroll = trip.payroll || calculateTripPayroll(trip);
-  return `<div class="assignment-item"><div><strong>${escapeHtml(trip.customer || 'Unassigned customer')}</strong><span>${escapeHtml(formatDate(trip.tripDate))} · ${escapeHtml(formatTime(trip.startTime))} · ${Number(trip.hours || 4)} hrs</span><span>${escapeHtml(trip.bookingSource || 'No source')} · ${Number(trip.passengers || 0)} guests · Status: ${escapeHtml(trip.status || 'Scheduled')}</span><span>Phone: ${escapeHtml(trip.phone || '—')} · Email: ${escapeHtml(trip.email || '—')}</span><span>${trip.notes ? `Notes: ${escapeHtml(trip.notes)}` : ''}</span></div><div class="assignment-detail-grid"><span class="badge blue">${escapeHtml(trip.vessel || 'No vessel')}</span><span class="badge green">Captain: ${escapeHtml(trip.captain || 'Unassigned')}</span><span class="badge gold">Mate: ${escapeHtml(trip.mate || 'None')}</span><span>Tour: <strong>${money(trip.tourPrice)}</strong></span><span>Deposit: <strong>${money(trip.depositPaid)}</strong></span><span>Balance: <strong>${money(trip.balanceDue)}</strong></span><span>Payroll: ${payroll.map((entry) => `${escapeHtml(entry.role)} ${money(entry.amount)}`).join(' · ')}</span></div></div>`;
+  const assignment = normalizeAssignmentStatus(trip);
+  const readiness = calculateDispatchReadiness(trip);
+  const preStatus = latestChecklistStatus(trip, 'Pre Trip');
+  const postStatus = latestChecklistStatus(trip, 'Post Trip');
+  const manifest = passengerManifestSummary(trip.passengerManifest);
+  return `<div class="assignment-item"><div><strong>${escapeHtml(trip.customer || 'Unassigned customer')}</strong><span>${escapeHtml(formatDate(trip.tripDate))} · ${escapeHtml(formatTime(trip.startTime))} · ${Number(trip.hours || 4)} hrs</span><span>${escapeHtml(trip.bookingSource || 'No source')} · ${Number(trip.passengers || 0)} guests · Manifest: ${escapeHtml(manifest)} · Status: ${escapeHtml(trip.status || 'Scheduled')}</span><span>Phone: ${escapeHtml(trip.phone || '—')} · Email: ${escapeHtml(trip.email || '—')}</span><span>${trip.notes ? `Notes: ${escapeHtml(trip.notes)}` : ''}</span><div class="assignment-actions"><button class="btn btn-outline btn-small" onclick="notifyAssignment('${trip.id}','captain')">Notify Captain</button><button class="btn btn-outline btn-small" onclick="notifyAssignment('${trip.id}','mate')">Notify Mate</button><button class="btn btn-primary btn-small" onclick="completeAssignment('${trip.id}','captain');completeAssignment('${trip.id}','mate')">Mark Crew Completed</button></div></div><div class="assignment-detail-grid"><span class="badge blue">${escapeHtml(trip.vessel || 'No vessel')}</span><span>Dispatch: ${readinessBadge(readiness)}</span><span>Pre Trip: ${readinessBadge(preStatus)}</span><span>Post Trip: ${readinessBadge(postStatus)}</span><span>Captain: ${escapeHtml(trip.captain || 'Unassigned')} ${assignmentStatusBadge(assignment.captain)}</span><span>Mate: ${escapeHtml(trip.mate || 'None')} ${assignmentStatusBadge(assignment.mate)}</span><span>Tour: <strong>${money(trip.tourPrice)}</strong></span><span>Deposit: <strong>${money(trip.depositPaid)}</strong></span><span>Balance: <strong>${money(trip.balanceDue)}</strong></span><span>Payroll: ${payroll.map((entry) => `${escapeHtml(entry.role)} ${money(entry.amount)}`).join(' · ')}</span></div></div>`;
 }
 
 
@@ -609,7 +826,8 @@ function savePayrollPayment(event, entryKey) {
   const entry = payrollEntries().find((item) => item.key === entryKey);
   store.payrollPayments.push({ id: makeId('payroll-payment'), entryKey, amountPaid: Number(data.amountPaid || 0), datePaid: data.datePaid, paymentMethod: data.paymentMethod, paymentNotes: data.paymentNotes });
   addAudit('created', 'Payroll', `Recorded ${money(data.amountPaid)} payroll payment for ${entry?.person || 'crew'}.`, { entryKey });
-  addNotification('Payroll payment recorded', `${money(data.amountPaid)} saved for ${entry?.person || 'crew'}.`, 'success', { entryKey });
+  addNotification('Payroll payment recorded', `${money(data.amountPaid)} saved for ${entry?.person || 'crew'}.`, 'success', { entryKey, category: 'Payroll' });
+  if (entry?.role === 'Owner') addRoleNotification('Owner', entry.person, 'Payroll alert', `${money(data.amountPaid)} owner payment recorded.`, 'success', 'Payroll', { entryKey, vessel: entry.vessel });
   saveStore();
   renderPayroll();
   toast('Payroll payment saved.');
@@ -682,17 +900,32 @@ function startVoiceFill(button) {
 }
 
 function applyVoiceTranscript(form, transcript) {
-  const notes = form.elements.notes;
+  const notes = form.elements.notes || form.elements.description || form.elements.actionsTaken;
   if (notes) notes.value = [notes.value, transcript].filter(Boolean).join(notes.value ? '\n' : '');
   const customerMatch = transcript.match(/customer\s+([^,.]+)/i);
   if (customerMatch && form.elements.customer) form.elements.customer.value = customerMatch[1].trim();
   const guestsMatch = transcript.match(/(?:guests|passengers)\s+(\d+)/i);
   if (guestsMatch && form.elements.passengers) form.elements.passengers.value = guestsMatch[1];
   if (guestsMatch && form.elements.guests) form.elements.guests.value = guestsMatch[1];
+  const amountMatch = transcript.match(/(?:amount|cost|expense)\s+\$?(\d+(?:\.\d{1,2})?)/i);
+  if (amountMatch && form.elements.amount) form.elements.amount.value = amountMatch[1];
+  const vesselMatch = transcript.match(/vessel\s+([^,.]+)/i);
+  if (vesselMatch && form.elements.vessel) setSelectLikeValue(form.elements.vessel, vesselMatch[1].trim());
+  const captainMatch = transcript.match(/captain\s+([^,.]+)/i);
+  if (captainMatch && form.elements.captain) setSelectLikeValue(form.elements.captain, captainMatch[1].trim());
+  const mateMatch = transcript.match(/mate\s+([^,.]+)/i);
+  if (mateMatch && form.elements.mate) setSelectLikeValue(form.elements.mate, mateMatch[1].trim());
+  const severityMatch = transcript.match(/severity\s+(low|medium|high|critical)/i);
+  if (severityMatch && form.elements.severity) form.elements.severity.value = severityMatch[1][0].toUpperCase() + severityMatch[1].slice(1).toLowerCase();
   addAudit('voice-fill', currentRoute, `Voice fill captured notes for ${currentRoute}.`, { transcriptLength: transcript.length });
   saveStore();
-  updateTripConflictPreview(form);
-  toast('Voice fill added transcript to notes.');
+  if (currentRoute === 'trips') updateTripConflictPreview(form);
+  toast('Voice fill added transcript and field suggestions. Review before saving.');
+}
+
+function setSelectLikeValue(element, text) {
+  const match = Array.from(element.options || []).find((option) => option.textContent.toLowerCase().includes(text.toLowerCase()) || option.value.toLowerCase().includes(text.toLowerCase()));
+  if (match) element.value = match.value;
 }
 
 function exportStoreData() {
@@ -731,8 +964,24 @@ function importStoreData(file) {
 }
 
 function renderNotifications() {
+  const page = document.getElementById('page-notifications');
+  const selected = page.querySelector('[data-notice-filter]')?.value || 'All';
   const notices = store.notifications || [];
-  document.getElementById('page-notifications').innerHTML = `<div class="page-stack"><div class="section-heading"><div><p class="eyebrow">Operational alerts</p><h1>Notifications</h1><p class="section-summary">Local alerts are created for trip changes, assignment conflicts, payroll updates, export/import activity, and deletions.</p></div><button class="btn btn-outline" data-mark-notices-read>Mark all read</button></div><div class="card card-pad notice-list">${notices.length ? notices.map((notice) => `<div class="notice-item ${notice.read ? '' : 'unread'}"><span class="badge ${notice.level === 'critical' ? 'red' : notice.level === 'success' ? 'green' : 'gold'}">${escapeHtml(notice.level || 'info')}</span><div><strong>${escapeHtml(notice.title)}</strong><p>${escapeHtml(notice.message)}</p><small>${escapeHtml(new Date(notice.at).toLocaleString())}</small></div></div>`).join('') : '<p class="empty-state">No notifications yet.</p>'}</div></div>`;
+  const filtered = notices.filter((notice) => selected === 'All' || (selected === 'Unread' ? !notice.read : notice.recipientRole === selected || notice.category === selected));
+  const options = ['All', 'Unread', 'Owner', 'Captain', 'Mate', 'Operations', 'Assignment', 'Checklist', 'Expense', 'Incident', 'Payroll'];
+  page.innerHTML = `<div class="page-stack"><div class="section-heading"><div><p class="eyebrow">Operational alerts</p><h1>Notification Center</h1><p class="section-summary">Role-targeted owner, captain, mate, and operations alerts with read/unread status.</p></div><div class="notification-tools"><select data-notice-filter onchange="renderNotifications()">${options.map((option) => `<option value="${option}" ${option === selected ? 'selected' : ''}>${option}</option>`).join('')}</select><button class="btn btn-outline" data-mark-notices-read>Mark all read</button></div></div><div class="grid kpi-grid dashboard-kpis">${kpi('Owner alerts', unreadByRole('Owner'), 'Unread')}${kpi('Captain alerts', unreadByRole('Captain'), 'Unread')}${kpi('Mate alerts', unreadByRole('Mate'), 'Unread')}${kpi('Operations alerts', unreadByRole('Operations'), 'Unread')}</div><div class="card card-pad notice-list">${filtered.length ? filtered.map((notice) => `<div class="notice-item ${notice.read ? '' : 'unread'}"><span class="badge ${notice.level === 'critical' ? 'red' : notice.level === 'success' ? 'green' : notice.level === 'warning' ? 'gold' : 'blue'}">${escapeHtml(notice.category || notice.level || 'info')}</span><div><strong>${escapeHtml(notice.title)}</strong><p>${escapeHtml(notice.message)}</p><small>${escapeHtml([notice.recipientRole || 'All', notice.recipientName, new Date(notice.at).toLocaleString()].filter(Boolean).join(' · '))}</small></div><button class="btn btn-outline btn-small" data-mark-notice-read="${notice.id}">${notice.read ? 'Read' : 'Mark read'}</button></div>`).join('') : '<p class="empty-state">No notifications match this filter.</p>'}</div></div>`;
+}
+
+function unreadByRole(role) {
+  return (store.notifications || []).filter((notice) => !notice.read && notice.recipientRole === role).length;
+}
+
+function markNotificationRead(id) {
+  const notice = (store.notifications || []).find((item) => item.id === id);
+  if (notice) notice.read = true;
+  addAudit('updated', 'Notifications', `Marked notification ${id} as read.`);
+  saveStore();
+  renderNotifications();
 }
 
 function markNotificationsRead() {
@@ -746,6 +995,65 @@ function markNotificationsRead() {
 function renderAuditTrail() {
   const entries = store.auditTrail || [];
   document.getElementById('page-audit').innerHTML = `<div class="page-stack"><div class="section-heading"><div><p class="eyebrow">Change history</p><h1>Audit trail</h1><p class="section-summary">A local append-only history records creates, updates, deletes, payroll payments, conflict blocks, voice fill, and data transfers.</p></div></div><div class="card table-card"><div class="responsive-table-wrap"><table><thead><tr><th>Time</th><th>User</th><th>Area</th><th>Action</th><th>Detail</th></tr></thead><tbody>${entries.length ? entries.map((entry) => `<tr><td>${escapeHtml(new Date(entry.at).toLocaleString())}</td><td>${escapeHtml(entry.user)}</td><td>${escapeHtml(entry.area)}</td><td><span class="badge blue">${escapeHtml(entry.action)}</span></td><td>${escapeHtml(entry.detail)}</td></tr>`).join('') : '<tr><td colspan="5" class="empty-state">No audit events yet.</td></tr>'}</tbody></table></div></div></div>`;
+}
+
+
+function renderChecklistPage(type) {
+  const route = type === 'Pre Trip' ? 'pre-trip-checklist' : 'post-trip-checklist';
+  const page = document.getElementById(`page-${route}`);
+  const relatedLegacy = type === 'Pre Trip' ? 'RAT-PreTrip-VesselCheck.html' : 'RAT-PostTrip-VesselCheck.html';
+  const records = (store.checklistRecords || []).filter((record) => record.type === type).sort((a, b) => String(b.submittedAt || '').localeCompare(String(a.submittedAt || '')));
+  page.innerHTML = `<div class="page-stack"><div class="section-heading"><div><p class="eyebrow">Checklist integration</p><h1>${type} Checklist</h1><p class="section-summary">Track checklist status inside dispatch readiness while preserving the original legacy checklist tool.</p></div><button class="btn btn-primary" data-route="legacy" data-embed-legacy="${relatedLegacy}">Open legacy ${type.toLowerCase()} tool</button></div><form class="record-form card" onsubmit="saveChecklistRecord(event,'${type}')"><div class="form-grid"><div class="field"><label>Related trip</label><select name="tripId">${getOptions('trips').map((opt) => `<option value="${escapeHtml(opt.split('|')[0])}">${escapeHtml(opt.split('|').slice(1).join('|'))}</option>`).join('')}</select></div><div class="field"><label>Vessel</label><select name="vessel"><option value="">— Select —</option>${getOptions('vessels').map((vessel) => `<option value="${escapeHtml(vessel)}">${escapeHtml(vessel)}</option>`).join('')}</select></div><div class="field"><label>Submitted by</label><select name="submittedBy">${getOptions('crew').map((crew) => `<option value="${escapeHtml(crew)}">${escapeHtml(crew)}</option>`).join('')}</select></div><div class="field"><label>Status</label><select name="status"><option>Not Started</option><option>In Progress</option><option>Completed</option><option>Needs Review</option></select></div><div class="field"><label>Photo notes</label><textarea name="photos"></textarea></div><div class="field"><label>Notes</label><textarea name="notes"></textarea></div></div><div class="form-actions"><button class="btn btn-primary" type="submit">Save ${type} Status</button>${voiceFillButton(route)}</div></form><div class="card table-card"><div class="card-header"><h3>${type} records</h3></div><div class="responsive-table-wrap"><table><thead><tr><th>Submitted</th><th>Trip</th><th>Vessel</th><th>By</th><th>Status</th><th>Notes</th></tr></thead><tbody>${records.length ? records.map((record) => `<tr><td>${escapeHtml(new Date(record.submittedAt).toLocaleString())}</td><td>${escapeHtml(record.tripLabel || record.tripId)}</td><td>${escapeHtml(record.vessel)}</td><td>${escapeHtml(record.submittedBy)}</td><td>${readinessBadge(record.status)}</td><td>${escapeHtml(record.notes || '—')}</td></tr>`).join('') : '<tr><td colspan="6" class="empty-state">No checklist records yet.</td></tr>'}</tbody></table></div></div></div>`;
+}
+
+function saveChecklistRecord(event, type) {
+  event.preventDefault();
+  const data = Object.fromEntries(new FormData(event.currentTarget).entries());
+  const trip = store.trips.find((item) => item.id === data.tripId);
+  const record = { id: makeId('checklist'), type, ...data, tripLabel: trip ? `${formatDate(trip.tripDate)} ${trip.customer || ''}` : '', submittedAt: new Date().toISOString() };
+  store.checklistRecords.push(record);
+  if (trip) {
+    if (type === 'Pre Trip') trip.preTripChecklistStatus = data.status;
+    else trip.postTripChecklistStatus = data.status;
+    trip.dispatchReadinessStatus = calculateDispatchReadiness(trip);
+  }
+  addAudit('created', `${type} Checklist`, `${type} status ${data.status} saved for ${data.vessel || 'trip'}.`, { tripId: data.tripId });
+  addRoleNotification('Operations', '', `${type} checklist ${data.status}`, `${data.vessel || 'A vessel'} checklist is ${data.status}.`, data.status === 'Needs Review' ? 'warning' : 'success', 'Checklist', { tripId: data.tripId, vessel: data.vessel });
+  saveStore();
+  renderChecklistPage(type);
+  toast(`${type} checklist saved.`);
+}
+
+function renderVesselReadinessPanel() {
+  const page = document.getElementById('page-vessels');
+  const table = page.querySelector('.table-card');
+  if (!table || page.querySelector('[data-vessel-readiness-panel]')) return;
+  const panel = document.createElement('div');
+  panel.className = 'card vessel-readiness-panel';
+  panel.dataset.vesselReadinessPanel = 'true';
+  panel.innerHTML = `<div class="card-header"><h3>Vessel Readiness Workflow</h3><span class="badge gold">Feeds dispatch readiness</span></div><div class="readiness-grid">${store.vessels.map((vessel) => `<div class="readiness-card"><strong>${escapeHtml(vessel.name)}</strong><span>${escapeHtml(vessel.owner || 'No owner')} · Capacity ${escapeHtml(vessel.capacity || '—')}</span><select onchange="updateVesselReadiness('${vessel.id}', this.value)">${getOptions('vesselReadiness').map((status) => `<option value="${escapeHtml(status)}" ${status === (vessel.readinessStatus || 'Operational') ? 'selected' : ''}>${escapeHtml(status)}</option>`).join('')}</select></div>`).join('')}</div>`;
+  table.before(panel);
+}
+
+function updateVesselReadiness(vesselId, readinessStatus) {
+  const vessel = store.vessels.find((item) => item.id === vesselId);
+  if (!vessel) return;
+  vessel.readinessStatus = readinessStatus;
+  store.trips.filter((trip) => trip.vessel === vessel.name).forEach((trip) => { trip.dispatchReadinessStatus = calculateDispatchReadiness(trip); });
+  addAudit('updated', 'Vessel Readiness', `${vessel.name} marked ${readinessStatus}.`, { vesselId });
+  addRoleNotification('Operations', '', 'Vessel readiness updated', `${vessel.name} is ${readinessStatus}.`, readinessStatus === 'Operational' ? 'success' : 'warning', 'Checklist', { vessel: vessel.name });
+  saveStore();
+  renderRoute(currentRoute);
+}
+
+function renderOwnerDashboard() {
+  const page = document.getElementById('page-owner-dashboard');
+  const selected = page.querySelector('[data-owner-select]')?.value || getOptions('owners')[0] || '';
+  const ownerVessels = store.vessels.filter((vessel) => vessel.owner === selected).map((vessel) => vessel.name);
+  const trips = store.trips.filter((trip) => ownerVessels.includes(trip.vessel)).sort(byDate);
+  const notices = (store.notifications || []).filter((notice) => notice.recipientRole === 'Owner' || ownerVessels.includes(notice.metadata?.vessel));
+  const ownerPayroll = payrollEntries().filter((entry) => entry.role === 'Owner' && entry.person === selected);
+  page.innerHTML = `<div class="page-stack"><div class="section-heading"><div><p class="eyebrow">Phase 4B owner operations</p><h1>Owner Dashboard</h1><p class="section-summary">Assignment, completion, expense, incident, and payroll alert view for vessel owners.</p></div><select data-owner-select onchange="renderOwnerDashboard()">${getOptions('owners').map((owner) => `<option value="${escapeHtml(owner)}" ${owner === selected ? 'selected' : ''}>${escapeHtml(owner)}</option>`).join('')}</select></div><div class="grid kpi-grid dashboard-kpis">${kpi('Owned vessels', ownerVessels.length, ownerVessels.join(', ') || 'None')}${kpi('Assigned trips', trips.length, 'Active owner vessels')}${kpi('Unread alerts', notices.filter((notice) => !notice.read).length, 'Owner related')}${kpi('Outstanding payroll', money(ownerPayroll.reduce((sum, entry) => sum + entry.outstanding, 0)), 'Owner payouts')}</div><div class="grid dashboard-grid"><div class="card"><div class="card-header"><h3>Assignment alerts</h3></div><div class="stat-list">${trips.length ? trips.map((trip) => `<div class="stat-row"><span>${escapeHtml(formatDate(trip.tripDate))} · ${escapeHtml(trip.vessel)}</span><strong>${escapeHtml(trip.customer || 'Trip')}<br><small>Captain ${escapeHtml(trip.captain || '—')} · Mate ${escapeHtml(trip.mate || '—')}</small></strong></div>`).join('') : '<p class="empty-state">No owner vessel assignments.</p>'}</div></div><div class="card"><div class="card-header"><h3>Owner alerts</h3></div><div class="notice-list card-pad">${notices.length ? notices.slice(0, 8).map((notice) => `<div class="notice-item ${notice.read ? '' : 'unread'}"><span class="badge gold">${escapeHtml(notice.category)}</span><div><strong>${escapeHtml(notice.title)}</strong><p>${escapeHtml(notice.message)}</p></div></div>`).join('') : '<p class="empty-state">No owner alerts.</p>'}</div></div></div></div>`;
 }
 
 function renderLegacy() {
@@ -779,7 +1087,7 @@ function legacyShortcut(route) {
   return matches[route] ? `<p><button class="btn btn-primary" data-route="legacy" data-embed-legacy="${matches[route]}">Open related legacy tool</button></p>` : '';
 }
 function settingsMarkup() {
-  return `<div class="grid settings-grid" style="margin-top:18px"><div class="legacy-tool"><h3>Seed data</h3><p>${store.vessels.length} vessels, ${store.crew.length} crew members, ${store.roles.length} roles, ${store.bookingSources.length} booking sources, ${store.standardPayoutRates.length} standard crew payout rates, and ${store.vesselOwnerPayoutRates.length} documented owner payout rules loaded.</p></div><div class="legacy-tool"><h3>Local data layer</h3><p>Storage key: ${STORE_KEY}. Last updated: ${new Date(store.updatedAt).toLocaleString()}.</p><div class="legacy-actions"><button class="btn btn-outline" data-export-store>Export JSON</button><label class="btn btn-outline" for="importStoreFile">Import JSON<input id="importStoreFile" data-import-store type="file" accept="application/json" hidden></label><button class="btn btn-danger" data-reset-store>Reset seed data</button></div></div><div class="legacy-tool"><h3>Preserved Phase 3 safeguards</h3><p>Dispatch board, payroll, audit trail, notifications, voice fill, export/import, legacy shell links, and the static validator are all active.</p></div></div>`;
+  return `<div class="grid settings-grid" style="margin-top:18px"><div class="legacy-tool"><h3>Seed data</h3><p>${store.vessels.length} vessels, ${store.crew.length} crew members, ${store.roles.length} roles, ${store.bookingSources.length} booking sources, ${store.standardPayoutRates.length} standard crew payout rates, and ${store.vesselOwnerPayoutRates.length} documented owner payout rules loaded.</p></div><div class="legacy-tool"><h3>Local data layer</h3><p>Storage key: ${STORE_KEY}. Last updated: ${new Date(store.updatedAt).toLocaleString()}.</p><div class="legacy-actions"><button class="btn btn-outline" data-export-store>Export JSON</button><label class="btn btn-outline" for="importStoreFile">Import JSON<input id="importStoreFile" data-import-store type="file" accept="application/json" hidden></label><button class="btn btn-danger" data-reset-store>Reset seed data</button></div></div><div class="legacy-tool"><h3>Preserved Phase 3 safeguards</h3><p>Dispatch board, assignment lifecycle, crew dashboards, checklist readiness, vessel readiness, passenger manifests, payroll, audit trail, notifications, voice fill, export/import, legacy shell links, and the static validator are all active.</p></div></div>`;
 }
 
 function toast(message) {

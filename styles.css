@@ -219,3 +219,22 @@ td { font-size: .9rem; }
 .notice-item.unread { border-color: rgba(212, 168, 71, .7); background: #fffaf0; }
 .notice-item p { margin: 4px 0; color: var(--muted); }
 .notice-item small { color: var(--muted); }
+
+.assignment-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+.role-trip-list { display: grid; gap: 14px; }
+.role-trip-card { padding: 14px; display: grid; gap: 12px; }
+.role-trip-card .card-header p { margin: 4px 0 0; color: var(--muted); }
+.photo-list { display: flex; flex-wrap: wrap; gap: 8px; }
+.notification-tools { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.notification-tools select, .section-heading select, .readiness-card select { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; background: white; color: var(--ink); font-weight: 800; }
+.notice-item .btn { justify-self: start; }
+.vessel-readiness-panel { overflow: hidden; }
+.readiness-grid { display: grid; gap: 10px; padding: 14px; }
+.readiness-card { display: grid; gap: 8px; border: 1px solid var(--line); border-radius: 14px; padding: 12px; background: #f8fbfc; }
+.readiness-card span { color: var(--muted); font-size: .85rem; }
+@media (min-width: 760px) {
+  .readiness-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (min-width: 1080px) {
+  .readiness-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
