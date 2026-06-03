@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#0a3d62">
+  <meta name="description" content="Unified Reel Adventure Tours operations shell for bookings, trips, vessels, crew, payroll, expenses, inventory, checklists, cruise schedules, reports, and settings.">
+  <title>Reel Adventure Tours — Operations Shell</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="Reel Adventure Tours Logo (2).jpg">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <section id="loginScreen" class="login-screen" aria-labelledby="loginTitle">
+    <div class="login-card">
+      <img class="login-logo" src="Reel Adventure Tours Logo (2).jpg" alt="Reel Adventure Tours logo">
+      <p class="eyebrow">Phase 2 Unified Shell</p>
+      <h1 id="loginTitle">Reel Adventure Tours Operations</h1>
+      <p class="login-copy">Placeholder access only for now. Select a working role to preview the mobile-first operations app.</p>
+      <label for="roleSelect">Role</label>
+      <select id="roleSelect">
+        <option value="Owner / Admin">Owner / Admin</option>
+        <option value="Operations Manager">Operations Manager</option>
+        <option value="Captain">Captain</option>
+        <option value="Mate">Mate</option>
+        <option value="Bookkeeper">Bookkeeper</option>
+      </select>
+      <button id="enterAppBtn" class="btn btn-primary btn-full">Enter demo app</button>
+      <p class="login-note">No real authentication or Gmail automation is implemented in this phase.</p>
+    </div>
+  </section>
+
+  <div id="appShell" class="app-shell" hidden>
+    <aside id="sidebar" class="sidebar" aria-label="Primary navigation">
+      <div class="sidebar-brand">
+        <img src="Reel Adventure Tours Logo (2).jpg" alt="Reel Adventure Tours logo">
+        <div>
+          <strong>Reel Adventure</strong>
+          <span>Operations</span>
+        </div>
+      </div>
+      <nav id="primaryNav" class="primary-nav"></nav>
+      <div class="legacy-panel">
+        <p>Legacy tools remain available</p>
+        <button class="btn btn-ghost btn-small" data-route="legacy">Open legacy tools</button>
+      </div>
+    </aside>
+
+    <div id="sidebarOverlay" class="sidebar-overlay" tabindex="-1" aria-hidden="true"></div>
+
+    <main class="main-shell">
+      <header class="topbar">
+        <button id="menuBtn" class="icon-btn" aria-label="Open navigation" aria-controls="sidebar" aria-expanded="false">☰</button>
+        <div class="topbar-title-wrap">
+          <p class="eyebrow">Reel Adventure Tours</p>
+          <h2 id="pageTitle">Dashboard</h2>
+        </div>
+        <div class="topbar-actions">
+          <span id="activeRole" class="role-pill">Owner / Admin</span>
+          <button id="installBtn" class="btn btn-outline btn-small" hidden>Install</button>
+        </div>
+      </header>
+
+      <section class="content">
+        <div id="page-dashboard" class="page active"></div>
+        <div id="page-bookings" class="page"></div>
+        <div id="page-invoices" class="page"></div>
+        <div id="page-trips" class="page"></div>
+        <div id="page-vessels" class="page"></div>
+        <div id="page-crew" class="page"></div>
+        <div id="page-payroll" class="page"></div>
+        <div id="page-expenses" class="page"></div>
+        <div id="page-inventory" class="page"></div>
+        <div id="page-pre-trip-checklist" class="page"></div>
+        <div id="page-post-trip-checklist" class="page"></div>
+        <div id="page-cruise-schedule" class="page"></div>
+        <div id="page-reports" class="page"></div>
+        <div id="page-settings" class="page"></div>
+        <div id="page-legacy" class="page"></div>
+      </section>
+    </main>
+  </div>
+
+  <template id="crudPageTemplate">
+    <div class="page-stack">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow"></p>
+          <h1></h1>
+          <p class="section-summary"></p>
+        </div>
+        <button class="btn btn-primary add-record-btn"></button>
+      </div>
+      <form class="record-form card" hidden></form>
+      <div class="card table-card">
+        <div class="card-header">
+          <h3></h3>
+          <input class="search-input" type="search" placeholder="Search records">
+        </div>
+        <div class="responsive-table-wrap">
+          <table>
+            <thead></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </template>
+
+  <script src="app.js" defer></script>
+</body>
+</html>
