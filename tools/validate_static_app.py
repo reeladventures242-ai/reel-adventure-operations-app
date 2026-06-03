@@ -124,6 +124,14 @@ def validate_legacy_preserved() -> tuple[bool, str]:
         "import": "importStoreData",
         "notifications page": "page-notifications",
         "audit page": "page-audit",
+        "assignment lifecycle": "updateAssignmentStatus",
+        "captain dashboard": "renderCrewRoleDashboard('captain')",
+        "mate dashboard": "renderCrewRoleDashboard('mate')",
+        "owner dashboard": "renderOwnerDashboard",
+        "checklist integration": "renderChecklistPage",
+        "vessel readiness": "renderVesselReadinessPanel",
+        "passenger manifest": "passengerManifest",
+        "incident reports": "page-incident-reports",
     }
     missing_features = [label for label, token in required_features.items() if token not in app_js and token not in index_html]
     if missing or unlinked or missing_features:
@@ -157,7 +165,7 @@ class Element {
   querySelector(){ return null; }
   querySelectorAll(){ return []; }
 }
-const ids = ['toast','loginScreen','appShell','roleSelect','enterAppBtn','activeRole','menuBtn','sidebar','sidebarOverlay','primaryNav','installBtn','pageTitle','page-dashboard','page-bookings','page-invoices','page-trips','page-vessels','page-crew','page-payroll','page-expenses','page-inventory','page-pre-trip-checklist','page-post-trip-checklist','page-cruise-schedule','page-reports','page-notifications','page-audit','page-settings','page-legacy'];
+const ids = ['toast','loginScreen','appShell','roleSelect','enterAppBtn','activeRole','menuBtn','sidebar','sidebarOverlay','primaryNav','installBtn','pageTitle','page-dashboard','page-bookings','page-invoices','page-trips','page-captain-dashboard','page-mate-dashboard','page-owner-dashboard','page-vessels','page-crew','page-payroll','page-expenses','page-inventory','page-incident-reports','page-pre-trip-checklist','page-post-trip-checklist','page-cruise-schedule','page-reports','page-notifications','page-audit','page-settings','page-legacy'];
 const elements = Object.fromEntries(ids.map(id => [id, new Element(id)]));
 for (const id of ids.filter(id => id.startsWith('page-'))) elements[id].classList.add('page');
 const listeners = {};
