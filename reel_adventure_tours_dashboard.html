@@ -1,0 +1,1033 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Reel Adventure Tours — Booking Dashboard</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,400&display=swap');
+
+  :root {
+    --ocean: #0a3d62;
+    --ocean-mid: #1a6fa8;
+    --sky: #48b4e0;
+    --seafoam: #e8f7f5;
+    --sand: #fdf6ec;
+    --coral: #e84c4c;
+    --amber: #f0a500;
+    --emerald: #1db37e;
+    --slate: #2d3748;
+    --muted: #718096;
+    --border: #e2e8f0;
+    --card-bg: #ffffff;
+    --page-bg: #f0f4f8;
+    --green-bg: #d4f5e7;
+    --green-text: #0e6646;
+    --yellow-bg: #fff3cd;
+    --yellow-text: #7d4e00;
+    --red-bg: #fde8e8;
+    --red-text: #9b1c1c;
+    --shadow: 0 2px 12px rgba(10,61,98,0.08);
+    --shadow-lg: 0 8px 32px rgba(10,61,98,0.14);
+    --radius: 14px;
+    --radius-sm: 8px;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'DM Sans', sans-serif;
+    background: var(--page-bg);
+    color: var(--slate);
+    min-height: 100vh;
+    font-size: 15px;
+    line-height: 1.6;
+  }
+
+  /* ── HEADER ── */
+  .header {
+    background: linear-gradient(135deg, var(--ocean) 0%, var(--ocean-mid) 60%, var(--sky) 100%);
+    color: white;
+    padding: 20px 20px 28px;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    box-shadow: 0 4px 24px rgba(10,61,98,0.25);
+  }
+  .header-inner {
+    max-width: 1100px;
+    margin: 0 auto;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
+  }
+  .logo-icon {
+    width: 44px;
+    height: 44px;
+    background: rgba(255,255,255,0.15);
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 24px;
+    flex-shrink: 0;
+    border: 1.5px solid rgba(255,255,255,0.3);
+  }
+  .header-text h1 {
+    font-family: 'Syne', sans-serif;
+    font-size: clamp(18px, 4vw, 24px);
+    font-weight: 800;
+    letter-spacing: -0.5px;
+    line-height: 1.1;
+  }
+  .header-text p {
+    font-size: 12px;
+    opacity: 0.75;
+    margin-top: 2px;
+    font-weight: 300;
+  }
+  .header-right {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .live-badge {
+    background: rgba(255,255,255,0.2);
+    border: 1px solid rgba(255,255,255,0.35);
+    color: white;
+    padding: 4px 10px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+  }
+  .live-dot {
+    display: inline-block;
+    width: 7px;
+    height: 7px;
+    background: #4ade80;
+    border-radius: 50%;
+    margin-right: 5px;
+    animation: pulse 2s infinite;
+  }
+  @keyframes pulse {
+    0%,100% { opacity:1; }
+    50% { opacity: 0.4; }
+  }
+
+  /* ── SEARCH BAR ── */
+  .search-wrap {
+    background: var(--card-bg);
+    padding: 14px 20px;
+    box-shadow: var(--shadow);
+    border-bottom: 1px solid var(--border);
+  }
+  .search-wrap-inner {
+    max-width: 1100px;
+    margin: 0 auto;
+    display: flex;
+    gap: 10px;
+    align-items: center;
+  }
+  .search-icon { font-size: 18px; color: var(--muted); flex-shrink: 0; }
+  #searchInput {
+    flex: 1;
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 14px;
+    font-family: inherit;
+    font-size: 14px;
+    outline: none;
+    background: var(--page-bg);
+    color: var(--slate);
+    transition: border-color 0.2s;
+  }
+  #searchInput:focus { border-color: var(--sky); background: white; }
+  #searchInput::placeholder { color: #b0bec5; }
+  .clear-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--muted);
+    font-size: 18px;
+    padding: 4px 6px;
+    border-radius: 6px;
+    transition: background 0.15s;
+    display: none;
+  }
+  .clear-btn:hover { background: var(--border); }
+  .clear-btn.visible { display: block; }
+
+  /* ── SUMMARY CARDS ── */
+  .summary-section {
+    max-width: 1100px;
+    margin: 20px auto;
+    padding: 0 16px;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 12px;
+  }
+  .stat-card {
+    background: var(--card-bg);
+    border-radius: var(--radius);
+    padding: 18px 16px;
+    box-shadow: var(--shadow);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    border-top: 4px solid var(--ocean-mid);
+    transition: transform 0.15s, box-shadow 0.15s;
+  }
+  .stat-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-lg); }
+  .stat-card.green { border-top-color: var(--emerald); }
+  .stat-card.amber { border-top-color: var(--amber); }
+  .stat-card.red { border-top-color: var(--coral); }
+  .stat-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.7px; color: var(--muted); font-weight: 600; }
+  .stat-value { font-family: 'Syne', sans-serif; font-size: 28px; font-weight: 800; color: var(--ocean); line-height: 1; }
+  .stat-value.green { color: var(--emerald); }
+  .stat-value.amber { color: var(--amber); }
+  .stat-value.red { color: var(--coral); }
+  .stat-sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+  /* ── TABS ── */
+  .tabs-wrap {
+    max-width: 1100px;
+    margin: 0 auto 0;
+    padding: 0 16px;
+  }
+  .tabs {
+    display: flex;
+    gap: 4px;
+    background: var(--card-bg);
+    border-radius: var(--radius);
+    padding: 6px;
+    box-shadow: var(--shadow);
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .tabs::-webkit-scrollbar { display: none; }
+  .tab-btn {
+    flex: 1;
+    min-width: 90px;
+    padding: 10px 14px;
+    border: none;
+    background: none;
+    border-radius: 10px;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--muted);
+    cursor: pointer;
+    transition: all 0.2s;
+    white-space: nowrap;
+    text-align: center;
+  }
+  .tab-btn.active {
+    background: var(--ocean);
+    color: white;
+    box-shadow: 0 2px 10px rgba(10,61,98,0.25);
+  }
+  .tab-btn .tab-count {
+    display: inline-block;
+    background: rgba(255,255,255,0.2);
+    border-radius: 20px;
+    padding: 1px 7px;
+    font-size: 11px;
+    margin-left: 5px;
+  }
+  .tab-btn:not(.active) .tab-count {
+    background: var(--border);
+    color: var(--muted);
+  }
+
+  /* ── SECTION ── */
+  .section {
+    max-width: 1100px;
+    margin: 16px auto 32px;
+    padding: 0 16px;
+    display: none;
+  }
+  .section.active { display: block; }
+
+  .section-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+  }
+  .section-title {
+    font-family: 'Syne', sans-serif;
+    font-size: 20px;
+    font-weight: 800;
+    color: var(--ocean);
+  }
+  .section-tag {
+    background: var(--seafoam);
+    color: var(--ocean-mid);
+    padding: 3px 10px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .no-results {
+    text-align: center;
+    padding: 40px;
+    color: var(--muted);
+    font-style: italic;
+    background: var(--card-bg);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+  }
+
+  /* ── STATUS BADGE ── */
+  .badge {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+    white-space: nowrap;
+  }
+  .badge-green { background: var(--green-bg); color: var(--green-text); }
+  .badge-yellow { background: var(--yellow-bg); color: var(--yellow-text); }
+  .badge-red { background: var(--red-bg); color: var(--red-text); }
+
+  /* ── MOBILE CARDS ── */
+  .card-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .cruise-card {
+    background: var(--card-bg);
+    border-radius: var(--radius);
+    padding: 16px;
+    box-shadow: var(--shadow);
+    border-left: 5px solid var(--ocean-mid);
+    transition: transform 0.15s, box-shadow 0.15s;
+    animation: fadeIn 0.3s ease both;
+  }
+  .cruise-card:hover { transform: translateY(-1px); box-shadow: var(--shadow-lg); }
+  .cruise-card.posted { border-left-color: var(--emerald); }
+  .cruise-card.not-posted { border-left-color: var(--coral); }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+  .card-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+  .card-ship {
+    font-family: 'Syne', sans-serif;
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--ocean);
+    line-height: 1.2;
+  }
+  .card-line {
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 2px;
+  }
+  .card-rows {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px 10px;
+    font-size: 13px;
+  }
+  .card-row { display: flex; flex-direction: column; }
+  .card-row-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); font-weight: 600; }
+  .card-row-val { color: var(--slate); font-weight: 500; }
+  .card-bottom {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .fb-search { font-size: 11px; color: var(--muted); font-style: italic; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* Status toggle */
+  .status-toggle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    user-select: none;
+  }
+  .status-toggle input[type=checkbox] {
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+    accent-color: var(--emerald);
+  }
+  .toggle-label { font-size: 12px; font-weight: 600; }
+
+  /* ── DESKTOP TABLE ── */
+  .table-wrap {
+    background: var(--card-bg);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    overflow: hidden;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+  th {
+    background: var(--ocean);
+    color: white;
+    padding: 12px 14px;
+    text-align: left;
+    font-family: 'Syne', sans-serif;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    white-space: nowrap;
+  }
+  td {
+    padding: 11px 14px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: middle;
+  }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: var(--seafoam); }
+  .td-ship { font-weight: 700; color: var(--ocean); }
+  .td-fb { font-size: 11px; color: var(--muted); }
+
+  /* ── DIRECT BOOKINGS ── */
+  .booking-card {
+    background: var(--card-bg);
+    border-radius: var(--radius);
+    padding: 18px;
+    box-shadow: var(--shadow);
+    border-left: 5px solid var(--ocean-mid);
+    animation: fadeIn 0.3s ease both;
+    transition: transform 0.15s, box-shadow 0.15s;
+  }
+  .booking-card:hover { transform: translateY(-1px); box-shadow: var(--shadow-lg); }
+  .booking-card.paid { border-left-color: var(--emerald); }
+  .booking-card.pending { border-left-color: var(--amber); }
+  .booking-card.unpaid { border-left-color: var(--coral); }
+  .booking-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 10px;
+    margin-bottom: 12px;
+  }
+  .booking-name {
+    font-family: 'Syne', sans-serif;
+    font-size: 17px;
+    font-weight: 800;
+    color: var(--ocean);
+  }
+  .booking-order { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .booking-balance {
+    font-family: 'Syne', sans-serif;
+    font-size: 22px;
+    font-weight: 800;
+    text-align: right;
+  }
+  .booking-balance.paid { color: var(--emerald); }
+  .booking-balance.pending { color: var(--amber); }
+  .booking-balance.unpaid { color: var(--coral); }
+  .booking-balance-label { font-size: 10px; color: var(--muted); text-align: right; text-transform: uppercase; letter-spacing: 0.5px; }
+  .booking-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+    gap: 8px 14px;
+    font-size: 13px;
+    margin-bottom: 12px;
+  }
+  .b-field { display: flex; flex-direction: column; }
+  .b-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); font-weight: 600; }
+  .b-val { color: var(--slate); font-weight: 500; }
+  .booking-bottom {
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    flex-wrap: wrap;
+    justify-content: space-between;
+  }
+  .booking-status-row {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .booking-notes {
+    font-size: 12px;
+    color: var(--muted);
+    font-style: italic;
+    flex: 1;
+  }
+  .status-select {
+    border: 1.5px solid var(--border);
+    border-radius: 8px;
+    padding: 5px 10px;
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    outline: none;
+    background: var(--page-bg);
+    color: var(--slate);
+    transition: border-color 0.2s;
+  }
+  .status-select:focus { border-color: var(--sky); }
+  .status-select.is-paid { background: var(--green-bg); color: var(--green-text); border-color: var(--emerald); }
+  .status-select.is-pending { background: var(--yellow-bg); color: var(--yellow-text); border-color: var(--amber); }
+  .status-select.is-unpaid { background: var(--red-bg); color: var(--red-text); border-color: var(--coral); }
+
+  /* ── BOOKING TABLE DESKTOP ── */
+  .btable th { font-size: 11px; }
+  .btable td { font-size: 13px; }
+  .bal-cell { font-family: 'Syne', sans-serif; font-weight: 800; font-size: 15px; }
+  .bal-cell.paid { color: var(--emerald); }
+  .bal-cell.unpaid { color: var(--coral); }
+
+  /* ── RESPONSIVE ── */
+  .mobile-only { display: flex; flex-direction: column; gap: 12px; }
+  .desktop-only { display: none; }
+
+  @media (min-width: 768px) {
+    .mobile-only { display: none !important; }
+    .desktop-only { display: block !important; }
+    .summary-section { grid-template-columns: repeat(4, 1fr); }
+    .card-rows { grid-template-columns: repeat(4, 1fr); }
+    .booking-grid { grid-template-columns: repeat(6, 1fr); }
+  }
+
+  /* ── FOOTER ── */
+  .footer {
+    text-align: center;
+    padding: 24px 16px;
+    color: var(--muted);
+    font-size: 12px;
+    border-top: 1px solid var(--border);
+    margin-top: 16px;
+  }
+  .footer strong { color: var(--ocean); }
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<header class="header">
+  <div class="header-inner">
+    <div class="logo-icon">🎣</div>
+    <div class="header-text">
+      <h1>Reel Adventure Tours</h1>
+      <p>Nassau, Bahamas · Booking Dashboard</p>
+    </div>
+    <div class="header-right">
+      <span class="live-badge"><span class="live-dot"></span>LIVE</span>
+    </div>
+  </div>
+</header>
+
+<!-- SEARCH -->
+<div class="search-wrap">
+  <div class="search-wrap-inner">
+    <span class="search-icon">🔍</span>
+    <input type="text" id="searchInput" placeholder="Search ship, cruise line, customer, date…" oninput="handleSearch(this)">
+    <button class="clear-btn" id="clearBtn" onclick="clearSearch()" title="Clear search">✕</button>
+  </div>
+</div>
+
+<!-- SUMMARY CARDS -->
+<div class="summary-section" id="summarySection">
+  <div class="stat-card">
+    <div class="stat-label">Total Cruise Opportunities</div>
+    <div class="stat-value" id="statTotal">43</div>
+    <div class="stat-sub">June + July + August</div>
+  </div>
+  <div class="stat-card amber">
+    <div class="stat-label">Direct Bookings</div>
+    <div class="stat-value amber" id="statBookings">7</div>
+    <div class="stat-sub">Active reservations</div>
+  </div>
+  <div class="stat-card red">
+    <div class="stat-label">Total Balance Due</div>
+    <div class="stat-value red" id="statBalance">$8,009</div>
+    <div class="stat-sub">Across all bookings</div>
+  </div>
+  <div class="stat-card green">
+    <div class="stat-label">Upcoming Tours</div>
+    <div class="stat-value green" id="statUpcoming">6</div>
+    <div class="stat-sub">From today onward</div>
+  </div>
+</div>
+
+<!-- TABS -->
+<div class="tabs-wrap">
+  <div class="tabs">
+    <button class="tab-btn active" onclick="switchTab('june', this)">June 2026 <span class="tab-count" id="tc-june">25</span></button>
+    <button class="tab-btn" onclick="switchTab('july', this)">July 2026 <span class="tab-count" id="tc-july">6</span></button>
+    <button class="tab-btn" onclick="switchTab('august', this)">August 2026 <span class="tab-count" id="tc-august">6</span></button>
+    <button class="tab-btn" onclick="switchTab('direct', this)">Direct Bookings <span class="tab-count" id="tc-direct">7</span></button>
+  </div>
+</div>
+
+<!-- ═══ JUNE SECTION ═══ -->
+<section class="section active" id="sec-june">
+  <div class="section-header">
+    <div class="section-title">June 2026 Cruise Schedule</div>
+    <span class="section-tag" id="juneCnt">25 ships</span>
+  </div>
+  <!-- MOBILE CARDS -->
+  <div class="mobile-only" id="juneCards"></div>
+  <!-- DESKTOP TABLE -->
+  <div class="desktop-only">
+    <div class="table-wrap">
+      <table id="juneTable">
+        <thead><tr>
+          <th>Ship</th><th>Cruise Line</th><th>Departs</th><th>Returns</th>
+          <th>Length</th><th>Nassau Arrival</th><th>Facebook Search Term</th><th>Posted?</th>
+        </tr></thead>
+        <tbody id="juneTbody"></tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ JULY SECTION ═══ -->
+<section class="section" id="sec-july">
+  <div class="section-header">
+    <div class="section-title">July 2026 Cruise Schedule</div>
+    <span class="section-tag" id="julyCnt">6 ships</span>
+  </div>
+  <div class="mobile-only" id="julyCards"></div>
+  <div class="desktop-only">
+    <div class="table-wrap">
+      <table id="julyTable">
+        <thead><tr>
+          <th>Ship</th><th>Cruise Line</th><th>Departs</th><th>Returns</th>
+          <th>Length</th><th>Nassau Arrival</th><th>Facebook Search Term</th><th>Posted?</th>
+        </tr></thead>
+        <tbody id="julyTbody"></tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ AUGUST SECTION ═══ -->
+<section class="section" id="sec-august">
+  <div class="section-header">
+    <div class="section-title">August 2026 Cruise Schedule</div>
+    <span class="section-tag" id="augustCnt">6 ships</span>
+  </div>
+  <div class="mobile-only" id="augustCards"></div>
+  <div class="desktop-only">
+    <div class="table-wrap">
+      <table id="augustTable">
+        <thead><tr>
+          <th>Ship</th><th>Cruise Line</th><th>Departs</th><th>Returns</th>
+          <th>Length</th><th>Nassau Arrival</th><th>Facebook Search Term</th><th>Posted?</th>
+        </tr></thead>
+        <tbody id="augustTbody"></tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ DIRECT BOOKINGS SECTION ═══ -->
+<section class="section" id="sec-direct">
+  <div class="section-header">
+    <div class="section-title">Direct Bookings</div>
+    <span class="section-tag" id="directCnt">7 bookings</span>
+  </div>
+  <!-- MOBILE CARDS -->
+  <div class="mobile-only" id="directCards"></div>
+  <!-- DESKTOP TABLE -->
+  <div class="desktop-only">
+    <div class="table-wrap">
+      <table class="btable" id="directTable">
+        <thead><tr>
+          <th>Order #</th><th>Placed</th><th>Customer</th><th>Email</th><th>Phone</th>
+          <th>Product</th><th>Tour Date</th><th>Time</th><th>Guests</th>
+          <th>Pigs</th><th>Full Price</th><th>Deposit</th><th>Balance Due</th>
+          <th>Payment</th><th>Invoice</th><th>Notes</th>
+        </tr></thead>
+        <tbody id="directTbody"></tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<footer class="footer">
+  <strong>Reel Adventure Tours</strong> · Nassau, Bahamas · Dashboard v1.0 · Data as of June 2026
+</footer>
+
+<script>
+// ════════════════════════════════════
+// DATA
+// ════════════════════════════════════
+const cruiseData = {
+  june: [
+    { ship:"Utopia of the Seas", line:"Royal Caribbean", start:"Jun 1, 2026", end:"Jun 5, 2026", length:"4 Nights", nassau:"Jun 3, 2026", fb:"Utopia of the Seas June 1 2026", posted:false },
+    { ship:"Utopia of the Seas", line:"Royal Caribbean", start:"Jun 5, 2026", end:"Jun 8, 2026", length:"3 Nights", nassau:"Jun 6, 2026", fb:"Utopia of the Seas June 5 2026", posted:false },
+    { ship:"Utopia of the Seas", line:"Royal Caribbean", start:"Jun 8, 2026", end:"Jun 12, 2026", length:"4 Nights", nassau:"Jun 10, 2026", fb:"Utopia of the Seas June 8 2026", posted:false },
+    { ship:"Wonder of the Seas", line:"Royal Caribbean", start:"Jun 7, 2026", end:"Jun 14, 2026", length:"7 Nights", nassau:"Jun 10, 2026", fb:"Wonder of the Seas June 7 2026", posted:false },
+    { ship:"Wonder of the Seas", line:"Royal Caribbean", start:"Jun 14, 2026", end:"Jun 21, 2026", length:"7 Nights", nassau:"Jun 17, 2026", fb:"Wonder of the Seas June 14 2026", posted:false },
+    { ship:"Oasis of the Seas", line:"Royal Caribbean", start:"Jun 14, 2026", end:"Jun 21, 2026", length:"7 Nights", nassau:"Jun 18, 2026", fb:"Oasis of the Seas June 14 2026", posted:false },
+    { ship:"Freedom of the Seas", line:"Royal Caribbean", start:"Jun 5, 2026", end:"Jun 8, 2026", length:"3 Nights", nassau:"Jun 6, 2026", fb:"Freedom of the Seas June 5 2026", posted:false },
+    { ship:"Freedom of the Seas", line:"Royal Caribbean", start:"Jun 8, 2026", end:"Jun 12, 2026", length:"4 Nights", nassau:"Jun 10, 2026", fb:"Freedom of the Seas June 8 2026", posted:false },
+    { ship:"Disney Wish", line:"Disney Cruise Line", start:"Jun 5, 2026", end:"Jun 8, 2026", length:"3 Nights", nassau:"Jun 6, 2026", fb:"Disney Wish June 5 2026", posted:false },
+    { ship:"Disney Wish", line:"Disney Cruise Line", start:"Jun 8, 2026", end:"Jun 12, 2026", length:"4 Nights", nassau:"Jun 10, 2026", fb:"Disney Wish June 8 2026", posted:false },
+    { ship:"Disney Fantasy", line:"Disney Cruise Line", start:"Jun 13, 2026", end:"Jun 20, 2026", length:"7 Nights", nassau:"Jun 16, 2026", fb:"Disney Fantasy June 13 2026", posted:false },
+    { ship:"MSC Seashore", line:"MSC Cruises", start:"Jun 4, 2026", end:"Jun 7, 2026", length:"3 Nights", nassau:"Jun 5, 2026", fb:"MSC Seashore June 4 2026", posted:false },
+    { ship:"MSC Seashore", line:"MSC Cruises", start:"Jun 7, 2026", end:"Jun 11, 2026", length:"4 Nights", nassau:"Jun 9, 2026", fb:"MSC Seashore June 7 2026", posted:false },
+    { ship:"MSC Seaside", line:"MSC Cruises", start:"Jun 13, 2026", end:"Jun 20, 2026", length:"7 Nights", nassau:"Jun 16, 2026", fb:"MSC Seaside June 13 2026", posted:false },
+    { ship:"Norwegian Getaway", line:"Norwegian Cruise Line", start:"Jun 7, 2026", end:"Jun 14, 2026", length:"7 Nights", nassau:"Jun 11, 2026", fb:"Norwegian Getaway June 7 2026", posted:false },
+    { ship:"Norwegian Getaway", line:"Norwegian Cruise Line", start:"Jun 14, 2026", end:"Jun 21, 2026", length:"7 Nights", nassau:"Jun 18, 2026", fb:"Norwegian Getaway June 14 2026", posted:false },
+    { ship:"Carnival Mardi Gras", line:"Carnival Cruise Line", start:"Jun 6, 2026", end:"Jun 13, 2026", length:"7 Nights", nassau:"Jun 11, 2026", fb:"Carnival Mardi Gras June 6 2026", posted:false },
+    { ship:"Carnival Mardi Gras", line:"Carnival Cruise Line", start:"Jun 13, 2026", end:"Jun 20, 2026", length:"7 Nights", nassau:"Jun 18, 2026", fb:"Carnival Mardi Gras June 13 2026", posted:false },
+    { ship:"Carnival Celebration", line:"Carnival Cruise Line", start:"Jun 7, 2026", end:"Jun 14, 2026", length:"7 Nights", nassau:"Jun 10, 2026", fb:"Carnival Celebration June 7 2026", posted:false },
+    { ship:"Carnival Dream", line:"Carnival Cruise Line", start:"Jun 14, 2026", end:"Jun 21, 2026", length:"7 Nights", nassau:"Jun 18, 2026", fb:"Carnival Dream June 14 2026", posted:false },
+    { ship:"Carnival Freedom", line:"Carnival Cruise Line", start:"Jun 8, 2026", end:"Jun 12, 2026", length:"4 Nights", nassau:"Jun 10, 2026", fb:"Carnival Freedom June 8 2026", posted:false },
+    { ship:"Celebrity Reflection", line:"Celebrity Cruises", start:"Jun 14, 2026", end:"Jun 21, 2026", length:"7 Nights", nassau:"Jun 18, 2026", fb:"Celebrity Reflection June 14 2026", posted:false },
+    { ship:"Celebrity Beyond", line:"Celebrity Cruises", start:"Jun 21, 2026", end:"Jun 28, 2026", length:"7 Nights", nassau:"Jun 24, 2026", fb:"Celebrity Beyond June 21 2026", posted:false },
+    { ship:"Jewel of the Seas", line:"Royal Caribbean", start:"Jun 26, 2026", end:"Jun 29, 2026", length:"3 Nights", nassau:"Jun 27, 2026", fb:"Jewel of the Seas June 26 2026", posted:false },
+    { ship:"Margaritaville at Sea Paradise", line:"Margaritaville at Sea", start:"Multiple Weekly", end:"Multiple Weekly", length:"2 Nights", nassau:"Multiple June Dates", fb:"Margaritaville Paradise June 2026", posted:false },
+  ],
+  july: [
+    { ship:"Utopia of the Seas", line:"Royal Caribbean", start:"Jul 3, 2026", end:"Jul 7, 2026", length:"4 Nights", nassau:"Jul 5, 2026", fb:"Utopia of the Seas July 3 2026", posted:false },
+    { ship:"Wonder of the Seas", line:"Royal Caribbean", start:"Jul 5, 2026", end:"Jul 12, 2026", length:"7 Nights", nassau:"Jul 8, 2026", fb:"Wonder of the Seas July 5 2026", posted:false },
+    { ship:"Disney Wish", line:"Disney Cruise Line", start:"Jul 10, 2026", end:"Jul 13, 2026", length:"3 Nights", nassau:"Jul 11, 2026", fb:"Disney Wish July 10 2026", posted:false },
+    { ship:"MSC Seashore", line:"MSC Cruises", start:"Jul 9, 2026", end:"Jul 12, 2026", length:"3 Nights", nassau:"Jul 10, 2026", fb:"MSC Seashore July 9 2026", posted:false },
+    { ship:"Norwegian Getaway", line:"Norwegian Cruise Line", start:"Jul 12, 2026", end:"Jul 19, 2026", length:"7 Nights", nassau:"Jul 16, 2026", fb:"Norwegian Getaway July 12 2026", posted:false },
+    { ship:"Carnival Mardi Gras", line:"Carnival Cruise Line", start:"Jul 11, 2026", end:"Jul 18, 2026", length:"7 Nights", nassau:"Jul 16, 2026", fb:"Carnival Mardi Gras July 11 2026", posted:false },
+  ],
+  august: [
+    { ship:"Utopia of the Seas", line:"Royal Caribbean", start:"Aug 7, 2026", end:"Aug 10, 2026", length:"3 Nights", nassau:"Aug 8, 2026", fb:"Utopia of the Seas August 7 2026", posted:false },
+    { ship:"Wonder of the Seas", line:"Royal Caribbean", start:"Aug 9, 2026", end:"Aug 16, 2026", length:"7 Nights", nassau:"Aug 12, 2026", fb:"Wonder of the Seas August 9 2026", posted:false },
+    { ship:"Disney Fantasy", line:"Disney Cruise Line", start:"Aug 15, 2026", end:"Aug 22, 2026", length:"7 Nights", nassau:"Aug 18, 2026", fb:"Disney Fantasy August 15 2026", posted:false },
+    { ship:"MSC Seaside", line:"MSC Cruises", start:"Aug 14, 2026", end:"Aug 21, 2026", length:"7 Nights", nassau:"Aug 17, 2026", fb:"MSC Seaside August 14 2026", posted:false },
+    { ship:"Norwegian Getaway", line:"Norwegian Cruise Line", start:"Aug 16, 2026", end:"Aug 23, 2026", length:"7 Nights", nassau:"Aug 20, 2026", fb:"Norwegian Getaway August 16 2026", posted:false },
+    { ship:"Carnival Celebration", line:"Carnival Cruise Line", start:"Aug 9, 2026", end:"Aug 16, 2026", length:"7 Nights", nassau:"Aug 12, 2026", fb:"Carnival Celebration August 9 2026", posted:false },
+  ]
+};
+
+const bookingData = [
+  { order:"9873", placed:"May 2, 2026",  customer:"Brandi McDade",        email:"bmcdade@aristotle.net",       phone:"501-317-9450",    date:"May 28, 2026", time:"10:00 AM", guests:"10",       pig:"10",        product:"Private 4 Hr Island Hopping", full:"$1,300", deposit:"$130", balance:"$1,170", balanceNum:1170, payment:"", invoice:"", notes:"" },
+  { order:"9875", placed:"May 3, 2026",  customer:"Sarah Link",           email:"sarahmacniu@hotmail.com",     phone:"312-804-2110",    date:"Jun 3, 2026",  time:"10:00 AM", guests:"9",        pig:"9",         product:"Private 4 Hr Island Hopping", full:"$1,280", deposit:"$128", balance:"$1,152", balanceNum:1152, payment:"", invoice:"", notes:"" },
+  { order:"9882", placed:"May 14, 2026", customer:"Erin Key",             email:"jordon.erin.key@gmail.com",   phone:"940-367-7644",    date:"Jun 10, 2026", time:"9:00 AM",  guests:"10",       pig:"None",      product:"Ultimate 6 Hr Private Island", full:"$1,650", deposit:"$165", balance:"$1,485", balanceNum:1485, payment:"", invoice:"", notes:"" },
+  { order:"9936", placed:"May 22, 2026", customer:"Patricia Harris",      email:"t.harris@keytotheworldtravel.com", phone:"870-814-9577", date:"Jun 11, 2026", time:"10:00 AM", guests:"10",  pig:"11",        product:"Private 4 Hr Island Hopping", full:"$1,320", deposit:"$132", balance:"$1,188", balanceNum:1188, payment:"", invoice:"", notes:"" },
+  { order:"9877", placed:"May 5, 2026",  customer:"Spencer Sutton",       email:"spencerpsutton@gmail.com",    phone:"832-919-4516",    date:"Jul 2, 2026",  time:"10:00 AM", guests:"16 (4 kids, youngest age 4)", pig:"9", product:"Private 4 Hr Island Hopping + 1 Additional Boat", full:"$2,180", deposit:"$218", balance:"$1,962", balanceNum:1962, payment:"", invoice:"", notes:"One boat wants pigs, other doesn't. Coming from Carnival cruise that day. 16 total, 4 kids (youngest 4 yrs old)." },
+  { order:"9884", placed:"May 15, 2026", customer:"Asabi Omiyinka Doris", email:"omiyinka@gmail.com",          phone:"+31 6 2307 5313", date:"Jul 15, 2026", time:"10:00 AM", guests:"6",        pig:"4",         product:"Private 4 Hr Island Hopping", full:"$1,180", deposit:"$118", balance:"$1,062", balanceNum:1062, payment:"", invoice:"", notes:"Customer based in Netherlands." },
+  { order:"9934", placed:"May 18, 2026", customer:"Rebecca Glenn",        email:"rebeccamowat@gmail.com",      phone:"678-975-8234",    date:"May 25, 2026", time:"10:00 AM", guests:"7",        pig:"None",      product:"Private 4 Hr Island Hopping", full:"$1,100", deposit:"$110", balance:"$990",   balanceNum:990,  payment:"", invoice:"", notes:"" },
+];
+
+// ════════════════════════════════════
+// STATE (persisted in memory only)
+// ════════════════════════════════════
+const cruiseState = { june: {}, july: {}, august: {} };
+// cruiseState[month][idx] = posted bool
+const bookingState = {}; // bookingState[order] = { payment, invoice }
+
+// ════════════════════════════════════
+// RENDER
+// ════════════════════════════════════
+function postedBadge(posted) {
+  if (posted) return '<span class="badge badge-green">✓ Posted</span>';
+  return '<span class="badge badge-red">✗ Not Posted</span>';
+}
+
+function payBadge(val) {
+  if (val === "Paid") return '<span class="badge badge-green">Paid</span>';
+  if (val === "Pending") return '<span class="badge badge-yellow">Pending</span>';
+  return '<span class="badge badge-red">Unpaid</span>';
+}
+function invBadge(val) {
+  if (val === "Sent") return '<span class="badge badge-green">Sent</span>';
+  if (val === "Pending") return '<span class="badge badge-yellow">Pending</span>';
+  return '<span class="badge badge-red">Not Sent</span>';
+}
+
+function renderCruiseCards(month, data, filtered) {
+  const container = document.getElementById(month + 'Cards');
+  if (!filtered.length) {
+    container.innerHTML = '<div class="no-results">No results match your search.</div>';
+    return;
+  }
+  container.innerHTML = filtered.map(idx => {
+    const r = data[idx];
+    const posted = cruiseState[month][idx] !== undefined ? cruiseState[month][idx] : r.posted;
+    return `<div class="cruise-card ${posted ? 'posted' : 'not-posted'}">
+      <div class="card-top">
+        <div>
+          <div class="card-ship">${r.ship}</div>
+          <div class="card-line">${r.line}</div>
+        </div>
+        ${postedBadge(posted)}
+      </div>
+      <div class="card-rows">
+        <div class="card-row"><span class="card-row-label">Departs</span><span class="card-row-val">${r.start}</span></div>
+        <div class="card-row"><span class="card-row-label">Returns</span><span class="card-row-val">${r.end}</span></div>
+        <div class="card-row"><span class="card-row-label">Length</span><span class="card-row-val">${r.length}</span></div>
+        <div class="card-row"><span class="card-row-label">Nassau Arrival</span><span class="card-row-val">${r.nassau}</span></div>
+      </div>
+      <div class="card-bottom">
+        <span class="fb-search">🔍 ${r.fb}</span>
+        <label class="status-toggle">
+          <input type="checkbox" ${posted ? 'checked' : ''} onchange="togglePosted('${month}',${idx},this)">
+          <span class="toggle-label" style="color:${posted ? 'var(--green-text)' : 'var(--red-text)'}">Posted FB?</span>
+        </label>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function renderCruiseTable(tbodyId, month, data, filtered) {
+  const tbody = document.getElementById(tbodyId);
+  if (!filtered.length) {
+    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:24px;color:var(--muted);font-style:italic;">No results match your search.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = filtered.map(idx => {
+    const r = data[idx];
+    const posted = cruiseState[month][idx] !== undefined ? cruiseState[month][idx] : r.posted;
+    const rowStyle = posted ? 'background:var(--green-bg)' : '';
+    return `<tr style="${rowStyle}">
+      <td class="td-ship">${r.ship}</td>
+      <td>${r.line}</td>
+      <td>${r.start}</td>
+      <td>${r.end}</td>
+      <td>${r.length}</td>
+      <td>${r.nassau}</td>
+      <td class="td-fb">${r.fb}</td>
+      <td>
+        <label class="status-toggle">
+          <input type="checkbox" ${posted ? 'checked' : ''} onchange="togglePosted('${month}',${idx},this)">
+          ${postedBadge(posted)}
+        </label>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function renderBookingCards(filtered) {
+  const c = document.getElementById('directCards');
+  if (!filtered.length) { c.innerHTML = '<div class="no-results">No results match your search.</div>'; return; }
+  c.innerHTML = filtered.map(idx => {
+    const b = bookingData[idx];
+    const st = bookingState[b.order] || { payment: b.payment, invoice: b.invoice };
+    const payClass = st.payment === 'Paid' ? 'paid' : st.payment === 'Pending' ? 'pending' : 'unpaid';
+    const cardClass = st.payment === 'Paid' ? 'paid' : st.payment === 'Pending' ? 'pending' : 'unpaid';
+    return `<div class="booking-card ${cardClass}">
+      <div class="booking-top">
+        <div>
+          <div class="booking-name">${b.customer}</div>
+          <div class="booking-order">Order #${b.order}</div>
+        </div>
+        <div>
+          <div class="booking-balance ${payClass}">${b.balance}</div>
+          <div class="booking-balance-label">Balance Due</div>
+        </div>
+      </div>
+      <div class="booking-grid">
+        <div class="b-field" style="grid-column:1/-1"><span class="b-label">Product</span><span class="b-val" style="font-size:12px">${b.product}</span></div>
+        <div class="b-field"><span class="b-label">Tour Date</span><span class="b-val">${b.date}</span></div>
+        <div class="b-field"><span class="b-label">Time</span><span class="b-val">${b.time}</span></div>
+        <div class="b-field"><span class="b-label">Guests</span><span class="b-val">${b.guests}</span></div>
+        <div class="b-field"><span class="b-label">Swimming Pigs</span><span class="b-val">${b.pig}</span></div>
+        <div class="b-field"><span class="b-label">Full Price</span><span class="b-val">${b.full}</span></div>
+        <div class="b-field"><span class="b-label">Deposit Paid</span><span class="b-val">${b.deposit}</span></div>
+        <div class="b-field"><span class="b-label">Order Placed</span><span class="b-val">${b.placed}</span></div>
+        <div class="b-field"><span class="b-label">Email</span><span class="b-val" style="font-size:11px;word-break:break-all">${b.email}</span></div>
+        <div class="b-field"><span class="b-label">Phone</span><span class="b-val">${b.phone}</span></div>
+      </div>
+      <div class="booking-bottom">
+        <div class="booking-status-row">
+          <div>
+            <span style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:3px;">Payment</span>
+            <select class="status-select ${payClass === 'paid' ? 'is-paid' : payClass === 'pending' ? 'is-pending' : 'is-unpaid'}"
+              onchange="updateBooking('${b.order}','payment',this)">
+              <option value="" ${!st.payment ? 'selected':''}>— Select —</option>
+              <option value="Paid" ${st.payment==='Paid'?'selected':''}>Paid</option>
+              <option value="Pending" ${st.payment==='Pending'?'selected':''}>Pending</option>
+              <option value="Unpaid" ${st.payment==='Unpaid'?'selected':''}>Unpaid</option>
+            </select>
+          </div>
+          <div>
+            <span style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:3px;">Invoice</span>
+            <select class="status-select ${st.invoice==='Sent'?'is-paid':st.invoice==='Pending'?'is-pending':'is-unpaid'}"
+              onchange="updateBooking('${b.order}','invoice',this)">
+              <option value="" ${!st.invoice?'selected':''}>— Select —</option>
+              <option value="Sent" ${st.invoice==='Sent'?'selected':''}>Sent</option>
+              <option value="Pending" ${st.invoice==='Pending'?'selected':''}>Pending</option>
+              <option value="Not Sent" ${st.invoice==='Not Sent'?'selected':''}>Not Sent</option>
+            </select>
+          </div>
+        </div>
+        ${b.notes ? `<div class="booking-notes">📝 ${b.notes}</div>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function renderBookingTable(filtered) {
+  const tbody = document.getElementById('directTbody');
+  if (!filtered.length) {
+    tbody.innerHTML = '<tr><td colspan="16" style="text-align:center;padding:24px;color:var(--muted);font-style:italic;">No results match your search.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = filtered.map(idx => {
+    const b = bookingData[idx];
+    const st = bookingState[b.order] || { payment: b.payment, invoice: b.invoice };
+    const payClass = st.payment === 'Paid' ? 'paid' : 'unpaid';
+    return `<tr>
+      <td><strong>#${b.order}</strong></td>
+      <td style="font-size:12px;color:var(--muted)">${b.placed}</td>
+      <td><strong>${b.customer}</strong></td>
+      <td style="font-size:11px">${b.email}</td>
+      <td style="font-size:12px;white-space:nowrap">${b.phone}</td>
+      <td style="font-size:11px">${b.product}</td>
+      <td>${b.date}</td>
+      <td>${b.time}</td>
+      <td>${b.guests}</td>
+      <td>${b.pig}</td>
+      <td>${b.full}</td>
+      <td>${b.deposit}</td>
+      <td class="bal-cell ${payClass}">${b.balance}</td>
+      <td class="bal-cell ${payClass}">${b.balance}</td>
+      <td>
+        <select class="status-select ${st.payment==='Paid'?'is-paid':st.payment==='Pending'?'is-pending':'is-unpaid'}"
+          onchange="updateBooking('${b.order}','payment',this)" style="font-size:11px;padding:3px 8px;">
+          <option value="" ${!st.payment?'selected':''}>—</option>
+          <option value="Paid" ${st.payment==='Paid'?'selected':''}>Paid</option>
+          <option value="Pending" ${st.payment==='Pending'?'selected':''}>Pending</option>
+          <option value="Unpaid" ${st.payment==='Unpaid'?'selected':''}>Unpaid</option>
+        </select>
+      </td>
+      <td>
+        <select class="status-select ${st.invoice==='Sent'?'is-paid':st.invoice==='Pending'?'is-pending':'is-unpaid'}"
+          onchange="updateBooking('${b.order}','invoice',this)" style="font-size:11px;padding:3px 8px;">
+          <option value="" ${!st.invoice?'selected':''}>—</option>
+          <option value="Sent" ${st.invoice==='Sent'?'selected':''}>Sent</option>
+          <option value="Pending" ${st.invoice==='Pending'?'selected':''}>Pending</option>
+          <option value="Not Sent" ${st.invoice==='Not Sent'?'selected':''}>Not Sent</option>
+        </select>
+      </td>
+      <td style="font-size:12px;color:var(--muted);font-style:italic;">${b.notes || '—'}</td>
+    </tr>`;
+  }).join('');
+}
+
+// ════════════════════════════════════
+// FILTER
+// ════════════════════════════════════
+let currentSearch = '';
+
+function filterCruise(data, q) {
+  return data.map((_,i) => i).filter(i => {
+    if (!q) return true;
+    const r = data[i];
+    const hay = [r.ship, r.line, r.start, r.nassau, r.fb].join(' ').toLowerCase();
+    return hay.includes(q);
+  });
+}
+
+function filterBookings(q) {
+  return bookingData.map((_,i) => i).filter(i => {
+    if (!q) return true;
+    const b = bookingData[i];
+    const hay = [b.customer, b.date, b.order, b.time, b.email, b.phone, b.product, b.notes].join(' ').toLowerCase();
+    return hay.includes(q);
+  });
+}
+
+function renderAll(q) {
+  const jf = filterCruise(cruiseData.june, q);
+  const julf = filterCruise(cruiseData.july, q);
+  const augf = filterCruise(cruiseData.august, q);
+  const df = filterBookings(q);
+
+  document.getElementById('juneCnt').textContent = jf.length + ' ships';
+  document.getElementById('julyCnt').textContent = julf.length + ' ships';
+  document.getElementById('augustCnt').textContent = augf.length + ' ships';
+  document.getElementById('directCnt').textContent = df.length + ' bookings';
+
+  document.getElementById('tc-june').textContent = jf.length;
+  document.getElementById('tc-july').textContent = julf.length;
+  document.getElementById('tc-august').textContent = augf.length;
+  document.getElementById('tc-direct').textContent = df.length;
+
+  renderCruiseCards('june', cruiseData.june, jf);
+  renderCruiseTable('juneTbody', 'june', cruiseData.june, jf);
+  renderCruiseCards('july', cruiseData.july, julf);
+  renderCruiseTable('julyTbody', 'july', cruiseData.july, julf);
+  renderCruiseCards('august', cruiseData.august, augf);
+  renderCruiseTable('augustTbody', 'august', cruiseData.august, augf);
+  renderBookingCards(df);
+  renderBookingTable(df);
+}
+
+// ════════════════════════════════════
+// EVENTS
+// ════════════════════════════════════
+function handleSearch(inp) {
+  currentSearch = inp.value.trim().toLowerCase();
+  document.getElementById('clearBtn').classList.toggle('visible', !!currentSearch);
+  renderAll(currentSearch);
+}
+
+function clearSearch() {
+  document.getElementById('searchInput').value = '';
+  document.getElementById('clearBtn').classList.remove('visible');
+  currentSearch = '';
+  renderAll('');
+}
+
+function switchTab(tab, btn) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('sec-' + tab).classList.add('active');
+}
+
+function togglePosted(month, idx, cb) {
+  cruiseState[month][idx] = cb.checked;
+  renderAll(currentSearch);
+}
+
+function updateBooking(order, field, sel) {
+  if (!bookingState[order]) bookingState[order] = { payment: '', invoice: '' };
+  bookingState[order][field] = sel.value;
+  renderAll(currentSearch);
+}
+
+// ════════════════════════════════════
+// INIT
+// ════════════════════════════════════
+renderAll('');
+
+// Recalc summary
+const totalBalance = bookingData.reduce((s,b) => s + b.balanceNum, 0);
+document.getElementById('statBalance').textContent = '$' + totalBalance.toLocaleString();
+document.getElementById('statTotal').textContent = cruiseData.june.length + cruiseData.july.length + cruiseData.august.length;
+document.getElementById('statBookings').textContent = bookingData.length;
+
+const today = new Date('2026-05-26');
+const upcoming = bookingData.filter(b => {
+  const d = new Date(b.date);
+  return d >= today;
+}).length;
+document.getElementById('statUpcoming').textContent = upcoming;
+</script>
+</body>
+</html>
