@@ -212,3 +212,10 @@ td { font-size: .9rem; }
   .crew-dashboard-body { grid-template-columns: 1.1fr .9fr .9fr; align-items: start; }
   .assignment-detail-grid { min-width: 360px; }
 }
+
+.dashboard-kpis { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }
+.notice-list { display: grid; gap: 12px; }
+.notice-item { display: grid; grid-template-columns: auto 1fr; gap: 12px; align-items: start; border: 1px solid var(--line); border-radius: 14px; padding: 12px; background: #f8fbfc; }
+.notice-item.unread { border-color: rgba(212, 168, 71, .7); background: #fffaf0; }
+.notice-item p { margin: 4px 0; color: var(--muted); }
+.notice-item small { color: var(--muted); }

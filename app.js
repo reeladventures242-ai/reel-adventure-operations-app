@@ -1,12 +1,13 @@
 const STORE_KEY = 'rat_ops_v1_store';
-const STORE_VERSION = 4;
+const STORE_VERSION = 5;
 
 const navItems = [
   ['dashboard', '🏠', 'Dashboard'], ['bookings', '📘', 'Bookings'], ['invoices', '🧾', 'Invoices'],
   ['trips', '🧭', 'Trips'], ['vessels', '⛵', 'Vessels'], ['crew', '👥', 'Crew'],
   ['payroll', '💸', 'Payroll'], ['expenses', '💳', 'Expenses'], ['inventory', '📦', 'Inventory'],
   ['pre-trip-checklist', '✅', 'Pre Trip Checklist'], ['post-trip-checklist', '🧽', 'Post Trip Checklist'],
-  ['cruise-schedule', '🚢', 'Cruise Schedule'], ['reports', '📊', 'Reports'], ['settings', '⚙️', 'Settings']
+  ['cruise-schedule', '🚢', 'Cruise Schedule'], ['reports', '📊', 'Reports'],
+  ['notifications', '🔔', 'Notifications'], ['audit', '🧾', 'Audit Trail'], ['settings', '⚙️', 'Settings']
 ];
 
 const legacyTools = [
@@ -75,7 +76,9 @@ const seedData = {
   ],
   bookings: [],
   trips: [],
-  payrollPayments: []
+  payrollPayments: [],
+  notifications: [],
+  auditTrail: []
 };
 
 const crudConfig = {
@@ -105,6 +108,7 @@ let store = loadStore();
 let currentRoute = 'dashboard';
 let editing = {};
 let deferredInstallPrompt = null;
+let voiceRecognition = null;
 
 function loadStore() {
   const raw = localStorage.getItem(STORE_KEY);
@@ -127,6 +131,8 @@ function seedStore(existing = {}) {
 function migrateStore(existing = {}) {
   const next = { ...structuredClone(seedData), ...existing, version: STORE_VERSION, updatedAt: existing.updatedAt || new Date().toISOString() };
   next.payrollPayments = Array.isArray(next.payrollPayments) ? next.payrollPayments : [];
+  next.notifications = Array.isArray(next.notifications) ? next.notifications : [];
+  next.auditTrail = Array.isArray(next.auditTrail) ? next.auditTrail : [];
   next.trips = (Array.isArray(next.trips) ? next.trips : []).map((trip) => ({
     ...trip,
     bookingSource: trip.bookingSource || trip.source || '',
@@ -143,6 +149,30 @@ function migrateStore(existing = {}) {
 function saveStore() {
   store.updatedAt = new Date().toISOString();
   localStorage.setItem(STORE_KEY, JSON.stringify(store));
+}
+
+function currentUserLabel() {
+  return document.getElementById('activeRole')?.textContent || document.getElementById('roleSelect')?.value || 'Demo user';
+}
+
+function summarizeRecord(record = {}) {
+  return record.customer || record.name || record.order || record.id || 'record';
+}
+
+function addAudit(action, area, detail, metadata = {}) {
+  store.auditTrail = Array.isArray(store.auditTrail) ? store.auditTrail : [];
+  store.auditTrail.unshift({ id: makeId('audit'), at: new Date().toISOString(), user: currentUserLabel(), action, area, detail, metadata });
+  store.auditTrail = store.auditTrail.slice(0, 250);
+}
+
+function addNotification(title, message, level = 'info', metadata = {}) {
+  store.notifications = Array.isArray(store.notifications) ? store.notifications : [];
+  store.notifications.unshift({ id: makeId('notice'), at: new Date().toISOString(), title, message, level, read: false, metadata });
+  store.notifications = store.notifications.slice(0, 100);
+}
+
+function unreadNotificationCount() {
+  return (store.notifications || []).filter((notice) => !notice.read).length;
 }
 
 function money(value) { return Number(value || 0).toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: Number(value || 0) % 1 ? 2 : 0, maximumFractionDigits: 2 }); }
@@ -190,6 +220,14 @@ function wireEvents() {
     if (routeBtn) renderRoute(routeBtn.dataset.route);
     const legacyEmbed = event.target.closest('[data-embed-legacy]');
     if (legacyEmbed) embedLegacy(legacyEmbed.dataset.embedLegacy);
+    const voiceButton = event.target.closest('[data-voice-fill]');
+    if (voiceButton) startVoiceFill(voiceButton);
+    if (event.target.closest('[data-export-store]')) exportStoreData();
+    if (event.target.closest('[data-reset-store]')) { addAudit('reset', 'Settings', 'Reset local data to seed defaults.'); localStorage.removeItem(STORE_KEY); store = seedStore({ auditTrail: store.auditTrail, notifications: store.notifications }); renderRoute(currentRoute); toast('Seed data restored.'); }
+    if (event.target.closest('[data-mark-notices-read]')) markNotificationsRead();
+  });
+  document.body.addEventListener('change', (event) => {
+    if (event.target.matches('[data-import-store]')) importStoreData(event.target.files[0]);
   });
   window.addEventListener('beforeinstallprompt', (event) => {
     event.preventDefault();
@@ -222,6 +260,8 @@ function renderRoute(route) {
   if (crudConfig[route]) renderCrud(route);
   else if (route === 'dashboard') renderDashboard();
   else if (route === 'payroll') renderPayroll();
+  else if (route === 'notifications') renderNotifications();
+  else if (route === 'audit') renderAuditTrail();
   else if (route === 'legacy') renderLegacy();
   else renderPlaceholder(route);
 }
@@ -235,11 +275,12 @@ function renderDashboard() {
   document.getElementById('page-dashboard').innerHTML = `
     <div class="page-stack">
       <div class="section-heading"><div><p class="eyebrow">Phase 3A operations</p><h1>Daily trip operations dashboard</h1><p class="section-summary">Create trips, assign vessels and crew, monitor balances, and calculate weekly owner/captain/mate payroll while keeping all legacy HTML tools intact.</p></div><button class="btn btn-primary" data-route="trips">Create / assign trips</button></div>
-      <div class="grid kpi-grid">
+      <div class="grid kpi-grid dashboard-kpis">
         ${kpi('Active bookings', store.bookings.length, `${money(totalBalance)} total balances`)}
         ${kpi('Scheduled trips', scheduledTrips.length, 'Assignment board ready')}
         ${kpi('Payroll owed', money(outstandingPayroll), 'Outstanding by role')}
         ${kpi('Crew', store.crew.length, `${store.roles.length} documented roles`)}
+        ${kpi('Unread alerts', unreadNotificationCount(), `${(store.auditTrail || []).length} audit entries`)}
       </div>
       <div class="grid dashboard-grid">
         <div class="card"><div class="card-header"><h3>Upcoming bookings</h3><button class="btn btn-outline btn-small" data-route="bookings">View all</button></div><div class="stat-list">${upcomingBookings.map((b) => `<div class="stat-row"><span>${escapeHtml(b.date)} · ${escapeHtml(b.time)}</span><strong>${escapeHtml(b.customer)}<br><small>${escapeHtml(b.product)} · ${b.guests} guests</small></strong></div>`).join('')}</div></div>
@@ -278,7 +319,7 @@ function renderCrud(route) {
 function renderForm(route, record = {}) {
   const config = crudConfig[route];
   const form = document.querySelector(`#page-${route} .record-form`);
-  form.innerHTML = `<div class="form-grid">${config.fields.map(([key, label, type]) => renderField(key, label, type, record[key])).join('')}</div>${route === 'trips' ? '<div class="conflict-panel" data-conflict-panel hidden></div>' : ''}<div class="form-actions"><button class="btn btn-primary" type="submit">Save ${config.title.slice(0, -1)}</button><button class="btn btn-outline" type="button" data-cancel>Cancel</button></div>`;
+  form.innerHTML = `<div class="form-grid">${config.fields.map(([key, label, type]) => renderField(key, label, type, record[key])).join('')}</div>${route === 'trips' ? '<div class="conflict-panel" data-conflict-panel hidden></div>' : ''}<div class="form-actions"><button class="btn btn-primary" type="submit">Save ${config.title.slice(0, -1)}</button>${voiceFillButton(route)}<button class="btn btn-outline" type="button" data-cancel>Cancel</button></div>`;
   if (route === 'trips') {
     form.addEventListener('input', () => updateTripConflictPreview(form));
     form.addEventListener('change', (event) => {
@@ -287,6 +328,11 @@ function renderForm(route, record = {}) {
   }
   form.onsubmit = (event) => saveRecord(event, route);
   form.querySelector('[data-cancel]').onclick = () => { editing[route] = null; form.hidden = true; };
+}
+
+function voiceFillButton(route) {
+  if (!['bookings', 'trips'].includes(route)) return '';
+  return '<button class="btn btn-outline" type="button" data-voice-fill>🎙️ Voice fill</button>';
 }
 
 function renderField(key, label, type, value = '') {
@@ -323,17 +369,23 @@ function saveRecord(event, route) {
     const conflicts = findTripConflicts(data, editing[route]);
     if (conflicts.length) {
       showTripConflicts(event.currentTarget, conflicts);
+      addNotification('Assignment conflict blocked', `${data.vessel || 'A vessel'} or crew is already booked for ${data.tripDate || 'the selected date'}.`, 'critical', { route, customer: data.customer });
+      addAudit('blocked', 'Trips', `Prevented overlapping assignment for ${data.customer || 'new trip'}.`, { conflicts: conflicts.length });
+      saveStore();
       toast('Assignment conflict found. Resolve before saving.');
       return;
     }
     data.status = data.status || 'Scheduled';
     data.payroll = calculateTripPayroll(data);
   }
+  const action = editing[route] ? 'updated' : 'created';
   if (editing[route]) {
     store[config.collection] = store[config.collection].map((item) => item.id === editing[route] ? { ...item, ...data } : item);
   } else {
     store[config.collection].push({ id: makeId(config.collection), ...data });
   }
+  addAudit(action, config.title, `${config.title.slice(0, -1)} ${summarizeRecord(data)} ${action}.`, { route });
+  if (route === 'trips') addNotification('Trip saved', `${data.customer || 'A trip'} is ${data.status || 'Scheduled'} for ${formatDate(data.tripDate)}.`, 'success', { route });
   editing[route] = null;
   saveStore();
   renderCrud(route);
@@ -343,7 +395,10 @@ function saveRecord(event, route) {
 function deleteRecord(route, id) {
   const config = crudConfig[route];
   if (!confirm(`Delete this ${config.title.slice(0, -1).toLowerCase()}?`)) return;
+  const record = store[config.collection].find((item) => item.id === id);
   store[config.collection] = store[config.collection].filter((item) => item.id !== id);
+  addAudit('deleted', config.title, `${config.title.slice(0, -1)} ${summarizeRecord(record)} deleted.`, { route });
+  addNotification(`${config.title.slice(0, -1)} deleted`, `${summarizeRecord(record)} was removed from ${config.title}.`, 'warning', { route });
   saveStore();
   if (route === 'trips') renderAssignmentBoard();
   if (route === 'crew') renderCrewDashboard();
@@ -551,7 +606,10 @@ function payrollWeekLabel(dateText) {
 function savePayrollPayment(event, entryKey) {
   event.preventDefault();
   const data = Object.fromEntries(new FormData(event.currentTarget).entries());
+  const entry = payrollEntries().find((item) => item.key === entryKey);
   store.payrollPayments.push({ id: makeId('payroll-payment'), entryKey, amountPaid: Number(data.amountPaid || 0), datePaid: data.datePaid, paymentMethod: data.paymentMethod, paymentNotes: data.paymentNotes });
+  addAudit('created', 'Payroll', `Recorded ${money(data.amountPaid)} payroll payment for ${entry?.person || 'crew'}.`, { entryKey });
+  addNotification('Payroll payment recorded', `${money(data.amountPaid)} saved for ${entry?.person || 'crew'}.`, 'success', { entryKey });
   saveStore();
   renderPayroll();
   toast('Payroll payment saved.');
@@ -604,6 +662,92 @@ function renderCrewDashboard() {
   dashboard.innerHTML = `<div class="card-header"><h3>Crew dashboard</h3><select data-crew-select onchange="renderCrewDashboard()">${getOptions('crew').map((name) => `<option value="${escapeHtml(name)}" ${name === selected ? 'selected' : ''}>${escapeHtml(name)}</option>`).join('')}</select></div><div class="crew-dashboard-body"><div><h4>Assigned trips</h4>${assignedTrips.length ? assignedTrips.map((trip) => `<div class="stat-row"><span>${escapeHtml(formatDate(trip.tripDate))} · ${escapeHtml(formatTime(trip.startTime))}</span><strong>${escapeHtml(trip.customer || 'No customer')}<br><small>${escapeHtml([trip.vessel, trip.captain === selected ? 'Captain' : '', trip.mate === selected ? 'Mate' : '', store.vessels.find((vessel) => vessel.name === trip.vessel)?.owner === selected ? 'Owner' : ''].filter(Boolean).join(' · '))}</small></strong></div>`).join('') : '<p class="empty-state">No assigned trips.</p>'}</div><div><h4>Outstanding pay</h4><div class="kpi-value">${money(outstanding)}</div>${entries.map((entry) => `<div class="stat-row"><span>${escapeHtml(entry.role)} · ${escapeHtml(formatDate(entry.trip.tripDate))}</span><strong>${money(entry.outstanding)}</strong></div>`).join('') || '<p class="empty-state">No outstanding pay.</p>'}</div><div><h4>Payment history</h4>${history.length ? history.map((payment) => `<div class="stat-row"><span>${escapeHtml(payment.datePaid || 'No date')} · ${escapeHtml(payment.paymentMethod || 'No method')}</span><strong>${money(payment.amountPaid)}<br><small>${escapeHtml(payment.paymentNotes || payment.entry.role)}</small></strong></div>`).join('') : '<p class="empty-state">No payment history.</p>'}</div></div>`;
 }
 
+function startVoiceFill(button) {
+  const form = button.closest('form');
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!form || !SpeechRecognition) {
+    toast('Voice fill is not supported in this browser.');
+    return;
+  }
+  if (voiceRecognition) voiceRecognition.stop();
+  voiceRecognition = new SpeechRecognition();
+  voiceRecognition.continuous = false;
+  voiceRecognition.interimResults = false;
+  voiceRecognition.lang = 'en-US';
+  button.textContent = 'Listening…';
+  voiceRecognition.onresult = (event) => applyVoiceTranscript(form, event.results[0][0].transcript || '');
+  voiceRecognition.onerror = () => toast('Voice fill stopped before text was captured.');
+  voiceRecognition.onend = () => { button.textContent = '🎙️ Voice fill'; voiceRecognition = null; };
+  voiceRecognition.start();
+}
+
+function applyVoiceTranscript(form, transcript) {
+  const notes = form.elements.notes;
+  if (notes) notes.value = [notes.value, transcript].filter(Boolean).join(notes.value ? '\n' : '');
+  const customerMatch = transcript.match(/customer\s+([^,.]+)/i);
+  if (customerMatch && form.elements.customer) form.elements.customer.value = customerMatch[1].trim();
+  const guestsMatch = transcript.match(/(?:guests|passengers)\s+(\d+)/i);
+  if (guestsMatch && form.elements.passengers) form.elements.passengers.value = guestsMatch[1];
+  if (guestsMatch && form.elements.guests) form.elements.guests.value = guestsMatch[1];
+  addAudit('voice-fill', currentRoute, `Voice fill captured notes for ${currentRoute}.`, { transcriptLength: transcript.length });
+  saveStore();
+  updateTripConflictPreview(form);
+  toast('Voice fill added transcript to notes.');
+}
+
+function exportStoreData() {
+  const payload = JSON.stringify({ exportedAt: new Date().toISOString(), store }, null, 2);
+  const blob = new Blob([payload], { type: 'application/json' });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = `reel-adventure-operations-${new Date().toISOString().slice(0, 10)}.json`;
+  link.click();
+  URL.revokeObjectURL(link.href);
+  addAudit('exported', 'Settings', 'Exported local operations data.', { bytes: payload.length });
+  addNotification('Export ready', 'Operations data was exported to a JSON file.', 'success');
+  saveStore();
+  renderRoute(currentRoute);
+}
+
+function importStoreData(file) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const parsed = JSON.parse(reader.result);
+      store = migrateStore(parsed.store || parsed);
+      addAudit('imported', 'Settings', `Imported operations data from ${file.name}.`, { file: file.name });
+      addNotification('Import complete', `${file.name} replaced the local operations data.`, 'success');
+      saveStore();
+      renderRoute(currentRoute);
+      toast('Import complete. Local data updated.');
+    } catch (error) {
+      console.warn('Import failed', error);
+      toast('Import failed. Choose a valid JSON export.');
+    }
+  };
+  reader.onerror = () => toast('Import failed. Choose a valid JSON export.');
+  reader.readAsText(file);
+}
+
+function renderNotifications() {
+  const notices = store.notifications || [];
+  document.getElementById('page-notifications').innerHTML = `<div class="page-stack"><div class="section-heading"><div><p class="eyebrow">Operational alerts</p><h1>Notifications</h1><p class="section-summary">Local alerts are created for trip changes, assignment conflicts, payroll updates, export/import activity, and deletions.</p></div><button class="btn btn-outline" data-mark-notices-read>Mark all read</button></div><div class="card card-pad notice-list">${notices.length ? notices.map((notice) => `<div class="notice-item ${notice.read ? '' : 'unread'}"><span class="badge ${notice.level === 'critical' ? 'red' : notice.level === 'success' ? 'green' : 'gold'}">${escapeHtml(notice.level || 'info')}</span><div><strong>${escapeHtml(notice.title)}</strong><p>${escapeHtml(notice.message)}</p><small>${escapeHtml(new Date(notice.at).toLocaleString())}</small></div></div>`).join('') : '<p class="empty-state">No notifications yet.</p>'}</div></div>`;
+}
+
+function markNotificationsRead() {
+  (store.notifications || []).forEach((notice) => { notice.read = true; });
+  addAudit('updated', 'Notifications', 'Marked all notifications as read.');
+  saveStore();
+  renderNotifications();
+  toast('Notifications marked read.');
+}
+
+function renderAuditTrail() {
+  const entries = store.auditTrail || [];
+  document.getElementById('page-audit').innerHTML = `<div class="page-stack"><div class="section-heading"><div><p class="eyebrow">Change history</p><h1>Audit trail</h1><p class="section-summary">A local append-only history records creates, updates, deletes, payroll payments, conflict blocks, voice fill, and data transfers.</p></div></div><div class="card table-card"><div class="responsive-table-wrap"><table><thead><tr><th>Time</th><th>User</th><th>Area</th><th>Action</th><th>Detail</th></tr></thead><tbody>${entries.length ? entries.map((entry) => `<tr><td>${escapeHtml(new Date(entry.at).toLocaleString())}</td><td>${escapeHtml(entry.user)}</td><td>${escapeHtml(entry.area)}</td><td><span class="badge blue">${escapeHtml(entry.action)}</span></td><td>${escapeHtml(entry.detail)}</td></tr>`).join('') : '<tr><td colspan="5" class="empty-state">No audit events yet.</td></tr>'}</tbody></table></div></div></div>`;
+}
+
 function renderLegacy() {
   document.getElementById('page-legacy').innerHTML = `<div class="page-stack"><div class="section-heading"><div><p class="eyebrow">Preserved HTML tools</p><h1>Legacy tools</h1><p class="section-summary">These tools are intentionally linked and embeddable during Phase 2. They have not been rewritten or removed.</p></div></div><div class="grid">${legacyTools.map((tool) => `<div class="legacy-tool"><h3>${tool.title}</h3><p>${tool.desc}</p><div class="legacy-actions"><a class="btn btn-outline" href="${tool.file}" target="_blank" rel="noopener">Open in new tab</a><button class="btn btn-primary" data-embed-legacy="${tool.file}">Embed in shell</button></div></div>`).join('')}</div><div id="legacyEmbedTarget"></div></div>`;
 }
@@ -635,7 +779,7 @@ function legacyShortcut(route) {
   return matches[route] ? `<p><button class="btn btn-primary" data-route="legacy" data-embed-legacy="${matches[route]}">Open related legacy tool</button></p>` : '';
 }
 function settingsMarkup() {
-  return `<div class="grid settings-grid" style="margin-top:18px"><div class="legacy-tool"><h3>Seed data</h3><p>${store.vessels.length} vessels, ${store.crew.length} crew members, ${store.roles.length} roles, ${store.bookingSources.length} booking sources, ${store.standardPayoutRates.length} standard crew payout rates, and ${store.vesselOwnerPayoutRates.length} documented owner payout rules loaded.</p></div><div class="legacy-tool"><h3>Local data layer</h3><p>Storage key: ${STORE_KEY}. Last updated: ${new Date(store.updatedAt).toLocaleString()}.</p><div class="legacy-actions"><button class="btn btn-outline" onclick="localStorage.removeItem(STORE_KEY); store = seedStore(); renderRoute(currentRoute); toast('Seed data restored.');">Reset seed data</button></div></div></div>`;
+  return `<div class="grid settings-grid" style="margin-top:18px"><div class="legacy-tool"><h3>Seed data</h3><p>${store.vessels.length} vessels, ${store.crew.length} crew members, ${store.roles.length} roles, ${store.bookingSources.length} booking sources, ${store.standardPayoutRates.length} standard crew payout rates, and ${store.vesselOwnerPayoutRates.length} documented owner payout rules loaded.</p></div><div class="legacy-tool"><h3>Local data layer</h3><p>Storage key: ${STORE_KEY}. Last updated: ${new Date(store.updatedAt).toLocaleString()}.</p><div class="legacy-actions"><button class="btn btn-outline" data-export-store>Export JSON</button><label class="btn btn-outline" for="importStoreFile">Import JSON<input id="importStoreFile" data-import-store type="file" accept="application/json" hidden></label><button class="btn btn-danger" data-reset-store>Reset seed data</button></div></div><div class="legacy-tool"><h3>Preserved Phase 3 safeguards</h3><p>Dispatch board, payroll, audit trail, notifications, voice fill, export/import, legacy shell links, and the static validator are all active.</p></div></div>`;
 }
 
 function toast(message) {
