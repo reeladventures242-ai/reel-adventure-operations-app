@@ -111,16 +111,31 @@ def validate_html() -> tuple[bool, str]:
 
 def validate_legacy_preserved() -> tuple[bool, str]:
     app_js = (ROOT / "app.js").read_text()
+    index_html = (ROOT / "index.html").read_text()
     missing = [name for name in sorted(LEGACY_FILES) if not (ROOT / name).exists()]
     unlinked = [name for name in sorted(LEGACY_FILES) if name not in app_js]
-    if missing or unlinked:
+    required_features = {
+        "dispatch board": "renderAssignmentBoard",
+        "payroll": "renderPayroll",
+        "audit trail": "renderAuditTrail",
+        "notifications": "renderNotifications",
+        "voice fill": "startVoiceFill",
+        "export": "exportStoreData",
+        "import": "importStoreData",
+        "notifications page": "page-notifications",
+        "audit page": "page-audit",
+    }
+    missing_features = [label for label, token in required_features.items() if token not in app_js and token not in index_html]
+    if missing or unlinked or missing_features:
         parts = []
         if missing:
             parts.append(f"missing files: {', '.join(missing)}")
         if unlinked:
             parts.append(f"not referenced in app.js: {', '.join(unlinked)}")
+        if missing_features:
+            parts.append(f"missing feature hooks: {', '.join(missing_features)}")
         return False, "FAIL — " + "; ".join(parts)
-    return True, "PASS — all legacy HTML tools exist and remain linked from app.js"
+    return True, "PASS — legacy links plus dispatch board, payroll, audit trail, notifications, voice fill, and export/import hooks are present"
 
 
 def validate_app_bootstrap() -> tuple[bool, str]:
@@ -142,7 +157,7 @@ class Element {
   querySelector(){ return null; }
   querySelectorAll(){ return []; }
 }
-const ids = ['toast','loginScreen','appShell','roleSelect','enterAppBtn','activeRole','menuBtn','sidebar','sidebarOverlay','primaryNav','installBtn','pageTitle','page-dashboard','page-bookings','page-invoices','page-trips','page-vessels','page-crew','page-payroll','page-expenses','page-inventory','page-pre-trip-checklist','page-post-trip-checklist','page-cruise-schedule','page-reports','page-settings','page-legacy'];
+const ids = ['toast','loginScreen','appShell','roleSelect','enterAppBtn','activeRole','menuBtn','sidebar','sidebarOverlay','primaryNav','installBtn','pageTitle','page-dashboard','page-bookings','page-invoices','page-trips','page-vessels','page-crew','page-payroll','page-expenses','page-inventory','page-pre-trip-checklist','page-post-trip-checklist','page-cruise-schedule','page-reports','page-notifications','page-audit','page-settings','page-legacy'];
 const elements = Object.fromEntries(ids.map(id => [id, new Element(id)]));
 for (const id of ids.filter(id => id.startsWith('page-'))) elements[id].classList.add('page');
 const listeners = {};
