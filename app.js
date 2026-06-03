@@ -1,5 +1,5 @@
 const STORE_KEY = 'rat_ops_v1_store';
-const STORE_VERSION = 3;
+const STORE_VERSION = 4;
 
 const navItems = [
   ['dashboard', '🏠', 'Dashboard'], ['bookings', '📘', 'Bookings'], ['invoices', '🧾', 'Invoices'],
@@ -74,7 +74,8 @@ const seedData = {
     { id: 'crew-mr-pat', name: 'Mr. Pat', role: '', phone: '', email: '', active: 'Yes', notes: '' }
   ],
   bookings: [],
-  trips: []
+  trips: [],
+  payrollPayments: []
 };
 
 const crudConfig = {
@@ -84,9 +85,9 @@ const crudConfig = {
     columns: [['order','Order'], ['customer','Customer'], ['date','Date'], ['guests','Guests'], ['product','Product'], ['source','Source'], ['balance','Balance']]
   },
   trips: {
-    title: 'Trips', eyebrow: 'Simple CRUD', summary: 'Track scheduled and completed trips without replacing the legacy payroll and trip-log calculations yet.', collection: 'trips', addLabel: 'Add trip',
-    fields: [['tripDate','Trip date','date'], ['startTime','Start time','time'], ['customer','Customer','text'], ['vessel','Vessel','select:vessels'], ['captain','Captain','select:crew'], ['mate','Mate','select:crewOptional'], ['passengers','Passengers','number'], ['hours','Hours','number'], ['tourPrice','Tour price','number'], ['status','Status','select:tripStatus'], ['notes','Notes','textarea']],
-    columns: [['tripDate','Date'], ['startTime','Time'], ['customer','Customer'], ['vessel','Vessel'], ['captain','Captain'], ['mate','Mate'], ['passengers','Pax'], ['tourPrice','Price'], ['status','Status']]
+    title: 'Trips', eyebrow: 'Daily operations', summary: 'Create trips, assign vessels and crew, detect assignment conflicts, and calculate separated owner/captain/mate payroll.', collection: 'trips', addLabel: 'Create trip',
+    fields: [['customer','Customer name','text'], ['phone','Phone number','tel'], ['email','Email','email'], ['bookingSource','Booking source','select:bookingSources'], ['tripDate','Date','date'], ['startTime','Time','time'], ['passengers','Guest count','number'], ['hours','Hours','number'], ['tourPrice','Tour price','number'], ['depositPaid','Deposit paid','number'], ['balanceDue','Balance due','number'], ['vessel','Assigned vessel','select:vessels'], ['captain','Assigned captain','select:crew'], ['mate','Assigned mate','select:crewOptional'], ['status','Trip status','select:tripStatus'], ['notes','Notes','textarea']],
+    columns: [['tripDate','Date'], ['startTime','Time'], ['customer','Customer'], ['passengers','Guests'], ['bookingSource','Source'], ['tourPrice','Price'], ['depositPaid','Deposit'], ['balanceDue','Balance'], ['vessel','Vessel'], ['captain','Captain'], ['mate','Mate'], ['status','Status']]
   },
   crew: {
     title: 'Crew', eyebrow: 'Simple CRUD', summary: 'Maintain the seeded crew roster, roles, and active status in the new app data layer.', collection: 'crew', addLabel: 'Add crew',
@@ -110,8 +111,7 @@ function loadStore() {
   if (!raw) return seedStore();
   try {
     const parsed = JSON.parse(raw);
-    if (parsed.version !== STORE_VERSION) return seedStore();
-    return parsed;
+    return migrateStore(parsed);
   } catch (error) {
     console.warn('Resetting invalid local data', error);
     return seedStore();
@@ -119,7 +119,23 @@ function loadStore() {
 }
 
 function seedStore(existing = {}) {
-  const next = { ...structuredClone(seedData), ...existing, version: STORE_VERSION, updatedAt: new Date().toISOString() };
+  const next = migrateStore({ ...structuredClone(seedData), ...existing });
+  localStorage.setItem(STORE_KEY, JSON.stringify(next));
+  return next;
+}
+
+function migrateStore(existing = {}) {
+  const next = { ...structuredClone(seedData), ...existing, version: STORE_VERSION, updatedAt: existing.updatedAt || new Date().toISOString() };
+  next.payrollPayments = Array.isArray(next.payrollPayments) ? next.payrollPayments : [];
+  next.trips = (Array.isArray(next.trips) ? next.trips : []).map((trip) => ({
+    ...trip,
+    bookingSource: trip.bookingSource || trip.source || '',
+    depositPaid: Number(trip.depositPaid || 0),
+    balanceDue: Number(trip.balanceDue ?? trip.balance ?? 0),
+    passengers: Number(trip.passengers ?? trip.guests ?? 0),
+    hours: Number(trip.hours || 4),
+    status: trip.status || 'Scheduled'
+  }));
   localStorage.setItem(STORE_KEY, JSON.stringify(next));
   return next;
 }
@@ -129,7 +145,7 @@ function saveStore() {
   localStorage.setItem(STORE_KEY, JSON.stringify(store));
 }
 
-function money(value) { return Number(value || 0).toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }); }
+function money(value) { return Number(value || 0).toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: Number(value || 0) % 1 ? 2 : 0, maximumFractionDigits: 2 }); }
 function byDate(a, b) { return String(a.date || a.tripDate).localeCompare(String(b.date || b.tripDate)); }
 function escapeHtml(value) { return String(value ?? '').replace(/[&<>'"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[c])); }
 function makeId(prefix) { return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2, 7)}`; }
@@ -205,6 +221,7 @@ function renderRoute(route) {
   document.getElementById('pageTitle').textContent = nav ? nav[2] : 'Legacy Tools';
   if (crudConfig[route]) renderCrud(route);
   else if (route === 'dashboard') renderDashboard();
+  else if (route === 'payroll') renderPayroll();
   else if (route === 'legacy') renderLegacy();
   else renderPlaceholder(route);
 }
@@ -212,14 +229,16 @@ function renderRoute(route) {
 function renderDashboard() {
   const upcomingBookings = store.bookings.filter((b) => b.status !== 'Cancelled').sort(byDate).slice(0, 4);
   const scheduledTrips = store.trips.filter((t) => t.status === 'Scheduled').sort(byDate);
-  const totalBalance = store.bookings.reduce((sum, b) => sum + Number(b.balance || 0), 0);
+  const totalBalance = store.bookings.reduce((sum, b) => sum + Number(b.balance || 0), 0) + store.trips.reduce((sum, t) => sum + Number(t.balanceDue || 0), 0);
+  const payroll = payrollEntries();
+  const outstandingPayroll = payroll.reduce((sum, entry) => sum + entry.outstanding, 0);
   document.getElementById('page-dashboard').innerHTML = `
     <div class="page-stack">
-      <div class="section-heading"><div><p class="eyebrow">Seeded demo data</p><h1>Unified operations dashboard</h1><p class="section-summary">This Phase 2 shell centralizes the documented boats, crew, booking sources, payout rules, and legacy tools while keeping all legacy HTML files intact.</p></div><button class="btn btn-primary" data-route="bookings">Add / manage bookings</button></div>
+      <div class="section-heading"><div><p class="eyebrow">Phase 3A operations</p><h1>Daily trip operations dashboard</h1><p class="section-summary">Create trips, assign vessels and crew, monitor balances, and calculate weekly owner/captain/mate payroll while keeping all legacy HTML tools intact.</p></div><button class="btn btn-primary" data-route="trips">Create / assign trips</button></div>
       <div class="grid kpi-grid">
-        ${kpi('Active bookings', store.bookings.length, `${money(totalBalance)} balances`)}
-        ${kpi('Scheduled trips', scheduledTrips.length, 'No supplied trip records')}
-        ${kpi('Vessels', store.vessels.length, 'Supplied vessel roster')}
+        ${kpi('Active bookings', store.bookings.length, `${money(totalBalance)} total balances`)}
+        ${kpi('Scheduled trips', scheduledTrips.length, 'Assignment board ready')}
+        ${kpi('Payroll owed', money(outstandingPayroll), 'Outstanding by role')}
         ${kpi('Crew', store.crew.length, `${store.roles.length} documented roles`)}
       </div>
       <div class="grid dashboard-grid">
@@ -252,6 +271,7 @@ function renderCrud(route) {
   page.querySelector('.search-input').addEventListener('input', () => renderTable(route));
   renderForm(route);
   if (route === 'trips') renderAssignmentBoard();
+  if (route === 'crew') renderCrewDashboard();
   renderTable(route);
 }
 
@@ -259,7 +279,12 @@ function renderForm(route, record = {}) {
   const config = crudConfig[route];
   const form = document.querySelector(`#page-${route} .record-form`);
   form.innerHTML = `<div class="form-grid">${config.fields.map(([key, label, type]) => renderField(key, label, type, record[key])).join('')}</div>${route === 'trips' ? '<div class="conflict-panel" data-conflict-panel hidden></div>' : ''}<div class="form-actions"><button class="btn btn-primary" type="submit">Save ${config.title.slice(0, -1)}</button><button class="btn btn-outline" type="button" data-cancel>Cancel</button></div>`;
-  if (route === 'trips') form.addEventListener('input', () => updateTripConflictPreview(form));
+  if (route === 'trips') {
+    form.addEventListener('input', () => updateTripConflictPreview(form));
+    form.addEventListener('change', (event) => {
+      if (['tourPrice', 'depositPaid'].includes(event.target.name)) updateBalanceDue(form);
+    });
+  }
   form.onsubmit = (event) => saveRecord(event, route);
   form.querySelector('[data-cancel]').onclick = () => { editing[route] = null; form.hidden = true; };
 }
@@ -298,9 +323,11 @@ function saveRecord(event, route) {
     const conflicts = findTripConflicts(data, editing[route]);
     if (conflicts.length) {
       showTripConflicts(event.currentTarget, conflicts);
-      toast('Crew assignment conflict found. Resolve before saving.');
+      toast('Assignment conflict found. Resolve before saving.');
       return;
     }
+    data.status = data.status || 'Scheduled';
+    data.payroll = calculateTripPayroll(data);
   }
   if (editing[route]) {
     store[config.collection] = store[config.collection].map((item) => item.id === editing[route] ? { ...item, ...data } : item);
@@ -319,6 +346,7 @@ function deleteRecord(route, id) {
   store[config.collection] = store[config.collection].filter((item) => item.id !== id);
   saveStore();
   if (route === 'trips') renderAssignmentBoard();
+  if (route === 'crew') renderCrewDashboard();
   renderTable(route);
   toast(`${config.title.slice(0, -1)} deleted locally.`);
 }
@@ -332,7 +360,7 @@ function renderTable(route) {
   tbody.innerHTML = rows.length ? rows.map((item) => `<tr>${config.columns.map(([key]) => `<td>${formatCell(key, item[key])}</td>`).join('')}<td><div class="row-actions"><button class="btn btn-outline btn-small" onclick="showForm('${route}','${item.id}')">Edit</button><button class="btn btn-danger btn-small" onclick="deleteRecord('${route}','${item.id}')">Delete</button></div></td></tr>`).join('') : `<tr><td colspan="${config.columns.length + 1}" class="empty-state">No records found.</td></tr>`;
 }
 function formatCell(key, value) {
-  if (['balance', 'tourPrice', 'defaultPayout'].includes(key)) return value === '' || value == null ? '—' : money(value);
+  if (['balance', 'tourPrice', 'depositPaid', 'balanceDue', 'defaultPayout'].includes(key)) return value === '' || value == null ? '—' : money(value);
   if (key === 'status') return `<span class="badge blue">${escapeHtml(value || '—')}</span>`;
   if (key === 'active') return `<span class="badge ${value === 'Yes' ? 'green' : 'red'}">${escapeHtml(value || '—')}</span>`;
   return escapeHtml(value || '—');
@@ -350,8 +378,15 @@ function windowsOverlap(a, b) {
   return a && b && a.start < b.end && b.start < a.end;
 }
 
+function crewAssignmentsForTrip(trip) {
+  return [
+    trip.captain ? { role: 'Captain', name: trip.captain } : null,
+    trip.mate && trip.mate !== 'None' ? { role: 'Mate', name: trip.mate } : null
+  ].filter(Boolean);
+}
+
 function crewNamesForTrip(trip) {
-  return [trip.captain, trip.mate].filter((name) => name && name !== 'None');
+  return crewAssignmentsForTrip(trip).map((assignment) => assignment.name);
 }
 
 function describeTripWindow(trip) {
@@ -363,13 +398,14 @@ function describeTripWindow(trip) {
 function findTripConflicts(candidate, excludeId = null) {
   const candidateWindow = tripWindow(candidate);
   if (!candidateWindow) return [];
-  const candidateCrew = crewNamesForTrip(candidate);
+  const candidateCrew = crewAssignmentsForTrip(candidate);
   return store.trips.flatMap((trip) => {
     if (trip.id === excludeId || trip.status === 'Cancelled' || !windowsOverlap(candidateWindow, tripWindow(trip))) return [];
     const conflicts = [];
     if (candidate.vessel && candidate.vessel === trip.vessel) conflicts.push({ type: 'Vessel', name: candidate.vessel, trip });
-    candidateCrew.forEach((name) => {
-      if (crewNamesForTrip(trip).includes(name)) conflicts.push({ type: 'Crew', name, trip });
+    const existingCrew = crewAssignmentsForTrip(trip);
+    candidateCrew.forEach((assignment) => {
+      if (existingCrew.some((existing) => existing.name === assignment.name)) conflicts.push({ type: assignment.role, name: assignment.name, trip });
     });
     return conflicts;
   });
@@ -391,8 +427,14 @@ function showTripAssignmentWarning(form, title, messages) {
 
 function missingTripAssignmentFields(data) {
   const missing = [];
+  if (!data.customer) missing.push('Customer name is required.');
+  if (!data.phone) missing.push('Phone number is required.');
+  if (!data.email) missing.push('Email is required.');
+  if (!data.bookingSource) missing.push('Booking source is required.');
   if (!data.tripDate) missing.push('Trip date is required for assignment conflict checks.');
   if (!data.startTime) missing.push('Start time is required for assignment conflict checks.');
+  if (!Number(data.passengers)) missing.push('Guest count is required.');
+  if (!Number(data.hours)) missing.push('Hours are required.');
   if (!data.vessel) missing.push('Select a vessel for this trip.');
   if (!data.captain) missing.push('Select a captain for this trip.');
   if (!data.mate || data.mate === 'None') missing.push('Select a mate for this trip.');
@@ -422,8 +464,144 @@ function renderAssignmentBoard() {
     board.dataset.assignmentBoard = 'true';
     page.querySelector('.record-form').after(board);
   }
-  const trips = [...store.trips].sort((a, b) => String(a.tripDate + a.startTime).localeCompare(String(b.tripDate + b.startTime)));
-  board.innerHTML = `<div class="card-header"><h3>Crew Assignment Board</h3><span class="badge blue">${trips.length} trips</span></div><div class="assignment-list">${trips.length ? trips.map((trip) => `<div class="assignment-item"><div><strong>${escapeHtml(trip.customer || 'Unassigned customer')}</strong><span>${escapeHtml(describeTripWindow(trip))}</span></div><div><span class="badge blue">${escapeHtml(trip.vessel || 'No vessel')}</span><span class="badge green">Captain: ${escapeHtml(trip.captain || 'Unassigned')}</span><span class="badge gold">Mate: ${escapeHtml(trip.mate || 'None')}</span></div></div>`).join('') : '<div class="empty-state">No trips assigned yet. Create a trip with a vessel, captain, mate, date, and start time to populate the board.</div>'}</div>`;
+  const trips = [...store.trips].filter((trip) => trip.status !== 'Cancelled').sort((a, b) => String(a.tripDate + a.startTime).localeCompare(String(b.tripDate + b.startTime)));
+  const buckets = ['Today', 'Tomorrow', 'This Week', 'Future'];
+  const grouped = buckets.reduce((acc, bucket) => ({ ...acc, [bucket]: [] }), {});
+  trips.forEach((trip) => grouped[tripBucket(trip)].push(trip));
+  board.innerHTML = `<div class="card-header"><h3>Trip Assignment Board</h3><span class="badge blue">${trips.length} active trips</span></div><div class="assignment-list">${trips.length ? buckets.map((bucket) => renderAssignmentBucket(bucket, grouped[bucket])).join('') : '<div class="empty-state">No trips assigned yet. Create a trip with a vessel, captain, mate, date, and start time to populate the board.</div>'}</div>`;
+}
+
+function renderAssignmentBucket(bucket, trips) {
+  return `<section class="assignment-bucket"><h4>${escapeHtml(bucket)}</h4>${trips.length ? trips.map(renderAssignmentTrip).join('') : '<p class="empty-state">No trips in this group.</p>'}</section>`;
+}
+
+function renderAssignmentTrip(trip) {
+  const payroll = trip.payroll || calculateTripPayroll(trip);
+  return `<div class="assignment-item"><div><strong>${escapeHtml(trip.customer || 'Unassigned customer')}</strong><span>${escapeHtml(formatDate(trip.tripDate))} · ${escapeHtml(formatTime(trip.startTime))} · ${Number(trip.hours || 4)} hrs</span><span>${escapeHtml(trip.bookingSource || 'No source')} · ${Number(trip.passengers || 0)} guests · Status: ${escapeHtml(trip.status || 'Scheduled')}</span><span>Phone: ${escapeHtml(trip.phone || '—')} · Email: ${escapeHtml(trip.email || '—')}</span><span>${trip.notes ? `Notes: ${escapeHtml(trip.notes)}` : ''}</span></div><div class="assignment-detail-grid"><span class="badge blue">${escapeHtml(trip.vessel || 'No vessel')}</span><span class="badge green">Captain: ${escapeHtml(trip.captain || 'Unassigned')}</span><span class="badge gold">Mate: ${escapeHtml(trip.mate || 'None')}</span><span>Tour: <strong>${money(trip.tourPrice)}</strong></span><span>Deposit: <strong>${money(trip.depositPaid)}</strong></span><span>Balance: <strong>${money(trip.balanceDue)}</strong></span><span>Payroll: ${payroll.map((entry) => `${escapeHtml(entry.role)} ${money(entry.amount)}`).join(' · ')}</span></div></div>`;
+}
+
+
+function updateBalanceDue(form) {
+  const tourPrice = Number(form.elements.tourPrice?.value || 0);
+  const depositPaid = Number(form.elements.depositPaid?.value || 0);
+  if (form.elements.balanceDue) form.elements.balanceDue.value = Math.max(tourPrice - depositPaid, 0).toFixed(2).replace(/\.00$/, '');
+}
+
+function sameDate(a, b) { return a.toISOString().slice(0, 10) === b.toISOString().slice(0, 10); }
+function startOfDay(date) { const next = new Date(date); next.setHours(0, 0, 0, 0); return next; }
+function addDays(date, days) { const next = new Date(date); next.setDate(next.getDate() + days); return next; }
+function startOfWeekSunday(date) { const next = startOfDay(date); next.setDate(next.getDate() - next.getDay()); return next; }
+function parseTripDate(trip) { return trip.tripDate ? startOfDay(new Date(`${trip.tripDate}T00:00:00`)) : null; }
+function formatDate(dateText) { return dateText ? new Date(`${dateText}T00:00:00`).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) : 'No date'; }
+function formatTime(timeText) { return timeText || 'No time'; }
+
+function tripBucket(trip, today = startOfDay(new Date())) {
+  const tripDate = parseTripDate(trip);
+  if (!tripDate) return 'Future';
+  const tomorrow = addDays(today, 1);
+  const weekEnd = addDays(startOfWeekSunday(today), 7);
+  if (sameDate(tripDate, today)) return 'Today';
+  if (sameDate(tripDate, tomorrow)) return 'Tomorrow';
+  if (tripDate >= today && tripDate < weekEnd) return 'This Week';
+  return 'Future';
+}
+
+function calculateTripPayroll(trip) {
+  const hours = Number(trip.hours || 4) || 4;
+  const passengers = Number(trip.passengers || 0);
+  const vessel = store.vessels.find((item) => item.name === trip.vessel);
+  const owner = vessel?.owner || '';
+  const captainRate = store.standardPayoutRates.find((rate) => rate.role === 'Captain');
+  const mateRate = store.standardPayoutRates.find((rate) => rate.role === 'Mate');
+  const ownerRate = store.vesselOwnerPayoutRates.find((rate) => rate.owner === owner);
+  const roleEntries = [];
+  const captainAmount = hours === 4 ? captainRate?.fourHourTrip || 120 : hours * (captainRate?.hourlyRate || 30);
+  const mateAmount = hours === 4 ? mateRate?.fourHourTrip || 50 : hours * (mateRate?.hourlyRate || 12.5);
+  if (owner) roleEntries.push({ person: owner, role: 'Owner', amount: calculateOwnerPay(ownerRate, hours, passengers), vessel: trip.vessel, rule: ownerRate?.rule || 'No owner payout rule configured' });
+  if (trip.captain) roleEntries.push({ person: trip.captain, role: 'Captain', amount: captainAmount, vessel: trip.vessel, rule: hours === 4 ? '4 hour trip = $120' : '$30/hour' });
+  if (trip.mate && trip.mate !== 'None') roleEntries.push({ person: trip.mate, role: 'Mate', amount: mateAmount, vessel: trip.vessel, rule: hours === 4 ? '4 hour trip = $50' : '$12.50/hour' });
+  return roleEntries;
+}
+
+function calculateOwnerPay(rate, hours, passengers) {
+  if (!rate) return 0;
+  if (rate.owner === 'Eddie' && hours === 4) return passengers >= 9 ? rate.nineToTenGuests : rate.oneToEightGuests;
+  return hours === 4 ? rate.fourHourTrip : hours * rate.hourlyRate;
+}
+
+function payrollEntries() {
+  return store.trips.filter((trip) => trip.status !== 'Cancelled').flatMap((trip) => {
+    const entries = trip.payroll || calculateTripPayroll(trip);
+    return entries.map((entry, index) => {
+      const key = `${trip.id || trip.tripDate}-${entry.person}-${entry.role}-${index}`;
+      const payments = store.payrollPayments.filter((payment) => payment.entryKey === key);
+      const amountPaid = payments.reduce((sum, payment) => sum + Number(payment.amountPaid || 0), 0);
+      return { ...entry, key, trip, amountOwed: Number(entry.amount || 0), amountPaid, outstanding: Number(entry.amount || 0) - amountPaid, payments };
+    });
+  });
+}
+
+function payrollWeekLabel(dateText) {
+  const date = dateText ? new Date(`${dateText}T00:00:00`) : new Date();
+  const start = startOfWeekSunday(date);
+  const end = addDays(start, 6);
+  return `${start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ${end.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
+}
+
+function savePayrollPayment(event, entryKey) {
+  event.preventDefault();
+  const data = Object.fromEntries(new FormData(event.currentTarget).entries());
+  store.payrollPayments.push({ id: makeId('payroll-payment'), entryKey, amountPaid: Number(data.amountPaid || 0), datePaid: data.datePaid, paymentMethod: data.paymentMethod, paymentNotes: data.paymentNotes });
+  saveStore();
+  renderPayroll();
+  toast('Payroll payment saved.');
+}
+
+function renderPayroll() {
+  const entries = payrollEntries();
+  const grouped = entries.reduce((acc, entry) => {
+    const week = payrollWeekLabel(entry.trip.tripDate);
+    acc[week] ||= [];
+    acc[week].push(entry);
+    return acc;
+  }, {});
+  const totalOwed = entries.reduce((sum, entry) => sum + entry.amountOwed, 0);
+  const totalPaid = entries.reduce((sum, entry) => sum + entry.amountPaid, 0);
+  document.getElementById('page-payroll').innerHTML = `<div class="page-stack">
+    <div class="section-heading"><div><p class="eyebrow">Sunday–Saturday payroll</p><h1>Weekly payroll engine</h1><p class="section-summary">Owner, captain, and mate payouts are calculated as separate role lines so the same person can be paid independently for multiple roles on one trip.</p></div><button class="btn btn-primary" data-route="trips">Create trip</button></div>
+    <div class="grid kpi-grid">${kpi('Amount owed', money(totalOwed), 'All active trips')}${kpi('Amount paid', money(totalPaid), 'Recorded payments')}${kpi('Outstanding', money(totalOwed - totalPaid), 'Still due')}${kpi('Payment records', store.payrollPayments.length, 'Local history')}</div>
+    ${Object.keys(grouped).length ? Object.entries(grouped).map(([week, weekEntries]) => renderPayrollWeek(week, weekEntries)).join('') : '<div class="card card-pad empty-state">No payroll yet. Create assigned trips to calculate weekly payouts.</div>'}
+  </div>`;
+}
+
+function renderPayrollWeek(week, entries) {
+  const owed = entries.reduce((sum, entry) => sum + entry.amountOwed, 0);
+  const outstanding = entries.reduce((sum, entry) => sum + entry.outstanding, 0);
+  return `<div class="card payroll-week"><div class="card-header"><h3>${escapeHtml(week)}</h3><span class="badge gold">${money(outstanding)} outstanding / ${money(owed)} owed</span></div><div class="responsive-table-wrap"><table><thead><tr><th>Trip</th><th>Person</th><th>Role</th><th>Amount owed</th><th>Paid</th><th>Outstanding</th><th>Record payment</th></tr></thead><tbody>${entries.map(renderPayrollRow).join('')}</tbody></table></div></div>`;
+}
+
+function renderPayrollRow(entry) {
+  const history = entry.payments.length ? `<details><summary>${entry.payments.length} payment${entry.payments.length === 1 ? '' : 's'}</summary><ul>${entry.payments.map((payment) => `<li>${escapeHtml(payment.datePaid || 'No date')} · ${money(payment.amountPaid)} · ${escapeHtml(payment.paymentMethod || 'No method')} ${payment.paymentNotes ? `· ${escapeHtml(payment.paymentNotes)}` : ''}</li>`).join('')}</ul></details>` : '<span class="muted-text">No payments</span>';
+  return `<tr><td>${escapeHtml(formatDate(entry.trip.tripDate))}<br><small>${escapeHtml(formatTime(entry.trip.startTime))} · ${escapeHtml(entry.trip.customer || 'No customer')} · ${escapeHtml(entry.trip.vessel || 'No vessel')}</small></td><td>${escapeHtml(entry.person || 'Unassigned')}</td><td><span class="badge blue">${escapeHtml(entry.role)}</span></td><td>${money(entry.amountOwed)}<br><small>${escapeHtml(entry.rule || '')}</small></td><td>${money(entry.amountPaid)}${history}</td><td><strong>${money(entry.outstanding)}</strong></td><td><form class="inline-payment-form" onsubmit="savePayrollPayment(event, decodeURIComponent('${encodeURIComponent(entry.key)}'))"><input name="amountPaid" type="number" min="0" step="0.01" value="${entry.outstanding > 0 ? entry.outstanding.toFixed(2) : 0}"><input name="datePaid" type="date"><select name="paymentMethod"><option value="Cash">Cash</option><option value="Zelle">Zelle</option><option value="Check">Check</option><option value="ACH">ACH</option><option value="Other">Other</option></select><input name="paymentNotes" type="text" placeholder="Notes"><button class="btn btn-primary btn-small" type="submit">Save</button></form></td></tr>`;
+}
+
+function renderCrewDashboard() {
+  const page = document.getElementById('page-crew');
+  const form = page.querySelector('.record-form');
+  if (!form) return;
+  let dashboard = page.querySelector('[data-crew-dashboard]');
+  if (!dashboard) {
+    dashboard = document.createElement('div');
+    dashboard.className = 'card crew-dashboard';
+    dashboard.dataset.crewDashboard = 'true';
+    form.after(dashboard);
+  }
+  const selected = dashboard.querySelector('[data-crew-select]')?.value || getOptions('crew')[0] || '';
+  const entries = payrollEntries().filter((entry) => entry.person === selected);
+  const assignedTrips = store.trips.filter((trip) => trip.captain === selected || trip.mate === selected || store.vessels.find((vessel) => vessel.name === trip.vessel)?.owner === selected).sort(byDate);
+  const outstanding = entries.reduce((sum, entry) => sum + entry.outstanding, 0);
+  const history = entries.flatMap((entry) => entry.payments.map((payment) => ({ ...payment, entry })));
+  dashboard.innerHTML = `<div class="card-header"><h3>Crew dashboard</h3><select data-crew-select onchange="renderCrewDashboard()">${getOptions('crew').map((name) => `<option value="${escapeHtml(name)}" ${name === selected ? 'selected' : ''}>${escapeHtml(name)}</option>`).join('')}</select></div><div class="crew-dashboard-body"><div><h4>Assigned trips</h4>${assignedTrips.length ? assignedTrips.map((trip) => `<div class="stat-row"><span>${escapeHtml(formatDate(trip.tripDate))} · ${escapeHtml(formatTime(trip.startTime))}</span><strong>${escapeHtml(trip.customer || 'No customer')}<br><small>${escapeHtml([trip.vessel, trip.captain === selected ? 'Captain' : '', trip.mate === selected ? 'Mate' : '', store.vessels.find((vessel) => vessel.name === trip.vessel)?.owner === selected ? 'Owner' : ''].filter(Boolean).join(' · '))}</small></strong></div>`).join('') : '<p class="empty-state">No assigned trips.</p>'}</div><div><h4>Outstanding pay</h4><div class="kpi-value">${money(outstanding)}</div>${entries.map((entry) => `<div class="stat-row"><span>${escapeHtml(entry.role)} · ${escapeHtml(formatDate(entry.trip.tripDate))}</span><strong>${money(entry.outstanding)}</strong></div>`).join('') || '<p class="empty-state">No outstanding pay.</p>'}</div><div><h4>Payment history</h4>${history.length ? history.map((payment) => `<div class="stat-row"><span>${escapeHtml(payment.datePaid || 'No date')} · ${escapeHtml(payment.paymentMethod || 'No method')}</span><strong>${money(payment.amountPaid)}<br><small>${escapeHtml(payment.paymentNotes || payment.entry.role)}</small></strong></div>`).join('') : '<p class="empty-state">No payment history.</p>'}</div></div>`;
 }
 
 function renderLegacy() {
