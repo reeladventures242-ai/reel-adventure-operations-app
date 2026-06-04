@@ -294,3 +294,32 @@ td { font-size: .9rem; }
   .topbar-actions .btn { width: auto; }
   .role-pill { max-width: 96px; }
 }
+
+.natural-sentence-mode { display: grid; gap: 4px; margin-bottom: 14px; border: 1px solid rgba(31, 138, 112, .25); border-radius: 16px; padding: 12px 14px; background: #eaf8f4; color: var(--ocean); }
+.natural-sentence-mode strong { font-size: .82rem; text-transform: uppercase; letter-spacing: .09em; }
+.natural-sentence-mode span { color: var(--muted); font-weight: 750; line-height: 1.4; }
+.assignment-board-tools { display: grid; gap: 10px; justify-items: end; }
+.dispatch-view-toggle { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.dispatch-tree { display: grid; gap: 14px; padding: 14px; background: #f8fbfc; }
+.dispatch-date-node, .dispatch-time-node, .dispatch-trip-node { display: grid; gap: 10px; border: 1px solid var(--line); border-radius: 18px; background: white; }
+.dispatch-date-node { padding: 12px; border-left: 8px solid var(--ocean); }
+.dispatch-time-node { padding: 12px; margin-left: 10px; border-left: 6px solid var(--sky); }
+.dispatch-trip-node { padding: 12px; margin-left: 10px; border-left-width: 8px; box-shadow: 0 10px 22px rgba(10,61,98,.06); }
+.dispatch-trip-node.ready-red { border-left-color: var(--red); }
+.dispatch-trip-node.ready-yellow { border-left-color: var(--amber); }
+.dispatch-trip-node.ready-green { border-left-color: var(--green); }
+.dispatch-node-heading, .dispatch-trip-main { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.dispatch-node-heading strong, .dispatch-trip-main strong { display: block; margin-top: 2px; font-size: 1.05rem; }
+.dispatch-trip-main p { margin: 4px 0 0; color: var(--muted); font-weight: 750; }
+.tree-level { display: block; color: var(--muted); font-size: .68rem; text-transform: uppercase; letter-spacing: .1em; font-weight: 950; }
+.dispatch-tree-crew { display: grid; gap: 10px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.dispatch-status-node { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-left: 20px; border-top: 1px dashed var(--line); padding: 10px 4px 0; }
+
+@media (max-width: 700px) {
+  .assignment-board-tools { justify-items: stretch; }
+  .dispatch-view-toggle { justify-content: stretch; }
+  .dispatch-view-toggle .btn { flex: 1 1 150px; }
+  .dispatch-tree { padding: 10px; }
+  .dispatch-time-node, .dispatch-trip-node, .dispatch-status-node { margin-left: 0; }
+  .dispatch-tree-crew { grid-template-columns: 1fr; }
+}
