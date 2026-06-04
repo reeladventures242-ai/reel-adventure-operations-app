@@ -122,6 +122,7 @@ let currentRoute = 'dashboard';
 let editing = {};
 let deferredInstallPrompt = null;
 let voiceRecognition = null;
+let assignmentViewMode = 'tree';
 
 function loadStore() {
   const raw = localStorage.getItem(STORE_KEY);
@@ -280,6 +281,8 @@ function wireEvents() {
     if (legacyEmbed) embedLegacy(legacyEmbed.dataset.embedLegacy);
     const voiceButton = event.target.closest('[data-voice-fill]');
     if (voiceButton) startVoiceFill(voiceButton);
+    const dispatchViewButton = event.target.closest('[data-dispatch-view]');
+    if (dispatchViewButton) { assignmentViewMode = dispatchViewButton.dataset.dispatchView; renderAssignmentBoard(); }
     if (event.target.closest('[data-export-store]')) exportStoreData();
     if (event.target.closest('[data-reset-store]')) { addAudit('reset', 'Settings', 'Reset local data to seed defaults.'); localStorage.removeItem(STORE_KEY); store = seedStore({ auditTrail: store.auditTrail, notifications: store.notifications }); renderRoute(currentRoute); toast('Seed data restored.'); }
     if (event.target.closest('[data-mark-notices-read]')) markNotificationsRead();
@@ -490,7 +493,7 @@ function renderCrud(route) {
 function renderForm(route, record = {}) {
   const config = crudConfig[route];
   const form = document.querySelector(`#page-${route} .record-form`);
-  form.innerHTML = `<div class="form-grid">${config.fields.map(([key, label, type]) => renderField(key, label, type, record[key])).join('')}</div>${route === 'trips' ? '<div class="conflict-panel" data-conflict-panel hidden></div>' : ''}<div class="form-actions"><button class="btn btn-primary" type="submit">Save ${config.title.slice(0, -1)}</button>${voiceFillButton(route)}<button class="btn btn-outline" type="button" data-cancel>Cancel</button></div>`;
+  form.innerHTML = `${route === 'trips' ? naturalSentenceModeHint() : ''}<div class="form-grid">${config.fields.map(([key, label, type]) => renderField(key, label, type, record[key])).join('')}</div>${route === 'trips' ? '<div class="conflict-panel" data-conflict-panel hidden></div>' : ''}<div class="form-actions"><button class="btn btn-primary" type="submit">Save ${config.title.slice(0, -1)}</button>${voiceFillButton(route)}<button class="btn btn-outline" type="button" data-cancel>Cancel</button></div>`;
   if (route === 'trips') {
     form.addEventListener('input', () => updateTripConflictPreview(form));
     form.addEventListener('change', (event) => {
@@ -501,9 +504,13 @@ function renderForm(route, record = {}) {
   form.querySelector('[data-cancel]').onclick = () => { editing[route] = null; form.hidden = true; };
 }
 
+function naturalSentenceModeHint() {
+  return '<div class="natural-sentence-mode"><strong>Natural Sentence Mode</strong><span>Use Command Voice Fill with a sentence like: “Book John Smith, phone 242 555 0198, tomorrow at 9 AM, four guests, Da Salty, captain Eugene, mate DJ, deposit 200.”</span></div>';
+}
+
 function voiceFillButton(route) {
   if (!['bookings', 'trips', 'expenses', 'pre-trip-checklist', 'post-trip-checklist', 'incident-reports'].includes(route)) return '';
-  return '<button class="btn btn-outline" type="button" data-voice-fill>🎙️ Voice fill</button>';
+  return '<button class="btn btn-outline" type="button" data-voice-fill>🎙️ Command Voice Fill</button>';
 }
 
 function renderField(key, label, type, value = '') {
@@ -530,6 +537,7 @@ function saveRecord(event, route) {
   const config = crudConfig[route];
   const data = Object.fromEntries(new FormData(event.currentTarget).entries());
   config.fields.forEach(([key,, type]) => { if (type === 'number') data[key] = Number(data[key] || 0); });
+  if (data.phone) data.phone = normalizePhoneNumber(data.phone);
   if (route === 'trips') {
     const missing = missingTripAssignmentFields(data);
     if (missing.length) {
@@ -794,13 +802,64 @@ function renderAssignmentBoard() {
     board.dataset.assignmentBoard = 'true';
     page.querySelector('.record-form').after(board);
   }
-  const trips = [...store.trips].filter((trip) => trip.status !== 'Cancelled').sort((a, b) => String((a.tripDate || '') + (a.startTime || '')).localeCompare(String((b.tripDate || '') + (b.startTime || ''))));
+  const trips = sortedDispatchTrips();
   const readyCounts = trips.reduce((acc, trip) => {
     const status = calculateDispatchReadiness(trip);
     acc[status] = (acc[status] || 0) + 1;
     return acc;
   }, {});
-  board.innerHTML = `<div class="card-header assignment-board-header"><div><h3>Operational Trip Assignment Board</h3><p class="muted-text">Card view for crew assignment, vessel readiness, and dispatch decisions.</p></div><div class="assignment-board-legend"><span class="legend-dot red"></span>Not Ready <span class="legend-dot yellow"></span>Partial <span class="legend-dot green"></span>Dispatch Ready</div></div><div class="assignment-summary-strip"><span>${trips.length} active trips</span><span>${readyCounts['Dispatch Ready'] || 0} dispatch ready</span><span>${readyCounts.Partial || 0} partial</span><span>${readyCounts['Not Ready'] || 0} not ready</span></div><div class="assignment-list assignment-card-list">${trips.length ? trips.map(renderAssignmentTrip).join('') : '<div class="empty-state">No trips assigned yet. Create a trip with a vessel, captain, mate, date, and start time to populate the board.</div>'}</div>`;
+  const viewToggle = `<div class="dispatch-view-toggle" role="group" aria-label="Dispatch view mode"><button class="btn btn-small ${assignmentViewMode === 'tree' ? 'btn-primary' : 'btn-outline'}" type="button" data-dispatch-view="tree">Dispatch Tree View</button><button class="btn btn-small ${assignmentViewMode === 'cards' ? 'btn-primary' : 'btn-outline'}" type="button" data-dispatch-view="cards">Card View</button></div>`;
+  const summary = `<div class="assignment-summary-strip"><span>${trips.length} active trips</span><span>${readyCounts['Dispatch Ready'] || 0} dispatch ready</span><span>${readyCounts.Partial || 0} partial</span><span>${readyCounts['Not Ready'] || 0} not ready</span><span>${readyCounts.Completed || 0} completed</span></div>`;
+  const content = assignmentViewMode === 'cards'
+    ? `<div class="assignment-list assignment-card-list">${trips.length ? trips.map(renderAssignmentTrip).join('') : renderEmptyDispatchState()}</div>`
+    : renderDispatchTree(trips);
+  board.innerHTML = `<div class="card-header assignment-board-header"><div><h3>Operational Trip Assignment Board</h3><p class="muted-text">Dispatch Tree View is the default, grouped Date → Time → Trip → Status for fast assignment decisions.</p></div><div class="assignment-board-tools">${viewToggle}<div class="assignment-board-legend"><span class="legend-dot red"></span>Not Ready <span class="legend-dot yellow"></span>Partial <span class="legend-dot green"></span>Dispatch Ready</div></div></div>${summary}${content}`;
+}
+
+function sortedDispatchTrips() {
+  return [...store.trips]
+    .filter((trip) => trip.status !== 'Cancelled')
+    .sort((a, b) => String((a.tripDate || '') + (a.startTime || '') + (a.customer || '')).localeCompare(String((b.tripDate || '') + (b.startTime || '') + (b.customer || ''))));
+}
+
+function renderEmptyDispatchState() {
+  return '<div class="empty-state">No trips assigned yet. Create a trip with a vessel, captain, mate, date, and start time to populate the dispatch tree.</div>';
+}
+
+function groupByValue(items, getKey) {
+  return items.reduce((groups, item) => {
+    const key = getKey(item) || 'Unscheduled';
+    groups[key] ||= [];
+    groups[key].push(item);
+    return groups;
+  }, {});
+}
+
+function renderDispatchTree(trips) {
+  if (!trips.length) return `<div class="dispatch-tree">${renderEmptyDispatchState()}</div>`;
+  const byDate = groupByValue(trips, (trip) => trip.tripDate || 'No date');
+  return `<div class="dispatch-tree">${Object.entries(byDate).map(([date, dateTrips]) => renderDispatchDateNode(date, dateTrips)).join('')}</div>`;
+}
+
+function renderDispatchDateNode(date, trips) {
+  const byTime = groupByValue(trips, (trip) => trip.startTime || 'No time');
+  const ready = trips.filter((trip) => calculateDispatchReadiness(trip) === 'Dispatch Ready').length;
+  return `<section class="dispatch-date-node"><div class="dispatch-node-heading"><div><span class="tree-level">Date</span><strong>${escapeHtml(date === 'No date' ? 'No date' : formatDate(date))}</strong></div><span class="badge blue">${trips.length} trip${trips.length === 1 ? '' : 's'} · ${ready} ready</span></div>${Object.entries(byTime).map(([time, timeTrips]) => renderDispatchTimeNode(time, timeTrips)).join('')}</section>`;
+}
+
+function renderDispatchTimeNode(time, trips) {
+  return `<section class="dispatch-time-node"><div class="dispatch-node-heading"><div><span class="tree-level">Time</span><strong>${escapeHtml(time === 'No time' ? 'No time' : formatTime(time))}</strong></div><span class="badge gold">${trips.length} trip${trips.length === 1 ? '' : 's'}</span></div>${trips.map(renderDispatchTripNode).join('')}</section>`;
+}
+
+function renderDispatchTripNode(trip) {
+  const readiness = calculateDispatchReadiness(trip);
+  const assignment = normalizeAssignmentStatus(trip);
+  return `<article class="dispatch-trip-node ${readinessColorClass(readiness)}"><div class="dispatch-trip-main"><div><span class="tree-level">Trip</span><strong>${escapeHtml(trip.customer || 'Unassigned customer')}</strong><p>${escapeHtml(trip.tourType || `${Number(trip.hours || 4)} hour tour`)} · ${Number(trip.passengers || 0)} guests · ${escapeHtml(trip.vessel || 'No vessel')}</p></div><div class="dispatch-status">${readinessBadge(readiness)}</div></div><div class="dispatch-tree-crew">${renderCrewPill(trip.captain, 'Captain', assignment.captain)}${renderCrewPill(trip.mate && trip.mate !== 'None' ? trip.mate : '', 'Mate', assignment.mate)}</div>${readinessChecklistHtml(trip)}${renderDispatchStatusNode(readiness, [trip])}</article>`;
+}
+
+function renderDispatchStatusNode(status, trips) {
+  const color = status === 'Dispatch Ready' || status === 'Completed' ? 'green' : status === 'Not Ready' ? 'red' : 'gold';
+  return `<div class="dispatch-status-node"><span class="tree-level">Status</span><span class="badge ${color}">${escapeHtml(status)} · ${trips.length}</span></div>`;
 }
 
 function renderAssignmentTrip(trip) {
@@ -823,7 +882,6 @@ function renderAssignmentTrip(trip) {
     <div class="assignment-card-footer"><div><strong>Acceptance:</strong> Captain ${assignmentStatusBadge(assignment.captain)} Mate ${assignmentStatusBadge(assignment.mate)} <span class="muted-text">Trip ${escapeHtml(trip.status || 'Scheduled')} · Pre ${escapeHtml(preStatus)} · Post ${escapeHtml(postStatus)}</span></div><div class="assignment-actions"><button class="btn btn-outline btn-small" onclick="notifyAssignment('${trip.id}','captain')">Notify Captain</button><button class="btn btn-outline btn-small" onclick="notifyAssignment('${trip.id}','mate')">Notify Mate</button><button class="btn btn-primary btn-small" onclick="completeAssignment('${trip.id}','captain');completeAssignment('${trip.id}','mate')">Mark Crew Completed</button></div></div>
   </article>`;
 }
-
 
 function updateBalanceDue(form) {
   const tourPrice = Number(form.elements.tourPrice?.value || 0);
@@ -967,7 +1025,7 @@ function startVoiceFill(button) {
   button.textContent = 'Listening…';
   voiceRecognition.onresult = (event) => applyVoiceTranscript(form, event.results[0][0].transcript || '');
   voiceRecognition.onerror = () => toast('Voice fill stopped before text was captured.');
-  voiceRecognition.onend = () => { button.textContent = '🎙️ Voice fill'; voiceRecognition = null; };
+  voiceRecognition.onend = () => { button.textContent = '🎙️ Command Voice Fill'; voiceRecognition = null; };
   voiceRecognition.start();
 }
 
@@ -992,6 +1050,17 @@ function spokenNumberToNumber(value) {
 
 function normalizeVoiceText(transcript) {
   return String(transcript || '').replace(/\s+/g, ' ').trim();
+}
+
+function normalizePhoneNumber(value) {
+  const raw = String(value || '').trim();
+  const extensionMatch = raw.match(/(?:ext\.?|extension|x)\s*(\d+)$/i);
+  const extension = extensionMatch ? ` x${extensionMatch[1]}` : '';
+  let digits = raw.replace(/(?:ext\.?|extension|x)\s*\d+$/i, '').replace(/\D/g, '');
+  if (digits.length === 11 && digits.startsWith('1')) digits = digits.slice(1);
+  if (digits.length === 10) return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}${extension}`;
+  if (digits.length === 7) return `${digits.slice(0, 3)}-${digits.slice(3)}${extension}`;
+  return raw;
 }
 
 function extractVoiceSegment(transcript, patterns) {
@@ -1029,8 +1098,8 @@ function applyVoiceTranscript(form, transcript) {
   const customer = extractVoiceSegment(clean, [/customer(?: name)?\s+(?:is\s+)?([^,.]+)/i, /(?:book|booking|trip)\s+(?:for|under)\s+([^,.]+)/i]) || (form.elements.customer && firstPhrase && !/\b(guest|passenger|captain|mate|vessel|tour|deposit|balance|phone|email|expense|incident)\b/i.test(firstPhrase) ? firstPhrase : '');
   if (customer) setFormValue(form, 'customer', customer);
 
-  const phone = extractVoiceSegment(clean, [/(?:phone|mobile|cell)(?: number)?\s+(?:is\s+)?([+0-9 ()-]{7,}|(?:\d\s*){7,})/i]);
-  if (phone) setFormValue(form, 'phone', phone.replace(/\s+/g, '').replace(/(\d{3})(\d{3})(\d{4})$/, '$1-$2-$3'));
+  const phone = extractVoiceSegment(clean, [/(?:phone|mobile|cell)(?: number)?\s+(?:is\s+)?([+0-9 ()-]{7,}(?:\s*(?:ext\.?|extension|x)\s*\d+)?|(?:\d\s*){7,})/i]);
+  if (phone) setFormValue(form, 'phone', normalizePhoneNumber(phone));
 
   const email = extractVoiceSegment(clean, [/(?:email|e-mail)\s+(?:is\s+)?([^,.;\s]+(?:\s*(?:at|@)\s*[^,.;\s]+)?(?:\s*(?:dot|\.)\s*[^,.;\s]+)?)/i]);
   if (email) setFormValue(form, 'email', email.replace(/\s+at\s+/i, '@').replace(/\s+dot\s+/gi, '.').replace(/\s+/g, ''));

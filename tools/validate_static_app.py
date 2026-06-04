@@ -116,6 +116,10 @@ def validate_legacy_preserved() -> tuple[bool, str]:
     unlinked = [name for name in sorted(LEGACY_FILES) if name not in app_js]
     required_features = {
         "dispatch board": "renderAssignmentBoard",
+        "dispatch tree view": "renderDispatchTree",
+        "card view toggle": "data-dispatch-view",
+        "natural sentence mode": "naturalSentenceModeHint",
+        "phone normalization": "normalizePhoneNumber",
         "payroll": "renderPayroll",
         "audit trail": "renderAuditTrail",
         "notifications": "renderNotifications",
