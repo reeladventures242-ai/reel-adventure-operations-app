@@ -86,7 +86,7 @@ const seedData = {
 
 const crudConfig = {
   bookings: {
-    title: 'Bookings', eyebrow: 'Simple CRUD', summary: 'Create, read, update, and delete booking records in local storage while the legacy booking dashboard remains available.', collection: 'bookings', addLabel: 'Add booking',
+    title: 'Bookings', eyebrow: 'Simple CRUD', summary: 'Create, read, update, and delete booking records directly in the native operations app.', collection: 'bookings', addLabel: 'Add booking',
     fields: [['order','Order #','text'], ['customer','Customer','text'], ['date','Trip date','date'], ['time','Time','time'], ['guests','Guests','number'], ['product','Product','text'], ['source','Source','select:bookingSources'], ['balance','Balance due','number'], ['status','Status','select:bookingStatus'], ['notes','Notes','textarea']],
     columns: [['order','Order'], ['customer','Customer'], ['date','Date'], ['guests','Guests'], ['product','Product'], ['source','Source'], ['balance','Balance']]
   },
@@ -106,7 +106,7 @@ const crudConfig = {
     columns: [['name','Vessel'], ['model','Model'], ['owner','Owner'], ['capacity','Capacity'], ['status','Status'], ['readinessStatus','Readiness'], ['notes','Notes']]
   },
   expenses: {
-    title: 'Expenses', eyebrow: 'Operations costs', summary: 'Capture operating expenses, receipt/photo notes, and vessel cost alerts while the legacy operations app remains available.', collection: 'expenses', addLabel: 'Add expense',
+    title: 'Expenses', eyebrow: 'Operations costs', summary: 'Capture operating expenses, receipt/photo notes, approvals, and vessel cost alerts directly in the native operations app.', collection: 'expenses', addLabel: 'Add expense',
     fields: [['date','Expense date','date'], ['vessel','Vessel','select:vessels'], ['category','Category','select:expenseCategories'], ['amount','Amount','number'], ['paidBy','Paid by','select:crew'], ['status','Status','select:expenseStatus'], ['receiptPhotos','Receipt/photo notes','textarea'], ['notes','Notes','textarea']],
     columns: [['date','Date'], ['vessel','Vessel'], ['category','Category'], ['amount','Amount'], ['paidBy','Paid by'], ['status','Status']]
   },
@@ -123,6 +123,10 @@ let editing = {};
 let deferredInstallPrompt = null;
 let voiceRecognition = null;
 let assignmentViewMode = 'tree';
+let voiceCommand = { state: 'IDLE', route: '', field: null, form: null, lastValue: '', message: 'Command Voice Fill idle.', suggestions: [] };
+let dashboardFilters = { captain: '', mate: '', owner: '' };
+
+const voiceSupportedRoutes = new Set(['dashboard', 'bookings', 'trips', 'invoices', 'captain-dashboard', 'mate-dashboard', 'owner-dashboard', 'vessels', 'crew', 'payroll', 'expenses', 'inventory', 'incident-reports', 'pre-trip-checklist', 'post-trip-checklist', 'cruise-schedule', 'reports', 'settings']);
 
 function loadStore() {
   const raw = localStorage.getItem(STORE_KEY);
@@ -279,8 +283,10 @@ function wireEvents() {
     if (routeBtn) renderRoute(routeBtn.dataset.route);
     const legacyEmbed = event.target.closest('[data-embed-legacy]');
     if (legacyEmbed) embedLegacy(legacyEmbed.dataset.embedLegacy);
-    const voiceButton = event.target.closest('[data-voice-fill]');
+    const voiceButton = event.target.closest('[data-voice-fill], [data-command-voice-start]');
     if (voiceButton) startVoiceFill(voiceButton);
+    const voiceAction = event.target.closest('[data-voice-action]');
+    if (voiceAction) handleVoiceAction(voiceAction.dataset.voiceAction);
     const dispatchViewButton = event.target.closest('[data-dispatch-view]');
     if (dispatchViewButton) { assignmentViewMode = dispatchViewButton.dataset.dispatchView; renderAssignmentBoard(); }
     if (event.target.closest('[data-export-store]')) exportStoreData();
@@ -288,6 +294,8 @@ function wireEvents() {
     if (event.target.closest('[data-mark-notices-read]')) markNotificationsRead();
     const markNotice = event.target.closest('[data-mark-notice-read]');
     if (markNotice) markNotificationRead(markNotice.dataset.markNoticeRead);
+    const treeAction = event.target.closest('[data-tree-action]');
+    if (treeAction && treeAction.tagName !== 'SUMMARY') handleTreeNodeAction(treeAction);
   });
   document.body.addEventListener('change', (event) => {
     if (event.target.matches('[data-import-store]')) importStoreData(event.target.files[0]);
@@ -332,6 +340,7 @@ function renderRoute(route) {
   else if (route === 'audit') renderAuditTrail();
   else if (route === 'legacy') renderLegacy();
   else renderPlaceholder(route);
+  renderVoiceCommandPanel(route);
 }
 
 function renderDashboard() {
@@ -342,24 +351,19 @@ function renderDashboard() {
   const outstandingPayroll = payroll.reduce((sum, entry) => sum + entry.outstanding, 0);
   document.getElementById('page-dashboard').innerHTML = `
     <div class="page-stack">
-      <div class="section-heading"><div><p class="eyebrow">Phase 3A operations</p><h1>Daily trip operations dashboard</h1><p class="section-summary">Create trips, assign vessels and crew, monitor balances, and calculate weekly owner/captain/mate payroll while keeping all legacy HTML tools intact.</p></div><button class="btn btn-primary" data-route="trips">Create / assign trips</button></div>
+      <div class="section-heading"><div><p class="eyebrow">Phase 4C native operations</p><h1>Daily trip operations dashboard</h1><p class="section-summary">Create bookings, invoices, assignments, checklists, expenses, incidents, payroll, and reports through the primary application tabs without opening retained legacy HTML tools.</p></div><button class="btn btn-primary" data-route="trips">Create / assign trips</button></div>
       <div class="grid kpi-grid dashboard-kpis">
         ${kpi('Active bookings', store.bookings.length, `${money(totalBalance)} total balances`)}
         ${kpi('Scheduled trips', scheduledTrips.length, 'Assignment board ready')}
         ${kpi('Payroll owed', money(outstandingPayroll), 'Outstanding by role')}
-        ${kpi('Crew', store.crew.length, `${store.roles.length} documented roles`)}
         ${kpi('Unread alerts', unreadNotificationCount(), `${(store.auditTrail || []).length} audit entries`)}
       </div>
       <div class="grid dashboard-grid">
-        <div class="card"><div class="card-header"><h3>Upcoming bookings</h3><button class="btn btn-outline btn-small" data-route="bookings">View all</button></div><div class="stat-list">${upcomingBookings.map((b) => `<div class="stat-row"><span>${escapeHtml(b.date)} · ${escapeHtml(b.time)}</span><strong>${escapeHtml(b.customer)}<br><small>${escapeHtml(b.product)} · ${b.guests} guests</small></strong></div>`).join('')}</div></div>
-        <div class="card"><div class="card-header"><h3>Payout setup</h3><span class="badge gold">Documented data</span></div><div class="stat-list">
-          <div class="stat-row"><span>Owner payout rules</span><strong>${store.vesselOwnerPayoutRates.length} documented</strong></div>
-          <div class="stat-row"><span>Standard crew rates</span><strong>${store.standardPayoutRates.length} documented</strong></div>
-          <div class="stat-row"><span>Booking sources</span><strong>${store.bookingSources.length} documented</strong></div>
-          <div class="stat-row"><span>Roles / crew</span><strong>${store.roles.length} / ${store.crew.length}</strong></div>
+        <div class="card"><div class="card-header"><h3>Upcoming bookings</h3><button class="btn btn-outline btn-small" data-route="bookings">View all</button></div><div class="stat-list">${upcomingBookings.length ? upcomingBookings.map((b) => `<div class="stat-row"><span>${escapeHtml(b.date)} · ${escapeHtml(b.time)}</span><strong>${escapeHtml(b.customer)}<br><small>${escapeHtml(b.product)} · ${b.guests} guests · Balance ${money(b.balance)}</small></strong></div>`).join('') : '<p class="empty-state">No upcoming bookings yet.</p>'}</div></div>
+        <div class="card"><div class="card-header"><h3>Native daily workflow</h3><span class="badge green">No legacy tool required</span></div><div class="stat-list">
+          ${['Booking', 'Invoice', 'Trip Assignment', 'Captain Dashboard', 'Mate Dashboard', 'Owner Dashboard', 'Pre Trip Checklist', 'Post Trip Checklist', 'Expenses', 'Incident Reports', 'Payroll', 'Reports'].map((item) => `<div class="stat-row"><span>${item}</span><strong>Available in main navigation</strong></div>`).join('')}
         </div></div>
       </div>
-      <div class="card"><div class="card-header"><h3>Legacy tools</h3><button class="btn btn-outline btn-small" data-route="legacy">Open tools</button></div><div class="legacy-list">${legacyTools.map((tool) => `<div class="legacy-tool"><h3>${tool.title}</h3><p>${tool.desc}</p><div class="legacy-actions"><a class="btn btn-outline btn-small" href="${tool.file}" target="_blank" rel="noopener">Open link</a><button class="btn btn-primary btn-small" data-route="legacy" data-embed-legacy="${tool.file}">Embed</button></div></div>`).join('')}</div></div>
     </div>`;
 }
 function kpi(label, value, sub) { return `<div class="card kpi"><div class="kpi-label">${label}</div><div class="kpi-value">${value}</div><div class="kpi-sub">${sub}</div></div>`; }
@@ -419,7 +423,8 @@ function renderCrewRoleDashboard(role) {
   const route = `${role}-dashboard`;
   const page = document.getElementById(`page-${route}`);
   const roleLabel = role === 'captain' ? 'Captain' : 'Mate';
-  const selected = page.querySelector('[data-role-person]')?.value || getOptions('crew')[0] || '';
+  const selected = dashboardFilters[role] || page.querySelector('[data-role-person]')?.value || getOptions('crew')[0] || '';
+  dashboardFilters[role] = '';
   const assigned = store.trips.filter((trip) => trip[role] === selected && trip.status !== 'Cancelled').sort((a, b) => tripSortValue(a).localeCompare(tripSortValue(b)));
   const upcoming = assigned.filter((trip) => !isCompletedTrip(trip));
   const completed = assigned.filter(isCompletedTrip);
@@ -481,7 +486,6 @@ function renderCrud(route) {
   template.querySelector('thead').innerHTML = `<tr>${config.columns.map(([, label]) => `<th>${label}</th>`).join('')}<th>Actions</th></tr>`;
   page.innerHTML = '';
   page.appendChild(template);
-  if (route === 'expenses') page.querySelector('.section-heading').insertAdjacentHTML('beforeend', '<button class="btn btn-outline" data-route="legacy" data-embed-legacy="ReelAdventureTours_App_v5.html">Open legacy expenses</button>');
   page.querySelector('.search-input').addEventListener('input', () => renderTable(route));
   renderForm(route);
   if (route === 'trips') renderAssignmentBoard();
@@ -509,8 +513,7 @@ function naturalSentenceModeHint() {
 }
 
 function voiceFillButton(route) {
-  if (!['bookings', 'trips', 'expenses', 'pre-trip-checklist', 'post-trip-checklist', 'incident-reports'].includes(route)) return '';
-  return '<button class="btn btn-outline" type="button" data-voice-fill>🎙️ Command Voice Fill</button>';
+  return voiceSupportedRoutes.has(route) ? '<button class="btn btn-outline" type="button" data-voice-fill>🎙️ Command Voice Fill</button>' : '';
 }
 
 function renderField(key, label, type, value = '') {
@@ -803,13 +806,9 @@ function renderAssignmentBoard() {
     page.querySelector('.record-form').after(board);
   }
   const trips = sortedDispatchTrips();
-  const readyCounts = trips.reduce((acc, trip) => {
-    const status = calculateDispatchReadiness(trip);
-    acc[status] = (acc[status] || 0) + 1;
-    return acc;
-  }, {});
+  const daily = dailyOperationsSummary(trips);
   const viewToggle = `<div class="dispatch-view-toggle" role="group" aria-label="Dispatch view mode"><button class="btn btn-small ${assignmentViewMode === 'tree' ? 'btn-primary' : 'btn-outline'}" type="button" data-dispatch-view="tree">Dispatch Tree View</button><button class="btn btn-small ${assignmentViewMode === 'cards' ? 'btn-primary' : 'btn-outline'}" type="button" data-dispatch-view="cards">Card View</button></div>`;
-  const summary = `<div class="assignment-summary-strip"><span>${trips.length} active trips</span><span>${readyCounts['Dispatch Ready'] || 0} dispatch ready</span><span>${readyCounts.Partial || 0} partial</span><span>${readyCounts['Not Ready'] || 0} not ready</span><span>${readyCounts.Completed || 0} completed</span></div>`;
+  const summary = `<div class="daily-summary-bar"><div><span>Total Trips</span><strong>${daily.total}</strong></div><div><span>Ready Trips</span><strong class="summary-green">${daily.ready}</strong></div><div><span>Pending Trips</span><strong class="summary-yellow">${daily.pending}</strong></div><div><span>Not Ready Trips</span><strong class="summary-red">${daily.notReady}</strong></div><div><span>Outstanding Balances</span><strong>${money(daily.balance)}</strong></div><div><span>Crew Conflicts</span><strong class="summary-red">${daily.conflicts}</strong></div></div>`;
   const content = assignmentViewMode === 'cards'
     ? `<div class="assignment-list assignment-card-list">${trips.length ? trips.map(renderAssignmentTrip).join('') : renderEmptyDispatchState()}</div>`
     : renderDispatchTree(trips);
@@ -835,26 +834,69 @@ function groupByValue(items, getKey) {
   }, {});
 }
 
+function dailyOperationsSummary(trips) {
+  return trips.reduce((acc, trip) => {
+    const readiness = calculateDispatchReadiness(trip);
+    acc.total += 1;
+    if (readiness === 'Dispatch Ready' || readiness === 'Completed') acc.ready += 1;
+    else if (readiness === 'Not Ready') acc.notReady += 1;
+    else acc.pending += 1;
+    acc.balance += Number(trip.balanceDue || 0);
+    acc.conflicts += findTripConflicts(trip, trip.id).length;
+    return acc;
+  }, { total: 0, ready: 0, pending: 0, notReady: 0, balance: 0, conflicts: 0 });
+}
+
 function renderDispatchTree(trips) {
-  if (!trips.length) return `<div class="dispatch-tree">${renderEmptyDispatchState()}</div>`;
+  if (!trips.length) return `<div class="dispatch-tree true-dispatch-tree">${renderEmptyDispatchState()}</div>`;
   const byDate = groupByValue(trips, (trip) => trip.tripDate || 'No date');
-  return `<div class="dispatch-tree">${Object.entries(byDate).map(([date, dateTrips]) => renderDispatchDateNode(date, dateTrips)).join('')}</div>`;
+  return `<div class="dispatch-tree true-dispatch-tree">${Object.entries(byDate).map(([date, dateTrips]) => renderDispatchDateNode(date, dateTrips)).join('')}</div>`;
 }
 
 function renderDispatchDateNode(date, trips) {
   const byTime = groupByValue(trips, (trip) => trip.startTime || 'No time');
-  const ready = trips.filter((trip) => calculateDispatchReadiness(trip) === 'Dispatch Ready').length;
-  return `<section class="dispatch-date-node"><div class="dispatch-node-heading"><div><span class="tree-level">Date</span><strong>${escapeHtml(date === 'No date' ? 'No date' : formatDate(date))}</strong></div><span class="badge blue">${trips.length} trip${trips.length === 1 ? '' : 's'} · ${ready} ready</span></div>${Object.entries(byTime).map(([time, timeTrips]) => renderDispatchTimeNode(time, timeTrips)).join('')}</section>`;
+  const ready = trips.filter((trip) => ['Dispatch Ready', 'Completed'].includes(calculateDispatchReadiness(trip))).length;
+  return `<details class="dispatch-date-node tree-branch" open><summary class="dispatch-node-heading dispatch-date-heading"><div><span class="tree-level">Date</span><strong>${escapeHtml(date === 'No date' ? 'No date' : formatDate(date))}</strong></div><div class="node-actions"><span class="badge blue">${trips.length} trip${trips.length === 1 ? '' : 's'} · ${ready} ready</span><button class="btn btn-outline btn-small" type="button" data-tree-action="date" data-tree-value="${escapeHtml(date)}">Filter day</button></div></summary><div class="tree-children">${Object.entries(byTime).map(([time, timeTrips]) => renderDispatchTimeNode(time, timeTrips, date)).join('')}</div></details>`;
 }
 
-function renderDispatchTimeNode(time, trips) {
-  return `<section class="dispatch-time-node"><div class="dispatch-node-heading"><div><span class="tree-level">Time</span><strong>${escapeHtml(time === 'No time' ? 'No time' : formatTime(time))}</strong></div><span class="badge gold">${trips.length} trip${trips.length === 1 ? '' : 's'}</span></div>${trips.map(renderDispatchTripNode).join('')}</section>`;
+function renderDispatchTimeNode(time, trips, date) {
+  return `<details class="dispatch-time-node tree-branch" open><summary class="dispatch-node-heading dispatch-time-heading"><div><span class="tree-level">Time</span><strong>${escapeHtml(time === 'No time' ? 'No time' : formatTime(time))}</strong></div><div class="node-actions"><span class="badge gold">${trips.length} trip${trips.length === 1 ? '' : 's'}</span><button class="btn btn-outline btn-small" type="button" data-tree-action="time" data-tree-value="${escapeHtml(time)}">Filter timeslot</button></div></summary><div class="tree-children">${trips.map(renderDispatchTripNode).join('')}</div></details>`;
 }
 
 function renderDispatchTripNode(trip) {
   const readiness = calculateDispatchReadiness(trip);
   const assignment = normalizeAssignmentStatus(trip);
-  return `<article class="dispatch-trip-node ${readinessColorClass(readiness)}"><div class="dispatch-trip-main"><div><span class="tree-level">Trip</span><strong>${escapeHtml(trip.customer || 'Unassigned customer')}</strong><p>${escapeHtml(trip.tourType || `${Number(trip.hours || 4)} hour tour`)} · ${Number(trip.passengers || 0)} guests · ${escapeHtml(trip.vessel || 'No vessel')}</p></div><div class="dispatch-status">${readinessBadge(readiness)}</div></div><div class="dispatch-tree-crew">${renderCrewPill(trip.captain, 'Captain', assignment.captain)}${renderCrewPill(trip.mate && trip.mate !== 'None' ? trip.mate : '', 'Mate', assignment.mate)}</div>${readinessChecklistHtml(trip)}${renderDispatchStatusNode(readiness, [trip])}</article>`;
+  const vessel = vesselForTrip(trip);
+  const owner = ownerForVesselName(trip.vessel) || 'Unassigned owner';
+  const preStatus = latestChecklistStatus(trip, 'Pre Trip');
+  const postStatus = latestChecklistStatus(trip, 'Post Trip');
+  return `<details class="dispatch-trip-node tree-branch ${readinessColorClass(readiness)}" open><summary class="dispatch-trip-main"><div><span class="tree-level">Trip</span><strong>${escapeHtml(trip.customer || 'Unassigned customer')}</strong><p>${escapeHtml(trip.tourType || `${Number(trip.hours || 4)} hour tour`)} · ${Number(trip.passengers || 0)} guests · ${money(trip.tourPrice)} price · ${money(trip.depositPaid)} deposit · ${money(trip.balanceDue)} balance</p></div><div class="node-actions"><div class="dispatch-status">${readinessBadge(readiness)}</div><button class="btn btn-primary btn-small" type="button" data-tree-action="trip" data-tree-value="${escapeHtml(trip.id)}">Open editor</button></div></summary><div class="tree-children dispatch-leaf-list">
+    ${renderDispatchLeaf('Owner', owner, ownerStatusLabel(owner), 'owner', owner, 'gold')}
+    ${renderDispatchLeaf('Vessel', trip.vessel || 'Unassigned vessel', vessel?.readinessStatus || vessel?.status || 'Not Ready', 'vessel', trip.vessel, readinessChecklist(trip).vesselReady ? 'green' : 'red')}
+    ${renderDispatchLeaf('Captain', `${crewAvatar(trip.captain, 'Captain')}<span>${escapeHtml(trip.captain || 'Unassigned')}</span>`, assignment.captain, 'captain', trip.captain, assignmentColor(assignment.captain), true)}
+    ${renderDispatchLeaf('Mate', `${crewAvatar(trip.mate, 'Mate')}<span>${escapeHtml(trip.mate && trip.mate !== 'None' ? trip.mate : 'Unassigned')}</span>`, assignment.mate, 'mate', trip.mate, assignmentColor(assignment.mate), true)}
+    ${renderDispatchLeaf('Readiness', readiness, 'Open details', 'status', trip.id, readiness === 'Dispatch Ready' ? 'green' : readiness === 'Not Ready' ? 'red' : 'gold')}
+    ${renderDispatchLeaf('Pre Trip Status', preStatus, 'Checklist', 'pre', trip.id, checklistColor(preStatus))}
+    ${renderDispatchLeaf('Post Trip Status', postStatus, 'Checklist', 'post', trip.id, checklistColor(postStatus))}
+    ${renderDispatchLeaf('Countdown', departureCountdown(trip), 'Departure timer', 'trip', trip.id, 'blue')}
+  </div></details>`;
+}
+
+function renderDispatchLeaf(label, value, status, action, actionValue, color = 'blue', htmlValue = false) {
+  return `<button class="dispatch-leaf" type="button" data-tree-action="${escapeHtml(action)}" data-tree-value="${escapeHtml(actionValue || '')}"><span class="branch-stem" aria-hidden="true">├──</span><span class="leaf-label">${escapeHtml(label)}</span><strong>${htmlValue ? value : escapeHtml(value || '—')}</strong><span class="badge ${color}">${escapeHtml(status || 'Open')}</span></button>`;
+}
+
+function ownerStatusLabel(owner) { return owner && owner !== 'Unassigned owner' ? 'Owner assigned' : 'Missing'; }
+function assignmentColor(status) { return ['Accepted', 'Completed'].includes(status) ? 'green' : status === 'Declined' || status === 'Unassigned' ? 'red' : 'gold'; }
+function checklistColor(status) { return status === 'Completed' ? 'blue' : status === 'Cancelled' ? 'gray' : status === 'Not Started' ? 'gold' : 'green'; }
+function departureCountdown(trip) {
+  const tripDate = parseTripDate(trip);
+  if (!tripDate) return 'No departure date';
+  const days = Math.ceil((tripDate - startOfDay(new Date())) / 86400000);
+  if (days < 0) return `Departed ${Math.abs(days)} day${Math.abs(days) === 1 ? '' : 's'} ago`;
+  if (days === 0) return 'Departs today';
+  if (days === 1) return 'Departs tomorrow';
+  return `Departs in ${days} days`;
 }
 
 function renderDispatchStatusNode(status, trips) {
@@ -1011,10 +1053,22 @@ function renderCrewDashboard() {
 }
 
 function startVoiceFill(button) {
-  const form = button.closest('form');
+  const form = resolveVoiceForm(currentRoute, button);
+  if (!form) {
+    updateVoiceCommand({ state: 'ERROR', message: 'No editable fields are available on this page yet. Open or create a record first.' });
+    toast('Open or create a record to use Command Voice Fill on this page.');
+    return;
+  }
+  voiceCommand = { state: 'LISTENING_FOR_FIELD', route: currentRoute, field: null, form, lastValue: '', message: 'Listening for field name.', suggestions: [] };
+  renderVoiceCommandPanel(currentRoute);
+  listenForVoiceTranscript((transcript) => processVoiceCommandTranscript(transcript));
+}
+
+function listenForVoiceTranscript(onTranscript) {
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!form || !SpeechRecognition) {
-    toast('Voice fill is not supported in this browser.');
+  if (!SpeechRecognition) {
+    updateVoiceCommand({ state: 'ERROR', message: 'Voice recognition is not supported in this browser. Try Chrome or Edge, or type directly into the field.' });
+    toast('Voice recognition is not supported in this browser.');
     return;
   }
   if (voiceRecognition) voiceRecognition.stop();
@@ -1022,11 +1076,92 @@ function startVoiceFill(button) {
   voiceRecognition.continuous = false;
   voiceRecognition.interimResults = false;
   voiceRecognition.lang = 'en-US';
-  button.textContent = 'Listening…';
-  voiceRecognition.onresult = (event) => applyVoiceTranscript(form, event.results[0][0].transcript || '');
-  voiceRecognition.onerror = () => toast('Voice fill stopped before text was captured.');
-  voiceRecognition.onend = () => { button.textContent = '🎙️ Command Voice Fill'; voiceRecognition = null; };
+  voiceRecognition.onresult = (event) => onTranscript(event.results[0][0].transcript || '');
+  voiceRecognition.onerror = () => updateVoiceCommand({ state: 'ERROR', message: 'Voice fill stopped before text was captured.' });
+  voiceRecognition.onend = () => { voiceRecognition = null; renderVoiceCommandPanel(currentRoute); };
   voiceRecognition.start();
+}
+
+function resolveVoiceForm(route, button) {
+  const explicit = button?.closest('form');
+  if (explicit) return explicit;
+  if (crudConfig[route]) {
+    let form = document.querySelector(`#page-${route} .record-form`);
+    if (form?.hidden) showForm(route);
+    form = document.querySelector(`#page-${route} .record-form`);
+    return form && !form.hidden ? form : form;
+  }
+  return document.querySelector(`#page-${route} form, #page-${route} .role-trip-card, #page-${route}`);
+}
+
+function updateVoiceCommand(patch = {}) {
+  voiceCommand = { ...voiceCommand, ...patch };
+  renderVoiceCommandPanel(currentRoute);
+}
+
+function processVoiceCommandTranscript(transcript) {
+  const clean = normalizeVoiceText(transcript);
+  if (!clean) return updateVoiceCommand({ state: 'ERROR', message: 'Nothing was heard. Try again.' });
+  if (voiceCommand.state === 'LISTENING_FOR_FIELD' || voiceCommand.state === 'IDLE' || !voiceCommand.field) {
+    const field = matchVoiceField(clean, voiceCommand.form);
+    if (!field) {
+      return updateVoiceCommand({ state: 'ERROR', message: 'Field not found.', suggestions: voiceFieldExamples() });
+    }
+    voiceCommand.field = field;
+    updateVoiceCommand({ state: 'FIELD_SELECTED', message: `${field.label} selected. Now say the value.` });
+    window.setTimeout?.(() => {
+      updateVoiceCommand({ state: 'LISTENING_FOR_VALUE', message: `Listening for value for ${field.label}.` });
+      listenForVoiceTranscript((nextTranscript) => processVoiceCommandTranscript(nextTranscript));
+    }, 300);
+    return;
+  }
+  if (['FIELD_SELECTED', 'LISTENING_FOR_VALUE'].includes(voiceCommand.state)) {
+    fillVoiceFieldValue(clean);
+  }
+}
+
+function fillVoiceFieldValue(value) {
+  const field = voiceCommand.field;
+  if (!field?.element) return updateVoiceCommand({ state: 'ERROR', message: 'Selected field is no longer available.' });
+  let normalized = value;
+  if (field.key === 'phone') normalized = normalizePhoneNumber(value);
+  else if (['passengers', 'guests', 'guestCount'].includes(field.key)) normalized = spokenNumberToNumber(value) ?? (value.replace(/[^0-9]/g, '') || value);
+  else if (['depositPaid', 'balanceDue', 'balance', 'tourPrice', 'amount'].includes(field.key)) normalized = spokenNumberToNumber(value) ?? (value.replace(/[^0-9.]/g, '') || value);
+  else if (['startTime', 'time'].includes(field.key)) normalized = normalizeTimeInput(value);
+
+  if (field.element.tagName === 'SELECT') {
+    const matched = setSelectLikeValue(field.element, normalized);
+    if (!matched) {
+      const suggestions = closestSelectOptions(field.element, normalized);
+      return updateVoiceCommand({ state: 'ERROR', message: `${field.label} option not found for “${value}”.`, suggestions });
+    }
+    normalized = field.element.value;
+  } else {
+    field.element.value = normalized;
+  }
+  field.element.dispatchEvent(new Event('change', { bubbles: true }));
+  field.element.dispatchEvent(new Event('input', { bubbles: true }));
+  if (currentRoute === 'trips' && voiceCommand.form?.elements) { updateBalanceDue(voiceCommand.form); updateTripConflictPreview(voiceCommand.form); }
+  voiceCommand.lastValue = normalized;
+  addAudit('voice-fill', currentRoute, `Command Voice Fill set ${field.label}.`, { field: field.key });
+  saveStore();
+  updateVoiceCommand({ state: 'VALUE_FILLED', message: `${field.label} filled: ${normalized}` });
+}
+
+function handleVoiceAction(action) {
+  if (action === 'accept') return updateVoiceCommand({ state: 'CONFIRMING', message: `${voiceCommand.field?.label || 'Field'} accepted. Say or select Next Field to continue.` });
+  if (action === 'retry') {
+    updateVoiceCommand({ state: 'LISTENING_FOR_VALUE', message: `Listening for value for ${voiceCommand.field?.label || 'selected field'}.` });
+    return listenForVoiceTranscript((transcript) => processVoiceCommandTranscript(transcript));
+  }
+  if (action === 'clear') {
+    if (voiceCommand.field?.element) voiceCommand.field.element.value = '';
+    return updateVoiceCommand({ state: 'IDLE', field: null, lastValue: '', message: 'Cleared. Command Voice Fill idle.' });
+  }
+  if (action === 'next') {
+    updateVoiceCommand({ state: 'LISTENING_FOR_FIELD', field: null, lastValue: '', message: 'Listening for field name.' });
+    return listenForVoiceTranscript((transcript) => processVoiceCommandTranscript(transcript));
+  }
 }
 
 function spokenNumberToNumber(value) {
@@ -1054,11 +1189,14 @@ function normalizeVoiceText(transcript) {
 
 function normalizePhoneNumber(value) {
   const raw = String(value || '').trim();
+  const wordDigits = { zero: '0', oh: '0', o: '0', one: '1', won: '1', two: '2', too: '2', to: '2', three: '3', four: '4', for: '4', five: '5', six: '6', seven: '7', eight: '8', ate: '8', nine: '9' };
+  const spokenDigits = raw.toLowerCase().split(/\s+/).map((part) => wordDigits[part.replace(/[^a-z]/g, '')]).join('');
   const extensionMatch = raw.match(/(?:ext\.?|extension|x)\s*(\d+)$/i);
   const extension = extensionMatch ? ` x${extensionMatch[1]}` : '';
   let digits = raw.replace(/(?:ext\.?|extension|x)\s*\d+$/i, '').replace(/\D/g, '');
+  if (!digits && spokenDigits) digits = spokenDigits;
   if (digits.length === 11 && digits.startsWith('1')) digits = digits.slice(1);
-  if (digits.length === 10) return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}${extension}`;
+  if (digits.length === 10) return `${digits.slice(0, 3)}-${digits.slice(3, 6)}-${digits.slice(6)}${extension}`;
   if (digits.length === 7) return `${digits.slice(0, 3)}-${digits.slice(3)}${extension}`;
   return raw;
 }
@@ -1157,9 +1295,107 @@ function normalizeTimeInput(value) {
 }
 
 function setSelectLikeValue(element, text) {
-  const match = Array.from(element.options || []).find((option) => option.textContent.toLowerCase().includes(text.toLowerCase()) || option.value.toLowerCase().includes(text.toLowerCase()));
-  if (match) element.value = match.value;
+  const target = normalizeMatchText(text);
+  const options = Array.from(element.options || []);
+  const exact = options.find((option) => normalizeMatchText(option.textContent) === target || normalizeMatchText(option.value) === target);
+  const contains = exact || options.find((option) => normalizeMatchText(option.textContent).includes(target) || target.includes(normalizeMatchText(option.textContent)) || normalizeMatchText(option.value).includes(target));
+  const roman = contains || options.find((option) => normalizeMatchText(romanToWords(option.textContent)).includes(target) || normalizeMatchText(option.textContent).includes(normalizeMatchText(wordsToRomanText(text))));
+  if (roman) {
+    element.value = roman.value;
+    return true;
+  }
+  return false;
 }
+
+function normalizeMatchText(value) {
+  return String(value || '').toLowerCase().replace(/\b(i)\b/g, ' one ').replace(/\b(ii)\b/g, ' two ').replace(/\b(iii)\b/g, ' three ').replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+function romanToWords(value) {
+  return String(value || '').replace(/\bIII\b/gi, 'three').replace(/\bII\b/gi, 'two').replace(/\bI\b/gi, 'one');
+}
+
+function wordsToRomanText(value) {
+  return String(value || '').replace(/\bone\b/gi, 'I').replace(/\btwo\b/gi, 'II').replace(/\bthree\b/gi, 'III');
+}
+
+function closestSelectOptions(element, value) {
+  const target = normalizeMatchText(value);
+  return Array.from(element.options || []).map((option) => option.textContent).filter(Boolean).map((label) => ({ label, score: similarityScore(target, normalizeMatchText(label)) })).sort((a, b) => b.score - a.score).slice(0, 3).map((item) => item.label);
+}
+
+function similarityScore(a, b) {
+  if (!a || !b) return 0;
+  if (a === b) return 100;
+  if (a.includes(b) || b.includes(a)) return 80;
+  const aSet = new Set(a.split(' '));
+  return b.split(' ').reduce((score, part) => score + (aSet.has(part) ? 10 : 0), 0);
+}
+
+const voiceFieldAliases = [
+  { key: 'customer', label: 'Customer Name', aliases: ['customer', 'customer name', 'guest name', 'client name', 'booking name'] },
+  { key: 'phone', label: 'Phone Number', aliases: ['phone', 'phone number', 'telephone', 'cell', 'cell number', 'contact number'] },
+  { key: 'email', label: 'Email', aliases: ['email', 'email address'] },
+  { key: 'passengers', fallbackKeys: ['guests'], label: 'Guest Count', aliases: ['guests', 'guest count', 'party size', 'passengers'] },
+  { key: 'captain', label: 'Captain', aliases: ['captain', 'assigned captain', 'boat captain'] },
+  { key: 'mate', label: 'Mate', aliases: ['mate', 'crew mate', 'assigned mate'] },
+  { key: 'vessel', label: 'Vessel', aliases: ['vessel', 'boat', 'assigned boat'] },
+  { key: 'owner', label: 'Owner', aliases: ['owner', 'boat owner', 'vessel owner'] },
+  { key: 'tourType', fallbackKeys: ['product'], label: 'Tour Type', aliases: ['tour type', 'tour package', 'package', 'trip type'] },
+  { key: 'startTime', fallbackKeys: ['time'], label: 'Departure Time', aliases: ['departure time', 'trip time', 'start time', 'pickup time'] },
+  { key: 'depositPaid', label: 'Deposit', aliases: ['deposit', 'deposit paid'] },
+  { key: 'balanceDue', fallbackKeys: ['balance'], label: 'Balance', aliases: ['balance', 'balance due'] },
+  { key: 'notes', fallbackKeys: ['description', 'actionsTaken', 'paymentNotes'], label: 'Notes', aliases: ['notes', 'trip notes', 'special notes', 'customer notes'] }
+];
+
+function matchVoiceField(transcript, form) {
+  const target = normalizeMatchText(transcript);
+  const spec = voiceFieldAliases.find((item) => item.aliases.some((alias) => normalizeMatchText(alias) === target || target.includes(normalizeMatchText(alias))));
+  if (!spec) return null;
+  const keys = [spec.key, ...(spec.fallbackKeys || [])];
+  for (const key of keys) {
+    const element = form?.elements?.[key] || form?.querySelector?.(`[name="${key}"], #${key}, textarea[data-trip-notes]`);
+    if (element) return { ...spec, key, element };
+  }
+  return null;
+}
+
+function voiceFieldExamples() {
+  return ['Customer Name', 'Phone Number', 'Captain', 'Mate', 'Vessel', 'Deposit', 'Balance', 'Notes'];
+}
+
+function renderVoiceCommandPanel(route) {
+  const page = document.getElementById(`page-${route}`);
+  if (!page || !voiceSupportedRoutes.has(route)) return;
+  page.querySelector('[data-voice-command-panel]')?.remove();
+  const stack = page.querySelector('.page-stack') || page;
+  const active = voiceCommand.route === route ? voiceCommand : { state: 'IDLE', message: 'Command Voice Fill idle. Click to select a field by voice.' };
+  const stateClass = voiceCommand.route === route ? voiceCommand.state.toLowerCase().replace(/_/g, '-') : 'idle';
+  const markup = `<div class="voice-command-panel state-${stateClass}" data-voice-command-panel><div><p class="eyebrow">Command Voice Fill</p><h3>${escapeHtml(active.state.replace(/_/g, ' '))}</h3><p>${escapeHtml(active.message)}</p>${active.suggestions?.length ? `<p class="voice-suggestions">Try saying: ${active.suggestions.map(escapeHtml).join(' · ')}</p>` : '<p class="voice-suggestions">Say a field: Customer Name · Phone Number · Captain · Mate · Vessel · Deposit · Balance · Notes</p>'}</div><div class="voice-command-actions"><button class="btn btn-primary btn-small" type="button" data-command-voice-start>🎙️ Command Voice Fill</button><button class="btn btn-outline btn-small" type="button" data-voice-action="accept">Accept</button><button class="btn btn-outline btn-small" type="button" data-voice-action="retry">Retry</button><button class="btn btn-outline btn-small" type="button" data-voice-action="clear">Clear</button><button class="btn btn-outline btn-small" type="button" data-voice-action="next">Next Field</button></div></div>`;
+  const heading = stack.querySelector('.section-heading');
+  if (heading?.insertAdjacentHTML) heading.insertAdjacentHTML('afterend', markup);
+  else if (stack.insertAdjacentHTML) stack.insertAdjacentHTML('afterbegin', markup);
+}
+
+function handleTreeNodeAction(node) {
+  const action = node.dataset.treeAction;
+  const value = node.dataset.treeValue;
+  if (action === 'trip' || action === 'status') return openTripEditor(node.dataset.tripId || value);
+  if (action === 'owner') return openOwnerDashboard(value);
+  if (action === 'captain') return openCrewRoleDashboard('captain', value);
+  if (action === 'mate') return openCrewRoleDashboard('mate', value);
+  if (action === 'vessel') return openVesselReadiness(value);
+  if (action === 'pre') return renderRoute('pre-trip-checklist');
+  if (action === 'post') return renderRoute('post-trip-checklist');
+  if (['date', 'time'].includes(action)) filterTripsTable(value);
+}
+
+function openTripEditor(tripId) { renderRoute('trips'); showForm('trips', tripId); }
+function openOwnerDashboard(owner) { dashboardFilters.owner = owner || ''; renderRoute('owner-dashboard'); }
+function openCrewRoleDashboard(role, name) { dashboardFilters[role] = name || ''; renderRoute(`${role}-dashboard`); }
+function openVesselReadiness(vessel) { renderRoute('vessels'); const input = document.querySelector('#page-vessels .search-input'); if (input) { input.value = vessel || ''; renderTable('vessels'); } }
+function filterTripsTable(value) { const input = document.querySelector('#page-trips .search-input'); if (input) { input.value = value || ''; renderTable('trips'); } }
+
 
 function exportStoreData() {
   const payload = JSON.stringify({ exportedAt: new Date().toISOString(), store }, null, 2);
@@ -1281,7 +1517,8 @@ function updateVesselReadiness(vesselId, readinessStatus) {
 
 function renderOwnerDashboard() {
   const page = document.getElementById('page-owner-dashboard');
-  const selected = page.querySelector('[data-owner-select]')?.value || getOptions('owners')[0] || '';
+  const selected = dashboardFilters.owner || page.querySelector('[data-owner-select]')?.value || getOptions('owners')[0] || '';
+  dashboardFilters.owner = '';
   const ownerVessels = store.vessels.filter((vessel) => vessel.owner === selected).map((vessel) => vessel.name);
   const trips = store.trips.filter((trip) => ownerVessels.includes(trip.vessel)).sort(byDate);
   const notices = (store.notifications || []).filter((notice) => notice.recipientRole === 'Owner' || ownerVessels.includes(notice.metadata?.vessel));
@@ -1301,13 +1538,13 @@ function embedLegacy(file) {
 function renderPlaceholder(route) {
   const label = (navItems.find(([key]) => key === route) || [,'',route])[2];
   const map = {
-    invoices: ['Invoice list and customer balance workflow placeholder.', 'Legacy customer invoice tool is linked under Legacy Tools.'],
+    invoices: ['Invoice list and customer balance workflow placeholder.', 'Create and track invoices natively from the main app; archived legacy tools are reference-only in Settings.'],
     payroll: ['Payroll summaries will later connect to trips, roles, owner payouts, and rates.', 'Gmail automation is not implemented.'],
-    expenses: ['Expense capture placeholder for ice, reimbursements, and operating costs.', 'Legacy operations v5 still handles detailed expense workflows.'],
+    expenses: ['Expense capture placeholder for ice, reimbursements, and operating costs.', 'Expense capture, approvals, alerts, and reporting are handled in this native tab.'],
     inventory: ['Inventory placeholder for supplies, parts, and vessel consumables.'],
-    'pre-trip-checklist': ['Use the preserved pre-trip checklist tool for now.'],
-    'post-trip-checklist': ['Use the preserved post-trip checklist tool for now.'],
-    'cruise-schedule': ['Cruise schedule placeholder; legacy booking dashboard remains linked and embeddable.'],
+    'pre-trip-checklist': ['Native pre-trip checklist records are available here for daily dispatch readiness.'],
+    'post-trip-checklist': ['Native post-trip checklist records are available here for completion and archive workflows.'],
+    'cruise-schedule': ['Cruise schedule operations are available here using trip data from the native app.'],
     reports: ['Reports placeholder with demo data totals from local storage.'],
     settings: ['Local storage tools, seed data summaries, and phase guardrails.']
   };
@@ -1316,13 +1553,12 @@ function renderPlaceholder(route) {
   document.getElementById(`page-${route}`).innerHTML = `<div class="page-stack"><div class="section-heading"><div><p class="eyebrow">Phase 2 placeholder</p><h1>${label}</h1><p class="section-summary">This section is present in the unified navigation and ready for Phase 3 expansion.</p></div></div><div class="card card-pad"><ul class="placeholder-list">${lines.map((line) => `<li>${line}</li>`).join('')}</ul>${legacyShortcut(route)}${extra}</div></div>`;
 }
 function legacyShortcut(route) {
-  const matches = { invoices: 'customer-invoice.html', 'pre-trip-checklist': 'RAT-PreTrip-VesselCheck.html', 'post-trip-checklist': 'RAT-PostTrip-VesselCheck.html', 'cruise-schedule': 'reel_adventure_tours_dashboard.html', payroll: 'ReelAdventureTours_App_v5.html', expenses: 'ReelAdventureTours_App_v5.html', reports: 'ReelAdventureTours_App_v5.html' };
-  return matches[route] ? `<p><button class="btn btn-primary" data-route="legacy" data-embed-legacy="${matches[route]}">Open related legacy tool</button></p>` : '';
-}
-function settingsMarkup() {
-  return `<div class="grid settings-grid" style="margin-top:18px"><div class="legacy-tool"><h3>Seed data</h3><p>${store.vessels.length} vessels, ${store.crew.length} crew members, ${store.roles.length} roles, ${store.bookingSources.length} booking sources, ${store.standardPayoutRates.length} standard crew payout rates, and ${store.vesselOwnerPayoutRates.length} documented owner payout rules loaded.</p></div><div class="legacy-tool"><h3>Local data layer</h3><p>Storage key: ${STORE_KEY}. Last updated: ${new Date(store.updatedAt).toLocaleString()}.</p><div class="legacy-actions"><button class="btn btn-outline" data-export-store>Export JSON</button><label class="btn btn-outline" for="importStoreFile">Import JSON<input id="importStoreFile" data-import-store type="file" accept="application/json" hidden></label><button class="btn btn-danger" data-reset-store>Reset seed data</button></div></div><div class="legacy-tool"><h3>Preserved Phase 3 safeguards</h3><p>Dispatch board, assignment lifecycle, crew dashboards, checklist readiness, vessel readiness, passenger manifests, payroll, audit trail, notifications, voice fill, export/import, legacy shell links, and the static validator are all active.</p></div></div>`;
+  return '';
 }
 
+function settingsMarkup() {
+  return `<div class="grid settings-grid" style="margin-top:18px"><div class="legacy-tool"><h3>Seed data</h3><p>${store.vessels.length} vessels, ${store.crew.length} crew members, ${store.roles.length} roles, ${store.bookingSources.length} booking sources, ${store.standardPayoutRates.length} standard crew payout rates, and ${store.vesselOwnerPayoutRates.length} documented owner payout rules loaded.</p></div><div class="legacy-tool"><h3>Local data layer</h3><p>Storage key: ${STORE_KEY}. Last updated: ${new Date(store.updatedAt).toLocaleString()}.</p><div class="legacy-actions"><button class="btn btn-outline" data-export-store>Export JSON</button><label class="btn btn-outline" for="importStoreFile">Import JSON<input id="importStoreFile" data-import-store type="file" accept="application/json" hidden></label><button class="btn btn-danger" data-reset-store>Reset seed data</button></div></div><div class="legacy-tool"><h3>Preserved Phase 4 safeguards</h3><p>Dispatch board, true tree view, assignment lifecycle, crew dashboards, checklist readiness, vessel readiness, passenger manifests, payroll, audit trail, notifications, command voice fill, export/import, and the static validator are all active.</p></div><div class="legacy-tool archived-legacy-tools"><h3>Archived Legacy Tools</h3><p><strong>These tools are retained for reference only.</strong> Active operations should be managed through the primary application tabs.</p><div class="legacy-list">${legacyTools.map((tool) => `<div class="legacy-tool"><h3>${tool.title}</h3><p>${tool.desc}</p><div class="legacy-actions"><a class="btn btn-outline btn-small" href="${tool.file}" target="_blank" rel="noopener">Open reference</a></div></div>`).join('')}</div></div></div>`;
+}
 function toast(message) {
   const el = document.getElementById('toast');
   el.textContent = message;
