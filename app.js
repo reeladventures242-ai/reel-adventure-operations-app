@@ -1,5 +1,5 @@
 const STORE_KEY = 'rat_ops_v1_store';
-const STORE_VERSION = 7;
+const STORE_VERSION = 8;
 
 const navItems = [
   ['dashboard', '🏠', 'Dashboard'], ['bookings', '📘', 'Bookings'], ['invoices', '🧾', 'Invoices'],
@@ -98,7 +98,8 @@ const seedData = {
   incidentReports: [],
   checklistRecords: [],
   invoices: [],
-  cruiseSchedule: []
+  cruiseSchedule: [],
+  inventory: []
 };
 
 const crudConfig = {
@@ -124,18 +125,18 @@ const crudConfig = {
   },
   expenses: {
     title: 'Expenses', eyebrow: 'Operations costs', summary: 'Capture operating expenses, receipt/photo notes, approvals, and vessel cost alerts directly in the native operations app.', collection: 'expenses', addLabel: 'Add expense',
-    fields: [['date','Expense date','date'], ['vessel','Vessel','select:vessels'], ['category','Category','select:expenseCategories'], ['amount','Amount','number'], ['paidBy','Paid by','select:crew'], ['status','Status','select:expenseStatus'], ['receiptPhotos','Receipt/photo notes','textarea'], ['notes','Notes','textarea']],
+    fields: [['date','Expense date','date'], ['vessel','Vessel','select:vessels'], ['category','Category','select:expenseCategories'], ['description','Item / Description','text'], ['amount','Amount','number'], ['paidBy','Paid by','select:crew'], ['linkedTrip','Link to Trip','select:trips'], ['weekStart','Week Start for Payout','date'], ['addToPayout','Add to Payout This Week?','select:yesNo'], ['reimbursementStatus','Reimbursement Status','select:reimbursementStatus'], ['receiptNumber','Receipt / Reference #','text'], ['status','Status','select:expenseStatus'], ['receiptPhotos','Receipt/photo notes','textarea'], ['notes','Notes','textarea']],
     columns: [['date','Date'], ['vessel','Vessel'], ['category','Category'], ['amount','Amount'], ['paidBy','Paid by'], ['status','Status']]
   },
   invoices: {
     title: 'Invoices', eyebrow: 'Native billing', summary: 'Create, edit, link, and settle customer invoices directly in the main operations app.', collection: 'invoices', addLabel: 'Create Invoice',
-    fields: [['invoiceNumber','Invoice Number','text'], ['customerName','Customer Name','text'], ['phone','Phone Number','tel'], ['email','Email','email'], ['tripDate','Trip Date','date'], ['tourType','Tour Type','text'], ['guestCount','Guest Count','number'], ['vessel','Vessel','select:vessels'], ['bookingSource','Booking Source','select:bookingSources'], ['tourPrice','Tour Price','number'], ['depositPaid','Deposit Paid','number'], ['balanceDue','Balance Due','number'], ['paymentStatus','Payment Status','select:paymentStatus'], ['paymentMethod','Payment Method','select:paymentMethods'], ['tripId','Link Invoice to Trip','select:trips'], ['bookingId','Link Invoice to Booking','select:bookings'], ['notes','Notes','textarea']],
+    fields: [['invoiceNumber','Invoice Number','text'], ['documentType','Document Type (Quote or Invoice)','select:documentTypes'], ['customerName','Customer Name','text'], ['phone','Phone Number','tel'], ['email','Email','email'], ['tripDate','Trip Date','date'], ['startTime','Start Time','time'], ['endTime','End Time','time'], ['tourType','Tour Package / Product','text'], ['adultCount','Adults on Boat 1','number'], ['kidCount','Kids on Boat 1','number'], ['guestCount','Guest Count','number'], ['pickupLocation','Pickup Location','select:pickupLocations'], ['customPickupLocation','Custom Pickup Location','text'], ['pickupDirections','Directions / Notes','textarea'], ['landingFeeNote','Landing Fee / Note','text'], ['baseTourPrice','Base Tour Price','number'], ['swimmingPigsPeople','Swimming Pigs People ($20/person)','number'], ['secondBoat','Add Second Boat','select:yesNo'], ['boat2Adults','Adults on Boat 2','number'], ['boat2Kids','Kids on Boat 2','number'], ['vessel','Vessel','select:vessels'], ['bookingSource','Booking Source','select:bookingSources'], ['tourPrice','Calculated Tour Price','number'], ['depositPercent','Deposit Percent','number'], ['depositPaid','Deposit Paid','number'], ['balanceDue','Balance Due','number'], ['paymentStatus','Payment Status','select:paymentStatus'], ['paymentMethod','Preferred Payment Method','select:paymentMethods'], ['tripId','Link Invoice to Trip','select:trips'], ['bookingId','Link Invoice to Booking','select:bookings'], ['customerSummary','Customer-Facing Summary','textarea'], ['notes','Notes','textarea']],
     columns: [['invoiceNumber','Invoice #'], ['customerName','Customer'], ['tripDate','Trip Date'], ['tourPrice','Total Price'], ['depositPaid','Deposit'], ['balanceDue','Balance'], ['paymentStatus','Payment Status'], ['vessel','Vessel']]
   },
   'cruise-schedule': {
     title: 'Cruise Schedule', eyebrow: 'Native ships in port', summary: 'Track cruise ship arrivals, departures, capacity, terminal, and upcoming port load inside the app.', collection: 'cruiseSchedule', addLabel: 'Create Cruise Entry',
-    fields: [['shipName','Ship Name','text'], ['cruiseLine','Cruise Line','text'], ['arrivalDate','Arrival Date','date'], ['arrivalTime','Arrival Time','time'], ['departureTime','Departure Time','time'], ['passengerCapacity','Passenger Capacity','number'], ['terminalDock','Terminal / Dock','text'], ['notes','Notes','textarea']],
-    columns: [['shipName','Ship Name'], ['cruiseLine','Cruise Line'], ['arrivalDate','Arrival Date'], ['arrivalTime','Arrival Time'], ['departureTime','Departure Time'], ['passengerCapacity','Passenger Capacity'], ['terminalDock','Terminal / Dock']]
+    fields: [['shipName','Ship Name','text'], ['cruiseLine','Cruise Line','text'], ['departureDate','Cruise Departs','date'], ['returnDate','Cruise Returns','date'], ['arrivalDate','Nassau Arrival Date','date'], ['arrivalTime','Nassau Arrival Time','time'], ['departureTime','Nassau Departure Time','time'], ['passengerCapacity','Passenger Capacity','number'], ['terminalDock','Terminal / Dock','text'], ['facebookSearchTerm','Facebook Search Term','text'], ['postedStatus','Posted?','select:postedStatus'], ['opportunityStatus','Opportunity Status','select:opportunityStatus'], ['notes','Notes','textarea']],
+    columns: [['shipName','Ship Name'], ['cruiseLine','Cruise Line'], ['arrivalDate','Nassau Arrival'], ['arrivalTime','Arrival Time'], ['departureTime','Departure Time'], ['passengerCapacity','Passenger Capacity'], ['facebookSearchTerm','Facebook Search Term'], ['postedStatus','Posted?'], ['opportunityStatus','Status']]
   },
   'incident-reports': {
     title: 'Incident Reports', eyebrow: 'Safety and operations', summary: 'Document guest, vessel, weather, injury, and equipment incidents for operational follow-up.', collection: 'incidentReports', addLabel: 'Add incident',
@@ -143,6 +144,31 @@ const crudConfig = {
     columns: [['date','Date'], ['vessel','Vessel'], ['reportedBy','Reported by'], ['severity','Severity'], ['category','Category'], ['status','Status']]
   }
 };
+
+const defaultInventoryItems = [
+  { id: 'inv-water', name: 'Water', category: 'Beverages', unit: 'case(s)', currentStock: 1, minimumRequiredStock: 1, recommendedStock: 2 },
+  { id: 'inv-soda-coke', name: 'Coke', category: 'Beverages', unit: 'units', currentStock: 6, minimumRequiredStock: 6, recommendedStock: 12 },
+  { id: 'inv-soda-diet', name: 'Diet Coke', category: 'Beverages', unit: 'units', currentStock: 6, minimumRequiredStock: 6, recommendedStock: 12 },
+  { id: 'inv-rum', name: 'Rum', category: 'Beverages', unit: 'bottles', currentStock: 3, minimumRequiredStock: 3, recommendedStock: 5 },
+  { id: 'inv-rum-punch', name: 'Rum Punch Mixed & Ready', category: 'Beverages', unit: 'batch status', currentStock: 1, minimumRequiredStock: 1, recommendedStock: 1 },
+  { id: 'inv-pina', name: 'Pina Colada', category: 'Beverages', unit: 'bottles', currentStock: 2, minimumRequiredStock: 2, recommendedStock: 3 },
+  { id: 'inv-yellow-juice', name: 'Yellow Juice', category: 'Beverages', unit: 'units', currentStock: 3, minimumRequiredStock: 3, recommendedStock: 6 },
+  { id: 'inv-red-juice', name: 'Red Juice', category: 'Beverages', unit: 'units', currentStock: 3, minimumRequiredStock: 3, recommendedStock: 6 },
+  { id: 'inv-goombay', name: 'White Goombay Punch', category: 'Beverages', unit: 'units', currentStock: 6, minimumRequiredStock: 6, recommendedStock: 12 },
+  { id: 'inv-champagne', name: 'Gold Champagne', category: 'Beverages', unit: 'units', currentStock: 6, minimumRequiredStock: 6, recommendedStock: 12 },
+  { id: 'inv-ice', name: 'Ice', category: 'Consumables', unit: 'bags', currentStock: 0, minimumRequiredStock: 2, recommendedStock: 4 },
+  { id: 'inv-snacks', name: 'Chips / Snacks', category: 'Consumables', unit: 'box(es)', currentStock: 2, minimumRequiredStock: 2, recommendedStock: 4 },
+  { id: 'inv-cups', name: 'Cups', category: 'Consumables', unit: 'sleeves', currentStock: 1, minimumRequiredStock: 1, recommendedStock: 3 },
+  { id: 'inv-napkins', name: 'Napkins', category: 'Consumables', unit: 'packs', currentStock: 1, minimumRequiredStock: 1, recommendedStock: 3 },
+  { id: 'inv-trash-bags', name: 'Trash Bags', category: 'Consumables', unit: 'rolls', currentStock: 1, minimumRequiredStock: 1, recommendedStock: 2 },
+  { id: 'inv-bleach', name: 'Bleach', category: 'Cleaning Products', unit: 'bottles', currentStock: 1, minimumRequiredStock: 1, recommendedStock: 2 },
+  { id: 'inv-joy', name: 'Joy Dish Soap', category: 'Cleaning Products', unit: 'bottles', currentStock: 1, minimumRequiredStock: 1, recommendedStock: 2 },
+  { id: 'inv-cleaning', name: 'Cleaning Supplies', category: 'Cleaning Products', unit: 'kits', currentStock: 1, minimumRequiredStock: 1, recommendedStock: 2 },
+  { id: 'inv-snorkel', name: 'Snorkel Gear', category: 'Safety Gear', unit: 'sets', currentStock: 12, minimumRequiredStock: 12, recommendedStock: 16 },
+  { id: 'inv-life-jackets', name: 'Life Jackets', category: 'Safety Gear', unit: 'jackets', currentStock: 12, minimumRequiredStock: 12, recommendedStock: 16 },
+  { id: 'inv-fuel', name: 'Fuel', category: 'Fuel', unit: 'level', currentStock: 75, minimumRequiredStock: 50, recommendedStock: 100 }
+];
+
 
 let store = loadStore();
 let currentRoute = 'dashboard';
@@ -183,6 +209,7 @@ function migrateStore(existing = {}) {
   next.checklistRecords = Array.isArray(next.checklistRecords) ? next.checklistRecords : [];
   next.invoices = Array.isArray(next.invoices) ? next.invoices : [];
   next.cruiseSchedule = Array.isArray(next.cruiseSchedule) ? next.cruiseSchedule : [];
+  next.inventory = normalizeInventory(Array.isArray(next.inventory) ? next.inventory : []);
   next.vessels = (Array.isArray(next.vessels) ? next.vessels : []).map((vessel) => ({ ...vessel, readinessStatus: vessel.readinessStatus || vessel.status || 'Operational' }));
   next.trips = (Array.isArray(next.trips) ? next.trips : []).map((trip) => normalizeTrip(trip));
   localStorage.setItem(STORE_KEY, JSON.stringify(next));
@@ -277,14 +304,21 @@ function getOptions(kind) {
     vesselReadiness: ['Operational', 'Needs Review', 'Out of Service', 'Maintenance Hold'],
     expenseCategories: ['Fuel', 'Ice', 'Supplies', 'Maintenance', 'Dockage', 'Reimbursement', 'Other'],
     expenseStatus: ['Submitted', 'Approved', 'Paid', 'Needs Review'],
+    reimbursementStatus: ['Outstanding (not yet reimbursed)', 'Paid / Reimbursed', 'Track only'],
     incidentSeverity: ['Low', 'Medium', 'High', 'Critical'],
     incidentCategories: ['Guest', 'Crew', 'Vessel', 'Weather', 'Injury', 'Equipment', 'Other'],
     incidentStatus: ['Open', 'Needs Review', 'Resolved'],
     trips: store.trips.map((t) => `${t.id}|${formatDate(t.tripDate)} ${t.startTime || ''} ${t.customer || 'Trip'}`),
     bookings: store.bookings.map((b) => `${b.id}|${formatDate(b.date)} ${b.time || ''} ${b.customer || 'Booking'}`),
     paymentStatus: ['Deposit Due', 'Deposit Paid', 'Balance Due', 'Paid in Full', 'Refunded', 'Cancelled'],
-    paymentMethods: ['Cash', 'Credit Card', 'Debit Card', 'Zelle', 'ACH', 'Check', 'Online', 'Other'],
-    checklistStatus: ['Draft', 'Submitted', 'Needs Review']
+    paymentMethods: ['Cash', 'Credit Card', 'Debit Card', 'Zelle', 'ACH', 'Check', 'Online', 'CashApp', 'PayPal (Friends & Family)', 'Payment Link', 'Other'],
+    documentTypes: ['Quote', 'Invoice'],
+    pickupLocations: ['Woodes Rodgers Walk', 'Montague Dock', "Jimmy Buffett's Margaritaville", 'Other / Custom Location'],
+    postedStatus: ['Not Posted', 'Posted', 'Needs Follow-up'],
+    opportunityStatus: ['Opportunity', 'Booked', 'Watched', 'Closed'],
+    checklistStatus: ['Draft', 'Submitted', 'Needs Review'],
+    inventoryStatus: ['In Stock', 'Low Stock', 'Restock Needed', 'Empty'],
+    inventoryCategories: ['Beverages', 'Cleaning Products', 'Safety Gear', 'Consumables', 'Vessel Supplies', 'Fuel']
   };
   return maps[kind] || [];
 }
@@ -398,6 +432,7 @@ function renderRoute(route) {
   if (crudConfig[route]) renderCrud(route);
   else if (route === 'dashboard') renderDashboard();
   else if (route === 'payroll') renderPayroll();
+  else if (route === 'inventory') renderInventory();
   else if (route === 'captain-dashboard') renderCrewRoleDashboard('captain');
   else if (route === 'mate-dashboard') renderCrewRoleDashboard('mate');
   else if (route === 'owner-dashboard') renderOwnerDashboard();
@@ -420,6 +455,7 @@ function renderDashboard() {
   const needsAttention = scheduledTrips.filter((trip) => !['Dispatch Ready', 'Completed'].includes(calculateDispatchReadiness(trip)));
   const totalBalance = store.bookings.reduce((sum, b) => sum + Number(b.balance || 0), 0) + store.trips.reduce((sum, t) => sum + Number(t.balanceDue || 0), 0) + store.invoices.reduce((sum, invoice) => sum + Number(invoice.balanceDue || 0), 0);
   const urgentItems = dashboardUrgentItems(scheduledTrips).slice(0, 8);
+  const lowStockItems = inventoryAlerts();
   document.getElementById('page-dashboard').innerHTML = `
     <div class="page-stack dashboard-command-center" data-mobile-command-center>
       <div class="hero-command-card">
@@ -432,6 +468,7 @@ function renderDashboard() {
         ${kpi('Needs Attention', needsAttention.length, `${notReadyTrips.length} not ready`)}
         ${kpi('Outstanding Balances', money(totalBalance), 'Bookings + trips + invoices')}
         ${kpi('Unread Alerts', unreadNotificationCount(), 'Mobile notification inbox')}
+        ${kpi('Low Stock Alerts', lowStockItems.length, 'Inventory restock needed')}
       </div>
       <div class="quick-action-dock" data-dashboard-quick-actions>
         <button class="btn btn-primary" data-route="trips">Create Trip</button>
@@ -441,6 +478,7 @@ function renderDashboard() {
         <button class="btn btn-outline" data-route="trips">Open Dispatch</button>
       </div>
       <div class="grid dashboard-grid">
+        <div class="card urgent-card"><div class="card-header"><h3>Stock level alerts</h3><span class="badge ${lowStockItems.length ? 'red' : 'green'}">${lowStockItems.length ? 'Restock Needed' : 'Stock OK'}</span></div><div class="stat-list">${lowStockItems.length ? lowStockItems.map((item) => `<button class="urgent-item" data-route="inventory"><span class="badge red">Low Stock Alert</span><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(item.currentStock)} ${escapeHtml(item.unit)} on hand · minimum ${escapeHtml(item.minimumRequiredStock)}</small></button>`).join('') : '<p class="empty-state">No inventory stock alerts right now.</p>'}</div></div>
         <div class="card urgent-card"><div class="card-header"><h3>Urgent items first</h3><span class="badge red">Needs review</span></div><div class="stat-list">${urgentItems.length ? urgentItems.map((item) => `<button class="urgent-item" data-route="trips"><span class="badge ${item.color}">${escapeHtml(item.type)}</span><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.detail)}</small></button>`).join('') : '<p class="empty-state">No urgent dispatch blockers right now.</p>'}</div></div>
         <div class="card"><div class="card-header"><h3>Native daily workflow</h3><span class="badge green">All native</span></div><div class="stat-list">
           ${['Bookings', 'Invoices', 'Dispatch Tree', 'Card View', 'Captain Dashboard', 'Mate Dashboard', 'Owner Dashboard', 'Pre Trip Checklist', 'Post Trip Checklist', 'Expenses', 'Incident Reports', 'Payroll', 'Reports', 'Notifications', 'Audit Trail', 'Settings'].map((item) => `<div class="stat-row"><span>${item}</span><strong>Available in main navigation</strong></div>`).join('')}
@@ -682,6 +720,8 @@ function saveRecord(event, route) {
   config.fields.forEach(([key,, type]) => { if (type === 'number') data[key] = Number(data[key] || 0); });
   if (data.phone) data.phone = normalizePhoneNumber(data.phone);
   if (route === 'invoices') {
+    data.tourPrice = Number(data.tourPrice || data.baseTourPrice || 0) + Number(data.swimmingPigsPeople || 0) * 20 + (data.secondBoat === 'Yes' ? 900 : 0);
+    data.guestCount = Number(data.guestCount || 0) || Number(data.adultCount || 0) + Number(data.kidCount || 0) + Number(data.boat2Adults || 0) + Number(data.boat2Kids || 0);
     data.balanceDue = Math.max(Number(data.tourPrice || 0) - Number(data.depositPaid || 0), Number(data.balanceDue || 0));
     data.paymentStatus = data.paymentStatus || (data.balanceDue <= 0 ? 'Paid in Full' : Number(data.depositPaid || 0) > 0 ? 'Deposit Paid' : 'Deposit Due');
     data.invoiceNumber = data.invoiceNumber || `INV-${new Date().toISOString().slice(0,10).replace(/-/g,'')}-${String(store.invoices.length + 1).padStart(3, '0')}`;
@@ -1076,7 +1116,13 @@ function renderAssignmentTrip(trip) {
 }
 
 function updateBalanceDue(form) {
-  const tourPrice = Number(form.elements.tourPrice?.value || 0);
+  const base = Number(form.elements.baseTourPrice?.value || form.elements.tourPrice?.value || 0);
+  const pigs = Number(form.elements.swimmingPigsPeople?.value || 0) * 20;
+  const secondBoat = form.elements.secondBoat?.value === 'Yes' ? 900 : 0;
+  const tourPrice = base + pigs + secondBoat;
+  if (form.elements.tourPrice) form.elements.tourPrice.value = tourPrice.toFixed(2).replace(/\.00$/, '');
+  const depositPercent = Number(form.elements.depositPercent?.value || 0);
+  if (form.elements.depositPaid && depositPercent && !Number(form.elements.depositPaid.value || 0)) form.elements.depositPaid.value = (tourPrice * depositPercent / 100).toFixed(2).replace(/\.00$/, '');
   const depositPaid = Number(form.elements.depositPaid?.value || 0);
   if (form.elements.balanceDue) form.elements.balanceDue.value = Math.max(tourPrice - depositPaid, 0).toFixed(2).replace(/\.00$/, '');
 }
@@ -1142,6 +1188,99 @@ function payrollWeekLabel(dateText) {
   return `${start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ${end.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
 }
 
+
+const legacyFeatureAudit = {
+  'RAT-PreTrip-VesselCheck.html': {
+    sections: ['Save as PDF modal', 'Preview modal', 'Action bar', 'Vessel/date/initials/time details', 'Boat status confirmations', 'Stock groups', 'Engine oil and fuel', 'Bilge pump checks', 'Photo attachments', 'General notes', 'Preview/PDF/WhatsApp workflow'],
+    fields: ['Vessel select', 'Date', 'Captain initials', 'Time', 'Boat cleaned', 'Boat stocked', 'Trash removed', 'Ready for charter', 'Rum', 'Pina Colada', 'Rum Punch mixed ready', 'Yellow Juice', 'Red Juice', 'Coke', 'Diet Coke', 'White Goombay Punch', 'Gold Champagne', 'Water', 'Chips/Snacks', 'Bleach whole/open level', 'Joy Dish Soap whole/open level', 'Engine 1 oil', 'Engine 2 oil', 'Fuel level E/1/4/1/2/3/4/F', 'Bilge Pump 1 tested', 'Bilge Pump 2 tested', 'Photos/files', 'Management notes'],
+    calculations: ['Quantity status compares current stock to minimum/restock thresholds', 'Cleaning product restock when open bottle is half/empty and no whole bottle remains', 'Preview summarizes stock, engines, restock alerts, notes, and photos'],
+    alerts: ['Restock alert list', 'Empty stock badges', 'Need to add oil', 'Too full oil'],
+    exports: ['Preview', 'Print dialog Save as PDF', 'WhatsApp handoff']
+  },
+  'RAT-PostTrip-VesselCheck.html': {
+    sections: ['Save as PDF modal', 'Preview modal', 'Action bar', 'Vessel/date/initials/time details', 'Boat status confirmations', 'Remaining stock groups', 'Fuel level', 'Bilge/flush checks', 'Photo attachments', 'Guest feedback/general notes', 'Preview/PDF/WhatsApp workflow'],
+    fields: ['Vessel select', 'Date', 'Captain initials', 'Return time', 'Boat cleaned', 'Trash removed', 'Ready for next charter', 'Remaining Rum', 'Remaining Pina Colada', 'Remaining Yellow Juice', 'Remaining Red Juice', 'Remaining Coke', 'Remaining Diet Coke', 'Remaining White Goombay Punch', 'Remaining Gold Champagne', 'Remaining Water', 'Remaining Chips/Snacks', 'Remaining Bleach', 'Remaining Joy Dish Soap', 'Fuel level', 'Bilge Pump 1 left working', 'Engine 1 flushed today', 'Engine 1 flush overdue', 'Engine 1 last flush date/initials/issues', 'Bilge Pump 2 left working', 'Engine 2 flushed today', 'Engine 2 flush overdue', 'Engine 2 last flush date/initials/issues', 'Photos/files', 'Guest feedback/incidents/equipment notes'],
+    calculations: ['Remaining stock status compares quantities to next-charter minimum/restock thresholds', 'Cleaning product restock when open bottle is half/empty and no whole bottle remains', 'Preview summarizes remaining stock, bilge/flush status, alerts, notes, and photos'],
+    alerts: ['Restock alert list', 'Flush overdue checkboxes', 'Empty stock badges'],
+    exports: ['Preview', 'Print dialog Save as PDF', 'WhatsApp handoff']
+  },
+  'customer-invoice.html': {
+    sections: ['Customer details', 'Tour details', 'Pickup location', 'Tour price', 'Document type/payment', 'Customer email confirmation'],
+    fields: ['Full name', 'Phone', 'Email', 'Tour date', 'Adults/kids boat 1', 'Start/end time and calculated duration', 'Pickup option/custom pickup/directions/landing fee note', 'Base tour price', 'Swimming Pigs add-on per person', 'Second boat add-on', 'Quote vs invoice', 'Deposit required percentage/custom/pay in full', 'Preferred payment method'],
+    calculations: ['Guest totals and 12-person boat max warning', 'Duration from start/end time', 'Pigs add-on', 'Second boat price', 'Deposit amount', 'Balance due'],
+    alerts: ['Boat capacity warning', 'Landing fee note', 'Payment next-step guidance'],
+    exports: ['Email-app booking request/receipt summary']
+  },
+  'reel_adventure_tours_dashboard.html': {
+    sections: ['KPI summary', 'June/July/August cruise schedules', 'Direct bookings table'],
+    fields: ['Ship', 'Cruise line', 'Departure/return length', 'Nassau arrival', 'Facebook search term', 'Posted marker', 'Order', 'Placed', 'Customer/email/phone', 'Product', 'Tour date/time', 'Guests/pigs', 'Full price/deposit/balance due/payment', 'Invoice', 'Notes'],
+    calculations: ['Cruise opportunities by month', 'Direct bookings count', 'Total balance due', 'Upcoming tours'],
+    alerts: ['Live status marker', 'Search/filter workflow'],
+    exports: ['Dashboard print/export-ready tables']
+  },
+  'ReelAdventureTours_App_v5.html': {
+    sections: ['Weekly dashboard', 'All charter trips', 'Ice expenses', 'Weekly summary', 'Person statements', 'Profit report', 'Reimbursements', 'Exports/backup', 'Settings'],
+    fields: ['Trip date', 'Tour price', 'Boat owner', 'Passengers', 'Hours', 'Captain/mate', 'Captain/mate paid by Eugene', 'Captain/mate pay overrides', 'Owner payout override', 'Eugene profit override', 'Trip notes/photo', 'Ice date/amount/trip/paid/notes', 'Reimbursement date/person/item/amount/trip/week/add-to-payout/status/receipt/notes/photo', 'Business name/owner name'],
+    calculations: ['Owner rate by boat owner and passenger count', 'Captain $30/hr and mate $12.50/hr defaults', 'Ryan mate share 50%', 'Owner net payment', 'Eugene gross margin/net profit', 'Week start/end and payout Monday', 'Weekly/month/all-time totals'],
+    alerts: ['Required field alerts', 'SheetJS missing alert', 'Import/clear/settings alerts'],
+    exports: ['Excel workbook', 'CSV trip/payout/profit/ice/reimbursements', 'Weekly PDF', 'Person receipt PDF', 'Profit PDF', 'JSON backup/import']
+  }
+};
+
+function normalizeInventory(items = []) {
+  const byName = new Map(items.map((item) => [String(item.name || '').toLowerCase(), item]));
+  return defaultInventoryItems.map((item) => normalizeInventoryItem({ ...item, ...(byName.get(item.name.toLowerCase()) || {}) }));
+}
+
+function normalizeInventoryItem(item = {}) {
+  const currentStock = Number(item.currentStock ?? 0);
+  const minimumRequiredStock = Number(item.minimumRequiredStock ?? 0);
+  return {
+    ...item,
+    id: item.id || makeId('inventory'),
+    currentStock,
+    minimumRequiredStock,
+    recommendedStock: Number(item.recommendedStock ?? minimumRequiredStock),
+    status: inventoryStatus({ ...item, currentStock, minimumRequiredStock }),
+    lastUpdated: item.lastUpdated || new Date().toISOString(),
+    updatedBy: item.updatedBy || 'Seed data',
+    linkedVessel: item.linkedVessel || '',
+    linkedTrip: item.linkedTrip || '',
+    restockNeeded: currentStock <= minimumRequiredStock ? 'Yes' : 'No'
+  };
+}
+
+function inventoryStatus(item) {
+  if (Number(item.currentStock || 0) <= 0) return 'Empty';
+  if (Number(item.currentStock || 0) <= Number(item.minimumRequiredStock || 0)) return 'Restock Needed';
+  if (Number(item.currentStock || 0) < Number(item.recommendedStock || item.minimumRequiredStock || 0)) return 'Low Stock';
+  return 'In Stock';
+}
+
+function inventoryAlerts() {
+  return (store.inventory || []).map(normalizeInventoryItem).filter((item) => ['Empty', 'Restock Needed', 'Low Stock'].includes(item.status));
+}
+
+function renderInventory() {
+  store.inventory = normalizeInventory(store.inventory || []);
+  const alerts = inventoryAlerts();
+  const rows = store.inventory.map((item) => `<tr><td><strong>${escapeHtml(item.name)}</strong><br><small>${escapeHtml(item.category)} · ${escapeHtml(item.unit)}</small></td><td>${escapeHtml(item.currentStock)}</td><td>${escapeHtml(item.minimumRequiredStock)}</td><td>${escapeHtml(item.recommendedStock)}</td><td>${statusBadge(item.status)}</td><td>${escapeHtml(item.restockNeeded)}</td><td>${escapeHtml(item.linkedVessel || 'All vessels')}</td><td>${escapeHtml(item.linkedTrip || '—')}</td><td>${escapeHtml(item.updatedBy || '—')}<br><small>${escapeHtml(new Date(item.lastUpdated).toLocaleString())}</small></td></tr>`).join('');
+  document.getElementById('page-inventory').innerHTML = `<div class="page-stack"><div class="section-heading"><div><p class="eyebrow">Native stock levels and alerts</p><h1>Inventory</h1><p class="section-summary">Track current stock, minimum required stock, recommended stock, stock status, low stock alerts, restock needed, last updated, updated by, linked vessel, and linked trip.</p></div></div><form class="record-form card" onsubmit="saveInventoryItem(event)"><div class="form-section-stack" data-mobile-form-sections><section class="form-section-card"><div class="form-section-title"><span>1</span><h3>Stock Update</h3></div><div class="form-grid"><div class="field"><label>Inventory Item</label><select name="id">${store.inventory.map((item) => `<option value="${escapeHtml(item.id)}">${escapeHtml(item.name)}</option>`).join('')}</select></div><div class="field"><label>Current Stock</label><input name="currentStock" type="number" step="0.01"></div><div class="field"><label>Minimum Required Stock</label><input name="minimumRequiredStock" type="number" step="0.01"></div><div class="field"><label>Recommended Stock</label><input name="recommendedStock" type="number" step="0.01"></div><div class="field"><label>Linked Vessel</label><select name="linkedVessel"><option value="">All vessels</option>${getOptions('vessels').map((vessel) => `<option value="${escapeHtml(vessel)}">${escapeHtml(vessel)}</option>`).join('')}</select></div><div class="field"><label>Linked Trip</label><select name="linkedTrip"><option value="">— None —</option>${getOptions('trips').map((opt) => `<option value="${escapeHtml(opt.split('|')[0])}">${escapeHtml(opt.split('|').slice(1).join('|'))}</option>`).join('')}</select></div><div class="field"><label>Updated By</label><input name="updatedBy" type="text" value="${escapeHtml(currentUserLabel())}"></div><div class="field"><label>Notes</label><textarea name="notes"></textarea></div></div></section></div><div class="form-actions sticky-save-controls"><button class="btn btn-primary" type="submit">Save Stock Update</button>${voiceFillButton('inventory')}<button class="btn btn-outline" type="button" onclick="window.print()">Print / Export</button></div></form><div class="card urgent-card"><div class="card-header"><h3>Low Stock Alerts</h3><span class="badge ${alerts.length ? 'red' : 'green'}">${alerts.length ? 'Restock Needed' : 'Stock OK'}</span></div><div class="stat-list">${alerts.length ? alerts.map((item) => `<div class="stat-row"><span>${escapeHtml(item.name)}</span><strong>${statusBadge(item.status)} ${escapeHtml(item.currentStock)} / min ${escapeHtml(item.minimumRequiredStock)}</strong></div>`).join('') : '<p class="empty-state">No low stock warnings.</p>'}</div></div><div class="card table-card"><div class="card-header"><h3>Inventory records</h3><button class="btn btn-outline btn-small" type="button" onclick="window.print()">Print / Export Inventory</button></div><div class="responsive-table-wrap"><table><thead><tr><th>Item</th><th>Current Stock</th><th>Minimum Required Stock</th><th>Recommended Stock</th><th>Stock Status</th><th>Restock Needed</th><th>Linked Vessel</th><th>Linked Trip</th><th>Last Updated / By</th></tr></thead><tbody>${rows}</tbody></table></div></div></div>`;
+}
+
+function saveInventoryItem(event) {
+  event.preventDefault();
+  const data = Object.fromEntries(new FormData(event.currentTarget).entries());
+  const item = store.inventory.find((entry) => entry.id === data.id);
+  if (!item) return;
+  Object.assign(item, normalizeInventoryItem({ ...item, ...data, currentStock: Number(data.currentStock || item.currentStock || 0), minimumRequiredStock: Number(data.minimumRequiredStock || item.minimumRequiredStock || 0), recommendedStock: Number(data.recommendedStock || item.recommendedStock || 0), lastUpdated: new Date().toISOString(), updatedBy: data.updatedBy || currentUserLabel() }));
+  if (['Empty', 'Restock Needed', 'Low Stock'].includes(item.status)) addNotification('Low Stock Alert', `${item.name} is ${item.status}. Restock needed before dispatch.`, 'warning', { category: 'Inventory', itemId: item.id, displayTargets: ['Dashboard', 'Inventory', 'Pre Trip Checklist', 'Post Trip Checklist', 'Dispatch Tree', 'Notifications'] });
+  addAudit('updated', 'Inventory', `${item.name} stock updated to ${item.currentStock} ${item.unit}.`, { itemId: item.id });
+  saveStore();
+  renderInventory();
+  toast('Inventory stock update saved.');
+}
+
 function savePayrollPayment(event, entryKey) {
   event.preventDefault();
   const data = Object.fromEntries(new FormData(event.currentTarget).entries());
@@ -1166,10 +1305,26 @@ function renderPayroll() {
   const totalOwed = entries.reduce((sum, entry) => sum + entry.amountOwed, 0);
   const totalPaid = entries.reduce((sum, entry) => sum + entry.amountPaid, 0);
   document.getElementById('page-payroll').innerHTML = `<div class="page-stack">
-    <div class="section-heading"><div><p class="eyebrow">Sunday–Saturday payroll</p><h1>Weekly payroll engine</h1><p class="section-summary">Owner, captain, and mate payouts are calculated as separate role lines so the same person can be paid independently for multiple roles on one trip.</p></div><button class="btn btn-primary" data-route="trips">Create trip</button></div>
-    <div class="grid kpi-grid">${kpi('Amount owed', money(totalOwed), 'All active trips')}${kpi('Amount paid', money(totalPaid), 'Recorded payments')}${kpi('Outstanding', money(totalOwed - totalPaid), 'Still due')}${kpi('Payment records', store.payrollPayments.length, 'Local history')}</div>
+    <div class="section-heading"><div><p class="eyebrow">Sunday–Saturday payroll and person statements</p><h1>Weekly payroll engine</h1><p class="section-summary">Owner payouts, captain payouts, mate payouts, reimbursements, person statements, receipts, weekly summaries, and export/print workflows are calculated as separate role lines so the same person can be paid independently for multiple roles on one trip.</p></div><div class="legacy-actions"><button class="btn btn-primary" data-route="trips">Create trip</button><button class="btn btn-outline" type="button" onclick="window.print()">Print / Export Statements</button></div></div>
+    <div class="grid kpi-grid">${kpi('Amount owed', money(totalOwed), 'All active trips')}${kpi('Amount paid', money(totalPaid), 'Recorded payments')}${kpi('Outstanding', money(totalOwed - totalPaid), 'Still due')}${kpi('Payment records', store.payrollPayments.length, 'Local history')}${kpi('Owner Statements', entries.filter((entry) => entry.role === 'Owner').length, 'Owner payout lines')}${kpi('Captain Statements', entries.filter((entry) => entry.role === 'Captain').length, 'Captain payout lines')}${kpi('Mate Statements', entries.filter((entry) => entry.role === 'Mate').length, 'Mate payout lines')}</div><div class="card card-pad"><h3>Person Statement Summary</h3>${renderPersonStatementSummary(entries)}</div>
     ${Object.keys(grouped).length ? Object.entries(grouped).map(([week, weekEntries]) => renderPayrollWeek(week, weekEntries)).join('') : '<div class="card card-pad empty-state">No payroll yet. Create assigned trips to calculate weekly payouts.</div>'}
   </div>`;
+}
+
+
+function renderPersonStatementSummary(entries) {
+  const byPerson = entries.reduce((acc, entry) => {
+    const person = entry.person || 'Unassigned';
+    acc[person] ||= { owed: 0, paid: 0, outstanding: 0, roles: new Set(), items: 0 };
+    acc[person].owed += entry.amountOwed;
+    acc[person].paid += entry.amountPaid;
+    acc[person].outstanding += entry.outstanding;
+    acc[person].roles.add(entry.role);
+    acc[person].items += 1;
+    return acc;
+  }, {});
+  const rows = Object.entries(byPerson).map(([person, summary]) => `<div class="stat-row"><span>${escapeHtml(person)}<br><small>${escapeHtml([...summary.roles].join(', '))} · ${summary.items} item(s)</small></span><strong>${money(summary.outstanding)} outstanding<br><small>${money(summary.owed)} owed / ${money(summary.paid)} paid</small></strong></div>`).join('');
+  return rows || '<p class="empty-state">No person statements yet.</p>';
 }
 
 function renderPayrollWeek(week, entries) {
@@ -1184,7 +1339,13 @@ function renderPayrollRow(entry) {
 }
 
 function updateInvoiceBalanceDue(form) {
-  const tourPrice = Number(form.elements.tourPrice?.value || 0);
+  const base = Number(form.elements.baseTourPrice?.value || form.elements.tourPrice?.value || 0);
+  const pigs = Number(form.elements.swimmingPigsPeople?.value || 0) * 20;
+  const secondBoat = form.elements.secondBoat?.value === 'Yes' ? 900 : 0;
+  const tourPrice = base + pigs + secondBoat;
+  if (form.elements.tourPrice) form.elements.tourPrice.value = tourPrice.toFixed(2).replace(/\.00$/, '');
+  const depositPercent = Number(form.elements.depositPercent?.value || 0);
+  if (form.elements.depositPaid && depositPercent && !Number(form.elements.depositPaid.value || 0)) form.elements.depositPaid.value = (tourPrice * depositPercent / 100).toFixed(2).replace(/\.00$/, '');
   const depositPaid = Number(form.elements.depositPaid?.value || 0);
   if (form.elements.balanceDue) form.elements.balanceDue.value = Math.max(tourPrice - depositPaid, 0).toFixed(2).replace(/\.00$/, '');
 }
@@ -1714,11 +1875,84 @@ function renderAuditTrail() {
 
 
 const preTripChecklistItems = [
-  ['fuelLevelConfirmed','Fuel Level Confirmed','checkbox'], ['engineCheckComplete','Engine Check Complete','checkbox'], ['batteryPowerCheckComplete','Battery / Power Check Complete','checkbox'], ['bilgePumpChecked','Bilge Pump Checked','checkbox'], ['radioCommunicationChecked','Radio / Communication Checked','checkbox'], ['gpsNavigationChecked','GPS / Navigation Checked','checkbox'], ['lifeJacketsConfirmed','Life Jackets Confirmed','checkbox'], ['fireExtinguisherConfirmed','Fire Extinguisher Confirmed','checkbox'], ['firstAidKitConfirmed','First Aid Kit Confirmed','checkbox'], ['snorkelGearConfirmed','Snorkel Gear Confirmed','checkbox'], ['coolerDrinksLoaded','Cooler / Drinks Loaded','checkbox'], ['iceLoaded','Ice Loaded','checkbox'], ['rumPunchBeveragesLoaded','Rum Punch / Beverages Loaded','checkbox'], ['trashBagsCleaningSuppliesLoaded','Trash Bags / Cleaning Supplies Loaded','checkbox'], ['weatherReviewed','Weather Reviewed','checkbox'], ['passengerCountConfirmed','Passenger Count Confirmed','checkbox'], ['vesselClean','Vessel Clean','checkbox'], ['captainSignature','Captain Signature / Name','text'], ['mateSignature','Mate Signature / Name','text'], ['notes','Notes','textarea']
+  ['pre_clean','Boat has been cleaned','checkbox','Boat Status'],
+  ['pre_stocked','Boat is fully stocked','checkbox','Boat Status'],
+  ['pre_trash','All trash has been removed','checkbox','Boat Status'],
+  ['pre_ready','Boat is ready for charter','checkbox','Boat Status'],
+  ['rum','Rum — minimum 3 bottles required on board','number','Stock'],
+  ['pinac','Pina Colada — restock alert at 1 bottle','number','Stock'],
+  ['pre_punch','Rum Punch Mixed & Ready','select:punchReady','Stock'],
+  ['juicy','Yellow Juice — minimum 3 required on board','number','Stock'],
+  ['juicr','Red Juice — minimum 3 required on board','number','Stock'],
+  ['coke','Coke — minimum 6 required on board','number','Stock'],
+  ['dietcoke','Diet Coke — minimum 6 required on board','number','Stock'],
+  ['gombe','White Goombay Punch — minimum 6 required on board','number','Stock'],
+  ['champ','Gold Champagne — minimum 6 required on board','number','Stock'],
+  ['water','Water — minimum 1 full case required on board','number','Stock'],
+  ['snacks','Chips / Snacks — restock alert at 1 box remaining','number','Stock'],
+  ['bleach_whole','Bleach whole bottles','number','Cleaning Products'],
+  ['bleach_open','Bleach open bottle level','select:bottleLevel','Cleaning Products'],
+  ['joy_whole','Joy Dish Soap whole bottles','number','Cleaning Products'],
+  ['joy_open','Joy Dish Soap open bottle level','select:bottleLevel','Cleaning Products'],
+  ['engine1Oil','Engine 1 oil status','select:oilStatus','Engines / Fuel'],
+  ['engine2Oil','Engine 2 oil status','select:oilStatus','Engines / Fuel'],
+  ['fuelLevel','Fuel level','select:fuelLevel','Engines / Fuel'],
+  ['bilgePump1Tested','Bilge Pump 1 — Tested and confirmed working','checkbox','Engines / Fuel'],
+  ['bilgePump2Tested','Bilge Pump 2 — Tested and confirmed working','checkbox','Engines / Fuel'],
+  ['photoNotes','Photos / files attached notes','textarea','Photos / Notes'],
+  ['generalNotes','Equipment issues, weather, anything management should know before this charter','textarea','Photos / Notes'],
+  ['captainSignature','Captain signature / initials','text','Sign-Off'],
+  ['mateSignature','Mate signature / initials','text','Sign-Off']
 ];
 const postTripChecklistItems = [
-  ['guestsReturnedSafely','Guests Returned Safely','checkbox'], ['vesselCleaned','Vessel Cleaned','checkbox'], ['trashRemoved','Trash Removed','checkbox'], ['coolersRemovedCleaned','Coolers Removed / Cleaned','checkbox'], ['remainingInventoryNoted','Remaining Inventory Noted','checkbox'], ['fuelLevelNoted','Fuel Level Noted','checkbox'], ['engineIssuesNoted','Engine Issues Noted','checkbox'], ['damageChecked','Damage Checked','checkbox'], ['lostItemsChecked','Lost Items Checked','checkbox'], ['snorkelGearCounted','Snorkel Gear Counted','checkbox'], ['lifeJacketsCounted','Life Jackets Counted','checkbox'], ['incidentReportNeeded','Incident Report Needed','checkbox'], ['customerFeedbackNotes','Customer Feedback Notes','textarea'], ['captainSignature','Captain Signature / Name','text'], ['mateSignature','Mate Signature / Name','text'], ['notes','Notes','textarea']
+  ['post_clean','Boat has been cleaned','checkbox','Boat Status'],
+  ['post_trash','All trash has been removed','checkbox','Boat Status'],
+  ['post_ready','Boat is ready for the next charter','checkbox','Boat Status'],
+  ['rum','Rum remaining — minimum 3 bottles needed for next charter','number','Remaining Stock'],
+  ['pinac','Pina Colada remaining — restock alert at 1 bottle','number','Remaining Stock'],
+  ['juicy','Yellow Juice remaining — minimum 3 needed for next charter','number','Remaining Stock'],
+  ['juicr','Red Juice remaining — minimum 3 needed for next charter','number','Remaining Stock'],
+  ['coke','Coke remaining — minimum 6 needed for next charter','number','Remaining Stock'],
+  ['dietcoke','Diet Coke remaining — minimum 6 needed for next charter','number','Remaining Stock'],
+  ['gombe','White Goombay Punch remaining — minimum 6 needed for next charter','number','Remaining Stock'],
+  ['champ','Gold Champagne remaining — minimum 6 needed for next charter','number','Remaining Stock'],
+  ['water','Water remaining — minimum 1 full case needed for next charter','number','Remaining Stock'],
+  ['snacks','Chips / Snacks remaining — restock alert at 1 box remaining','number','Remaining Stock'],
+  ['bleach_whole','Bleach remaining whole bottles','number','Cleaning Products'],
+  ['bleach_open','Bleach open bottle level','select:bottleLevel','Cleaning Products'],
+  ['joy_whole','Joy Dish Soap remaining whole bottles','number','Cleaning Products'],
+  ['joy_open','Joy Dish Soap open bottle level','select:bottleLevel','Cleaning Products'],
+  ['fuelLevel','Fuel level after trip','select:fuelLevel','Fuel / Engines'],
+  ['bilgePump1Working','Bilge Pump 1 — Left in working order','checkbox','Fuel / Engines'],
+  ['engine1FlushedToday','Engine 1 flushed today after this trip','checkbox','Fuel / Engines'],
+  ['engine1FlushOverdue','Engine 1 flush overdue — needs attention','checkbox','Fuel / Engines'],
+  ['engine1FlushDate','Engine 1 last flush date','date','Fuel / Engines'],
+  ['engine1FlushInitials','Engine 1 captain sign-off initials','text','Fuel / Engines'],
+  ['engine1Issues','Engine 1 issues or observations','textarea','Fuel / Engines'],
+  ['bilgePump2Working','Bilge Pump 2 — Left in working order','checkbox','Fuel / Engines'],
+  ['engine2FlushedToday','Engine 2 flushed today after this trip','checkbox','Fuel / Engines'],
+  ['engine2FlushOverdue','Engine 2 flush overdue — needs attention','checkbox','Fuel / Engines'],
+  ['engine2FlushDate','Engine 2 last flush date','date','Fuel / Engines'],
+  ['engine2FlushInitials','Engine 2 captain sign-off initials','text','Fuel / Engines'],
+  ['engine2Issues','Engine 2 issues or observations','textarea','Fuel / Engines'],
+  ['photoNotes','Photos / files attached notes','textarea','Photos / Notes'],
+  ['customerFeedbackNotes','Guest feedback, incidents, equipment issues, anything management should know about this charter','textarea','Photos / Notes'],
+  ['captainSignature','Captain confirmation / initials','text','Sign-Off'],
+  ['mateSignature','Mate confirmation / initials','text','Sign-Off']
 ];
+
+const checklistStockThresholds = {
+  rum: { min: 3, restockAt: null, inventoryName: 'Rum' },
+  pinac: { min: 2, restockAt: 1, inventoryName: 'Pina Colada' },
+  juicy: { min: 3, restockAt: null, inventoryName: 'Yellow Juice' },
+  juicr: { min: 3, restockAt: null, inventoryName: 'Red Juice' },
+  coke: { min: 6, restockAt: null, inventoryName: 'Coke' },
+  dietcoke: { min: 6, restockAt: null, inventoryName: 'Diet Coke' },
+  gombe: { min: 6, restockAt: null, inventoryName: 'White Goombay Punch' },
+  champ: { min: 6, restockAt: null, inventoryName: 'Gold Champagne' },
+  water: { min: 1, restockAt: null, inventoryName: 'Water' },
+  snacks: { min: 2, restockAt: 1, inventoryName: 'Chips / Snacks' }
+};
 
 function renderChecklistPage(type) {
   const route = type === 'Pre Trip' ? 'pre-trip-checklist' : 'post-trip-checklist';
@@ -1728,12 +1962,24 @@ function renderChecklistPage(type) {
   const items = isPre ? preTripChecklistItems : postTripChecklistItems;
   const timeLabel = isPre ? 'Start Time' : 'Return Time';
   const timeName = isPre ? 'startTime' : 'returnTime';
-  page.innerHTML = `<div class="page-stack"><div class="section-heading"><div><p class="eyebrow">Native checklist workflow</p><h1>${type} Checklist</h1><p class="section-summary">Complete ${type.toLowerCase()} safety, vessel, crew, and dispatch readiness checks directly in the main app.</p></div></div><form class="record-form card" onsubmit="saveChecklistRecord(event,'${type}')"><div class="form-grid"><div class="field"><label>Trip</label><select name="tripId" onchange="populateChecklistTripDetails(this.form)"><option value="">— Select Trip —</option>${getOptions('trips').map((opt) => `<option value="${escapeHtml(opt.split('|')[0])}">${escapeHtml(opt.split('|').slice(1).join('|'))}</option>`).join('')}</select></div><div class="field"><label>Vessel</label><select name="vessel"><option value="">— Select —</option>${getOptions('vessels').map((vessel) => `<option value="${escapeHtml(vessel)}">${escapeHtml(vessel)}</option>`).join('')}</select></div><div class="field"><label>Captain</label><select name="captain"><option value="">— Select —</option>${getOptions('crew').map((crew) => `<option value="${escapeHtml(crew)}">${escapeHtml(crew)}</option>`).join('')}</select></div><div class="field"><label>Mate</label><select name="mate"><option value="">— Select —</option>${getOptions('crew').map((crew) => `<option value="${escapeHtml(crew)}">${escapeHtml(crew)}</option>`).join('')}</select></div><div class="field"><label>Date</label><input name="date" type="date"></div><div class="field"><label>${timeLabel}</label><input name="${timeName}" type="time"></div><div class="field"><label>Status</label><select name="status"><option>Draft</option><option>Submitted</option><option>Needs Review</option></select></div></div><div class="checklist-grid">${items.map(([key, label, inputType]) => renderChecklistInput(key, label, inputType)).join('')}</div><div class="form-actions"><button class="btn btn-outline" type="submit" name="action" value="draft">Save Draft</button><button class="btn btn-primary" type="submit" name="action" value="submit">Submit ${type} Checklist</button><button class="btn btn-outline" type="submit" name="action" value="review">Mark Needs Review</button></div></form><div class="card table-card"><div class="card-header"><h3>${type} records</h3></div><div class="responsive-table-wrap"><table><thead><tr><th>Submitted</th><th>Trip</th><th>Vessel</th><th>Captain</th><th>Mate</th><th>Status</th><th>Notes</th></tr></thead><tbody>${records.length ? records.map((record) => `<tr><td>${escapeHtml(new Date(record.submittedAt).toLocaleString())}</td><td>${escapeHtml(record.tripLabel || record.tripId)}</td><td>${escapeHtml(record.vessel)}</td><td>${escapeHtml(record.captain)}</td><td>${escapeHtml(record.mate)}</td><td>${readinessBadge(record.status)}</td><td>${escapeHtml(record.notes || record.customerFeedbackNotes || '—')}</td></tr>`).join('') : '<tr><td colspan="7" class="empty-state">No checklist records yet.</td></tr>'}</tbody></table></div></div></div>`;
+  const alerts = inventoryAlerts();
+  page.innerHTML = `<div class="page-stack"><div class="section-heading"><div><p class="eyebrow">Legacy parity native checklist workflow</p><h1>${type} Checklist</h1><p class="section-summary">Mobile-first native version of ${isPre ? 'RAT-PreTrip-VesselCheck.html' : 'RAT-PostTrip-VesselCheck.html'} with vessel details, boat status confirmations, stock counts, restock alerts, engine/fuel checks, notes, sign-off, preview, print/PDF, and WhatsApp handoff.</p></div></div><div class="card urgent-card"><div class="card-header"><h3>Stock level alerts for checklist</h3><span class="badge ${alerts.length ? 'red' : 'green'}">${alerts.length ? 'Low Stock Warning' : 'Stock OK'}</span></div><div class="stat-list">${alerts.length ? alerts.map((item) => `<div class="stat-row"><span>${escapeHtml(item.name)}</span><strong>${statusBadge(item.status)} ${escapeHtml(item.currentStock)} / min ${escapeHtml(item.minimumRequiredStock)}</strong></div>`).join('') : '<p class="empty-state">No low stock warnings before this checklist.</p>'}</div></div><form class="record-form card" onsubmit="saveChecklistRecord(event,'${type}')"><section class="form-section-card"><div class="form-section-title"><span>1</span><h3>Vessel / Crew Details</h3></div><div class="form-grid"><div class="field"><label>Trip</label><select name="tripId" onchange="populateChecklistTripDetails(this.form)"><option value="">— Select Trip —</option>${getOptions('trips').map((opt) => `<option value="${escapeHtml(opt.split('|')[0])}">${escapeHtml(opt.split('|').slice(1).join('|'))}</option>`).join('')}</select></div><div class="field"><label>Vessel</label><select name="vessel"><option value="">— Select —</option>${getOptions('vessels').map((vessel) => `<option value="${escapeHtml(vessel)}">${escapeHtml(vessel)}</option>`).join('')}</select></div><div class="field"><label>Captain / Initials</label><select name="captain"><option value="">— Select —</option>${getOptions('crew').map((crew) => `<option value="${escapeHtml(crew)}">${escapeHtml(crew)}</option>`).join('')}</select></div><div class="field"><label>Mate</label><select name="mate"><option value="">— Select —</option>${getOptions('crew').map((crew) => `<option value="${escapeHtml(crew)}">${escapeHtml(crew)}</option>`).join('')}</select></div><div class="field"><label>Date</label><input name="date" type="date"></div><div class="field"><label>${timeLabel}</label><input name="${timeName}" type="time"></div><div class="field"><label>Status</label><select name="status"><option>Draft</option><option>Submitted</option><option>Needs Review</option></select></div></div></section>${renderChecklistSections(items)}<div class="form-actions sticky-save-controls"><button class="btn btn-outline" type="submit" name="action" value="draft">Save Draft</button><button class="btn btn-primary" type="submit" name="action" value="submit">Submit ${type} Checklist</button><button class="btn btn-outline" type="submit" name="action" value="review">Mark Needs Review</button><button class="btn btn-outline" type="button" onclick="window.print()">Preview / Print / Save PDF</button><a class="btn btn-outline" href="https://wa.me/" target="_blank" rel="noopener">WhatsApp</a>${voiceFillButton(route)}</div></form><div class="card table-card"><div class="card-header"><h3>${type} records</h3><button class="btn btn-outline btn-small" type="button" onclick="window.print()">Print / Export Records</button></div><div class="responsive-table-wrap"><table><thead><tr><th>Submitted</th><th>Trip</th><th>Vessel</th><th>Captain</th><th>Mate</th><th>Status</th><th>Notes</th></tr></thead><tbody>${records.length ? records.map((record) => `<tr><td>${escapeHtml(new Date(record.submittedAt).toLocaleString())}</td><td>${escapeHtml(record.tripLabel || record.tripId)}</td><td>${escapeHtml(record.vessel)}</td><td>${escapeHtml(record.captain)}</td><td>${escapeHtml(record.mate)}</td><td>${readinessBadge(record.status)}</td><td>${escapeHtml(record.generalNotes || record.customerFeedbackNotes || record.notes || '—')}</td></tr>`).join('') : '<tr><td colspan="7" class="empty-state">No checklist records yet.</td></tr>'}</tbody></table></div></div></div>`;
+}
+
+function renderChecklistSections(items) {
+  const groups = items.reduce((acc, item) => { const section = item[3] || 'Checklist'; acc[section] ||= []; acc[section].push(item); return acc; }, {});
+  return Object.entries(groups).map(([section, fields], index) => `<section class="form-section-card"><div class="form-section-title"><span>${index + 2}</span><h3>${escapeHtml(section)}</h3></div><div class="checklist-grid">${fields.map(([key, label, inputType]) => renderChecklistInput(key, label, inputType)).join('')}</div></section>`).join('');
 }
 
 function renderChecklistInput(key, label, inputType) {
   if (inputType === 'checkbox') return `<label class="checklist-item"><input type="checkbox" name="${key}" value="Yes"><span>${escapeHtml(label)}</span></label>`;
   if (inputType === 'textarea') return `<div class="field checklist-field"><label>${escapeHtml(label)}</label><textarea name="${key}"></textarea></div>`;
+  if (inputType === 'number') return `<div class="field checklist-field"><label>${escapeHtml(label)}</label><input name="${key}" type="number" min="0" step="1" value="0"></div>`;
+  if (inputType === 'date') return `<div class="field checklist-field"><label>${escapeHtml(label)}</label><input name="${key}" type="date"></div>`;
+  if (inputType === 'select:punchReady') return `<div class="field checklist-field"><label>${escapeHtml(label)}</label><select name="${key}"><option value="">— Select —</option><option>Confirmed Mixed & Ready</option><option>Needs Preparation</option></select></div>`;
+  if (inputType === 'select:bottleLevel') return `<div class="field checklist-field"><label>${escapeHtml(label)}</label><select name="${key}"><option value="">— Select —</option><option>Full</option><option>Half</option><option>Empty</option></select></div>`;
+  if (inputType === 'select:oilStatus') return `<div class="field checklist-field"><label>${escapeHtml(label)}</label><select name="${key}"><option value="">— Select —</option><option>Need to Add</option><option>OK</option><option>Too Full</option></select></div>`;
+  if (inputType === 'select:fuelLevel') return `<div class="field checklist-field"><label>${escapeHtml(label)}</label><select name="${key}"><option value="">— Select —</option><option>E</option><option>1/4</option><option>1/2</option><option>3/4</option><option>F</option></select></div>`;
   return `<div class="field checklist-field"><label>${escapeHtml(label)}</label><input name="${key}" type="text"></div>`;
 }
 
@@ -1747,13 +1993,62 @@ function populateChecklistTripDetails(form) {
   setFormValue(form, 'startTime', trip.startTime || '');
 }
 
+function checklistRestockAlerts(data) {
+  const alerts = [];
+  Object.entries(checklistStockThresholds).forEach(([key, info]) => {
+    if (!(key in data)) return;
+    const value = Number(data[key] || 0);
+    const trigger = info.restockAt !== null ? info.restockAt : info.min - 1;
+    if (value <= trigger) alerts.push(`${info.inventoryName} at ${value}; restock needed`);
+  });
+  ['bleach', 'joy'].forEach((key) => {
+    const whole = Number(data[`${key}_whole`] || 0);
+    const open = data[`${key}_open`] || '';
+    if (open === 'Empty' || (open === 'Half' && whole === 0)) alerts.push(`${key === 'bleach' ? 'Bleach' : 'Joy Dish Soap'} ${open.toLowerCase()} with ${whole} whole bottles; restock needed`);
+  });
+  if (data.engine1Oil === 'Need to Add' || data.engine2Oil === 'Need to Add') alerts.push('Oil status indicates need to add oil');
+  if (data.pre_punch === 'Needs Preparation') alerts.push('Rum Punch needs preparation before departure');
+  if (data.engine1FlushOverdue === 'Yes' || data.engine2FlushOverdue === 'Yes') alerts.push('Flush overdue needs attention');
+  return alerts;
+}
+
+function syncChecklistInventory(data, type, trip) {
+  Object.entries(checklistStockThresholds).forEach(([key, info]) => {
+    if (!(key in data)) return;
+    const item = store.inventory.find((entry) => entry.name === info.inventoryName);
+    if (!item) return;
+    item.currentStock = Number(data[key] || 0);
+    item.linkedVessel = data.vessel || item.linkedVessel || '';
+    item.linkedTrip = data.tripId || item.linkedTrip || '';
+    item.updatedBy = data.captain || currentUserLabel();
+    item.lastUpdated = new Date().toISOString();
+    Object.assign(item, normalizeInventoryItem(item));
+  });
+  if (data.fuelLevel) {
+    const fuel = store.inventory.find((entry) => entry.name === 'Fuel');
+    if (fuel) {
+      const map = { E: 0, '1/4': 25, '1/2': 50, '3/4': 75, F: 100 };
+      fuel.currentStock = map[data.fuelLevel] ?? fuel.currentStock;
+      fuel.linkedVessel = data.vessel || fuel.linkedVessel || '';
+      fuel.linkedTrip = data.tripId || fuel.linkedTrip || '';
+      fuel.updatedBy = data.captain || currentUserLabel();
+      fuel.lastUpdated = new Date().toISOString();
+      Object.assign(fuel, normalizeInventoryItem(fuel));
+    }
+  }
+  const alerts = checklistRestockAlerts(data);
+  if (alerts.length) addNotification(`${type} low stock warning`, alerts.join('; '), 'warning', { category: 'Inventory', tripId: data.tripId, vessel: data.vessel, displayTargets: ['Dashboard', 'Inventory', 'Pre Trip Checklist', 'Post Trip Checklist', 'Dispatch Tree', 'Notifications'] });
+  return alerts;
+}
+
 function saveChecklistRecord(event, type) {
   event.preventDefault();
   const submitterAction = event.submitter?.value || 'draft';
   const data = Object.fromEntries(new FormData(event.currentTarget).entries());
   data.status = submitterAction === 'submit' ? 'Submitted' : submitterAction === 'review' ? 'Needs Review' : 'Draft';
   const trip = store.trips.find((item) => item.id === data.tripId);
-  const record = { id: makeId('checklist'), type, ...data, tripLabel: trip ? `${formatDate(trip.tripDate)} ${trip.customer || ''}` : '', submittedAt: new Date().toISOString() };
+  const restockAlerts = syncChecklistInventory(data, type, trip);
+  const record = { id: makeId('checklist'), type, ...data, restockAlerts, tripLabel: trip ? `${formatDate(trip.tripDate)} ${trip.customer || ''}` : '', submittedAt: new Date().toISOString() };
   store.checklistRecords.push(record);
   if (trip) {
     if (type === 'Pre Trip') trip.preTripChecklistStatus = data.status === 'Submitted' ? 'Completed' : data.status;
@@ -1763,8 +2058,8 @@ function saveChecklistRecord(event, type) {
     if (type === 'Post Trip' && data.status === 'Submitted') trip.payrollReady = true;
   }
   const completeLabel = data.status === 'Submitted' ? 'Complete' : data.status;
-  addAudit(data.status === 'Draft' ? 'drafted' : data.status === 'Needs Review' ? 'review' : 'submitted', `${type} Checklist`, `${type} checklist ${completeLabel} for ${data.vessel || 'trip'}.`, { tripId: data.tripId });
-  addRoleNotification('Operations', '', `${type} checklist ${completeLabel}`, `${data.vessel || 'A vessel'} checklist is ${completeLabel}.`, data.status === 'Needs Review' ? 'warning' : 'success', 'Checklist', { tripId: data.tripId, vessel: data.vessel });
+  addAudit(data.status === 'Draft' ? 'drafted' : data.status === 'Needs Review' ? 'review' : 'submitted', `${type} Checklist`, `${type} checklist ${completeLabel} for ${data.vessel || 'trip'}.`, { tripId: data.tripId, restockAlerts });
+  addRoleNotification('Operations', '', `${type} checklist ${completeLabel}`, `${data.vessel || 'A vessel'} checklist is ${completeLabel}.${restockAlerts.length ? ' Restock needed: ' + restockAlerts.join('; ') : ''}`, restockAlerts.length || data.status === 'Needs Review' ? 'warning' : 'success', 'Checklist', { tripId: data.tripId, vessel: data.vessel });
   saveStore();
   renderChecklistPage(type);
   toast(`${type} checklist ${completeLabel}.`);
@@ -1878,8 +2173,13 @@ function legacyShortcut(route) {
   return '';
 }
 
+
+function renderLegacyAuditSummary() {
+  return Object.entries(legacyFeatureAudit).map(([file, audit]) => `<details class="legacy-tool"><summary><strong>${escapeHtml(file)}</strong> · ${audit.sections.length} sections · ${audit.fields.length} fields/checks</summary><div class="placeholder-list"><p><strong>Sections:</strong> ${escapeHtml(audit.sections.join(', '))}</p><p><strong>Fields / checklist items:</strong> ${escapeHtml(audit.fields.join(', '))}</p><p><strong>Calculations:</strong> ${escapeHtml(audit.calculations.join(', '))}</p><p><strong>Alerts:</strong> ${escapeHtml(audit.alerts.join(', '))}</p><p><strong>Exports / workflows:</strong> ${escapeHtml(audit.exports.join(', '))}</p></div></details>`).join('');
+}
+
 function settingsMarkup() {
-  return `<div class="grid settings-grid" style="margin-top:18px"><div class="legacy-tool"><h3>Seed data</h3><p>${store.vessels.length} vessels, ${store.crew.length} crew members, ${store.roles.length} roles, ${store.bookingSources.length} booking sources, ${store.standardPayoutRates.length} standard crew payout rates, and ${store.vesselOwnerPayoutRates.length} documented owner payout rules loaded.</p></div><div class="legacy-tool"><h3>Local data layer</h3><p>Storage key: ${STORE_KEY}. Last updated: ${new Date(store.updatedAt).toLocaleString()}.</p><div class="legacy-actions"><button class="btn btn-outline" data-export-store>Export JSON</button><label class="btn btn-outline" for="importStoreFile">Import JSON<input id="importStoreFile" data-import-store type="file" accept="application/json" hidden></label><button class="btn btn-danger" data-reset-store>Reset seed data</button></div></div><div class="legacy-tool"><h3>Preserved Phase 4 safeguards</h3><p>Dispatch board, true tree view, assignment lifecycle, crew dashboards, checklist readiness, vessel readiness, passenger manifests, payroll, audit trail, notifications, command voice fill, export/import, and the static validator are all active.</p></div><div class="legacy-tool archived-legacy-tools"><h3>Archived Legacy Tools</h3><p>Legacy tools are retained for reference only. Active operations should be completed through the main application tabs.</p><div class="legacy-list">${legacyTools.map((tool) => `<div class="legacy-tool"><h3>${tool.title}</h3><p>${tool.desc}</p><div class="legacy-actions"><a class="btn btn-outline btn-small" href="${tool.file}" target="_blank" rel="noopener">Open reference</a></div></div>`).join('')}</div></div></div>`;
+  return `<div class="grid settings-grid" style="margin-top:18px"><div class="legacy-tool"><h3>Seed data</h3><p>${store.vessels.length} vessels, ${store.crew.length} crew members, ${store.roles.length} roles, ${store.bookingSources.length} booking sources, ${store.standardPayoutRates.length} standard crew payout rates, and ${store.vesselOwnerPayoutRates.length} documented owner payout rules loaded.</p></div><div class="legacy-tool"><h3>Local data layer</h3><p>Storage key: ${STORE_KEY}. Last updated: ${new Date(store.updatedAt).toLocaleString()}.</p><div class="legacy-actions"><button class="btn btn-outline" data-export-store>Export JSON</button><label class="btn btn-outline" for="importStoreFile">Import JSON<input id="importStoreFile" data-import-store type="file" accept="application/json" hidden></label><button class="btn btn-danger" data-reset-store>Reset seed data</button></div></div><div class="legacy-tool"><h3>Preserved Phase 4 safeguards</h3><p>Dispatch board, true tree view, assignment lifecycle, crew dashboards, checklist readiness, vessel readiness, passenger manifests, payroll, audit trail, notifications, command voice fill, export/import, and the static validator are all active.</p></div><div class="legacy-tool archived-legacy-tools"><h3>Legacy Parity Audit</h3><p>These audited legacy sections, fields, calculations, alerts, exports, and workflows drove the native migration correction.</p><div class="legacy-list">${renderLegacyAuditSummary()}</div></div><div class="legacy-tool archived-legacy-tools"><h3>Archived Legacy Tools</h3><p>Legacy tools are retained for reference only. Active operations should be completed through the main application tabs.</p><div class="legacy-list">${legacyTools.map((tool) => `<div class="legacy-tool"><h3>${tool.title}</h3><p>${tool.desc}</p><div class="legacy-actions"><a class="btn btn-outline btn-small" href="${tool.file}" target="_blank" rel="noopener">Open reference</a></div></div>`).join('')}</div></div></div>`;
 }
 function toast(message) {
   const el = document.getElementById('toast');
