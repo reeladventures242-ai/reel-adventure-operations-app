@@ -180,6 +180,7 @@ let deferredInstallPrompt = null;
 let voiceRecognition = null;
 let assignmentViewMode = 'tree';
 let voiceCommand = { state: 'IDLE', route: '', field: null, form: null, lastValue: '', message: 'Command Voice Fill idle.', suggestions: [] };
+let voiceAssistantOpen = false;
 let dashboardFilters = { captain: '', mate: '', owner: '' };
 
 const voiceSupportedRoutes = new Set(['dashboard', 'bookings', 'trips', 'invoices', 'calendar', 'captain-dashboard', 'mate-dashboard', 'owner-dashboard', 'vessels', 'crew', 'payroll', 'expenses', 'inventory', 'incident-reports', 'pre-trip-checklist', 'post-trip-checklist', 'cruise-schedule', 'reports', 'settings']);
@@ -288,8 +289,22 @@ function addNotification(title, message, level = 'info', metadata = {}, recipien
   store.notifications = store.notifications.slice(0, 100);
 }
 
+function canViewStockAlerts() {
+  const label = currentUserLabel().toLowerCase();
+  return label.includes('admin') || (label.includes('owner') && !label.includes('operations manager'));
+}
+
+function isStockAlertNotice(notice = {}) {
+  const text = `${notice.title || ''} ${notice.message || ''} ${notice.category || ''}`.toLowerCase();
+  return notice.category === 'Inventory' || /low stock|stock level|restock|inventory/.test(text) || Boolean(notice.metadata?.itemId);
+}
+
+function visibleNotifications(notices = store.notifications || []) {
+  return canViewStockAlerts() ? notices : notices.filter((notice) => !isStockAlertNotice(notice));
+}
+
 function unreadNotificationCount() {
-  return (store.notifications || []).filter((notice) => !notice.read).length;
+  return visibleNotifications().filter((notice) => !notice.read).length;
 }
 
 function money(value) { return Number(value || 0).toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: Number(value || 0) % 1 ? 2 : 0, maximumFractionDigits: 2 }); }
@@ -373,6 +388,7 @@ function wireEvents() {
     document.getElementById('loginScreen').hidden = true;
     document.getElementById('appShell').hidden = false;
     document.getElementById('activeRole').textContent = document.getElementById('roleSelect').value;
+    renderRoute(currentRoute);
     toast('Demo role selected. Real authentication is intentionally not enabled yet.');
   });
   document.getElementById('menuBtn').addEventListener('click', toggleSidebar);
@@ -385,6 +401,10 @@ function wireEvents() {
     if (event.target.closest('[data-close-mobile-more]')) closeMobileMore();
     const legacyEmbed = event.target.closest('[data-embed-legacy]');
     if (legacyEmbed) embedLegacy(legacyEmbed.dataset.embedLegacy);
+    const voiceToggle = event.target.closest('[data-voice-toggle]');
+    if (voiceToggle) { voiceAssistantOpen = true; renderVoiceCommandPanel(currentRoute); }
+    const voiceClose = event.target.closest('[data-voice-close]');
+    if (voiceClose) { if (voiceRecognition) voiceRecognition.stop(); voiceAssistantOpen = false; renderVoiceCommandPanel(currentRoute); }
     const voiceButton = event.target.closest('[data-voice-fill], [data-command-voice-start]');
     if (voiceButton) startVoiceFill(voiceButton);
     const voiceAction = event.target.closest('[data-voice-action]');
@@ -452,6 +472,7 @@ function closeSidebar() { document.getElementById('sidebar').classList.remove('o
 function renderRoute(route) {
   generateChecklistReminders();
   currentRoute = route;
+  voiceAssistantOpen = false;
   closeSidebar();
   document.querySelectorAll('.page').forEach((page) => page.classList.remove('active'));
   document.querySelectorAll('.nav-link').forEach((link) => link.classList.toggle('active', link.dataset.route === route));
@@ -732,7 +753,9 @@ function renderDashboard() {
   const needsAttention = scheduledTrips.filter((trip) => !['Dispatch Ready', 'Completed'].includes(calculateDispatchReadiness(trip)));
   const totalBalance = store.bookings.reduce((sum, b) => sum + Number(b.balance || 0), 0) + store.trips.reduce((sum, t) => sum + Number(t.balanceDue || 0), 0) + store.invoices.reduce((sum, invoice) => sum + Number(invoice.balanceDue || 0), 0);
   const urgentItems = dashboardUrgentItems(scheduledTrips).slice(0, 8);
-  const lowStockItems = inventoryAlerts();
+  const lowStockItems = canViewStockAlerts() ? inventoryAlerts() : [];
+  const stockKpiMarkup = canViewStockAlerts() ? kpi('Low Stock Alerts', lowStockItems.length, 'Inventory restock needed') : '';
+  const stockAlertCard = canViewStockAlerts() ? `<div class="card urgent-card"><div class="card-header"><h3>Stock level alerts</h3><span class="badge ${lowStockItems.length ? 'red' : 'green'}">${lowStockItems.length ? 'Restock Needed' : 'Stock OK'}</span></div><div class="stat-list">${lowStockItems.length ? lowStockItems.map((item) => `<button class="urgent-item" data-route="inventory"><span class="badge red">Low Stock Alert</span><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(item.currentStock)} ${escapeHtml(item.unit)} on hand · minimum ${escapeHtml(item.minimumRequiredStock)}</small></button>`).join('') : '<p class="empty-state">No inventory stock alerts right now.</p>'}</div></div>` : '';
   document.getElementById('page-dashboard').innerHTML = `
     <div class="page-stack dashboard-command-center" data-mobile-command-center>
       <div class="hero-command-card">
@@ -745,7 +768,7 @@ function renderDashboard() {
         ${kpi('Needs Attention', needsAttention.length, `${notReadyTrips.length} not ready`)}
         ${kpi('Outstanding Balances', money(totalBalance), 'Bookings + trips + invoices')}
         ${kpi('Unread Alerts', unreadNotificationCount(), 'Mobile notification inbox')}
-        ${kpi('Low Stock Alerts', lowStockItems.length, 'Inventory restock needed')}
+        ${stockKpiMarkup}
       </div>
       <div class="quick-action-dock" data-dashboard-quick-actions>
         <button class="btn btn-primary" data-route="trips">Create Trip</button>
@@ -757,7 +780,7 @@ function renderDashboard() {
       </div>
       ${renderUploadZone('dashboard')}
       <div class="grid dashboard-grid">
-        <div class="card urgent-card"><div class="card-header"><h3>Stock level alerts</h3><span class="badge ${lowStockItems.length ? 'red' : 'green'}">${lowStockItems.length ? 'Restock Needed' : 'Stock OK'}</span></div><div class="stat-list">${lowStockItems.length ? lowStockItems.map((item) => `<button class="urgent-item" data-route="inventory"><span class="badge red">Low Stock Alert</span><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(item.currentStock)} ${escapeHtml(item.unit)} on hand · minimum ${escapeHtml(item.minimumRequiredStock)}</small></button>`).join('') : '<p class="empty-state">No inventory stock alerts right now.</p>'}</div></div>
+        ${stockAlertCard}
         <div class="card urgent-card"><div class="card-header"><h3>Urgent items first</h3><span class="badge red">Needs review</span></div><div class="stat-list">${urgentItems.length ? urgentItems.map((item) => `<button class="urgent-item" data-route="trips"><span class="badge ${item.color}">${escapeHtml(item.type)}</span><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.detail)}</small></button>`).join('') : '<p class="empty-state">No urgent dispatch blockers right now.</p>'}</div></div>
         <div class="card"><div class="card-header"><h3>Native daily workflow</h3><span class="badge green">All native</span></div><div class="stat-list">
           ${['Bookings', 'Invoices', 'Dispatch Tree', 'Card View', 'Captain Dashboard', 'Mate Dashboard', 'Owner Dashboard', 'Pre Trip Checklist', 'Post Trip Checklist', 'Expenses', 'Incident Reports', 'Payroll', 'Reports', 'Notifications', 'Audit Trail', 'Settings'].map((item) => `<div class="stat-row"><span>${item}</span><strong>Available in main navigation</strong></div>`).join('')}
@@ -1544,8 +1567,9 @@ function inventoryAlerts() {
 function renderInventory() {
   store.inventory = normalizeInventory(store.inventory || []);
   const alerts = inventoryAlerts();
+  const alertCard = canViewStockAlerts() ? `<div class="card urgent-card"><div class="card-header"><h3>Low Stock Alerts</h3><span class="badge ${alerts.length ? 'red' : 'green'}">${alerts.length ? 'Restock Needed' : 'Stock OK'}</span></div><div class="stat-list">${alerts.length ? alerts.map((item) => `<div class="stat-row"><span>${escapeHtml(item.name)}</span><strong>${statusBadge(item.status)} ${escapeHtml(item.currentStock)} / min ${escapeHtml(item.minimumRequiredStock)}</strong></div>`).join('') : '<p class="empty-state">No low stock warnings.</p>'}</div></div>` : '';
   const rows = store.inventory.map((item) => `<tr><td><strong>${escapeHtml(item.name)}</strong><br><small>${escapeHtml(item.category)} · ${escapeHtml(item.unit)}</small></td><td>${escapeHtml(item.currentStock)}</td><td>${escapeHtml(item.minimumRequiredStock)}</td><td>${escapeHtml(item.recommendedStock)}</td><td>${statusBadge(item.status)}</td><td>${escapeHtml(item.restockNeeded)}</td><td>${escapeHtml(item.linkedVessel || 'All vessels')}</td><td>${escapeHtml(item.linkedTrip || '—')}</td><td>${escapeHtml(item.updatedBy || '—')}<br><small>${escapeHtml(new Date(item.lastUpdated).toLocaleString())}</small></td></tr>`).join('');
-  document.getElementById('page-inventory').innerHTML = `<div class="page-stack"><div class="section-heading"><div><p class="eyebrow">Native stock levels and alerts</p><h1>Inventory</h1><p class="section-summary">Track current stock, minimum required stock, recommended stock, stock status, low stock alerts, restock needed, last updated, updated by, linked vessel, and linked trip.</p></div></div><form class="record-form card" onsubmit="saveInventoryItem(event)"><div class="form-section-stack" data-mobile-form-sections><section class="form-section-card"><div class="form-section-title"><span>1</span><h3>Stock Update</h3></div><div class="form-grid"><div class="field"><label>Inventory Item</label><select name="id">${store.inventory.map((item) => `<option value="${escapeHtml(item.id)}">${escapeHtml(item.name)}</option>`).join('')}</select></div><div class="field"><label>Current Stock</label><input name="currentStock" type="number" step="0.01"></div><div class="field"><label>Minimum Required Stock</label><input name="minimumRequiredStock" type="number" step="0.01"></div><div class="field"><label>Recommended Stock</label><input name="recommendedStock" type="number" step="0.01"></div><div class="field"><label>Linked Vessel</label><select name="linkedVessel"><option value="">All vessels</option>${getOptions('vessels').map((vessel) => `<option value="${escapeHtml(vessel)}">${escapeHtml(vessel)}</option>`).join('')}</select></div><div class="field"><label>Linked Trip</label><select name="linkedTrip"><option value="">— None —</option>${getOptions('trips').map((opt) => `<option value="${escapeHtml(opt.split('|')[0])}">${escapeHtml(opt.split('|').slice(1).join('|'))}</option>`).join('')}</select></div><div class="field"><label>Updated By</label><input name="updatedBy" type="text" value="${escapeHtml(currentUserLabel())}"></div><div class="field"><label>Notes</label><textarea name="notes"></textarea></div></div></section></div><div class="form-actions sticky-save-controls"><button class="btn btn-primary" type="submit">Save Stock Update</button>${voiceFillButton('inventory')}<button class="btn btn-outline" type="button" onclick="window.print()">Print / Export</button></div></form><div class="card urgent-card"><div class="card-header"><h3>Low Stock Alerts</h3><span class="badge ${alerts.length ? 'red' : 'green'}">${alerts.length ? 'Restock Needed' : 'Stock OK'}</span></div><div class="stat-list">${alerts.length ? alerts.map((item) => `<div class="stat-row"><span>${escapeHtml(item.name)}</span><strong>${statusBadge(item.status)} ${escapeHtml(item.currentStock)} / min ${escapeHtml(item.minimumRequiredStock)}</strong></div>`).join('') : '<p class="empty-state">No low stock warnings.</p>'}</div></div><div class="card table-card"><div class="card-header"><h3>Inventory records</h3><button class="btn btn-outline btn-small" type="button" onclick="window.print()">Print / Export Inventory</button></div><div class="responsive-table-wrap"><table><thead><tr><th>Item</th><th>Current Stock</th><th>Minimum Required Stock</th><th>Recommended Stock</th><th>Stock Status</th><th>Restock Needed</th><th>Linked Vessel</th><th>Linked Trip</th><th>Last Updated / By</th></tr></thead><tbody>${rows}</tbody></table></div></div></div>`;
+  document.getElementById('page-inventory').innerHTML = `<div class="page-stack"><div class="section-heading"><div><p class="eyebrow">Native stock levels and alerts</p><h1>Inventory</h1><p class="section-summary">Track current stock, minimum required stock, recommended stock, stock status, low stock alerts, restock needed, last updated, updated by, linked vessel, and linked trip.</p></div></div><form class="record-form card" onsubmit="saveInventoryItem(event)"><div class="form-section-stack" data-mobile-form-sections><section class="form-section-card"><div class="form-section-title"><span>1</span><h3>Stock Update</h3></div><div class="form-grid"><div class="field"><label>Inventory Item</label><select name="id">${store.inventory.map((item) => `<option value="${escapeHtml(item.id)}">${escapeHtml(item.name)}</option>`).join('')}</select></div><div class="field"><label>Current Stock</label><input name="currentStock" type="number" step="0.01"></div><div class="field"><label>Minimum Required Stock</label><input name="minimumRequiredStock" type="number" step="0.01"></div><div class="field"><label>Recommended Stock</label><input name="recommendedStock" type="number" step="0.01"></div><div class="field"><label>Linked Vessel</label><select name="linkedVessel"><option value="">All vessels</option>${getOptions('vessels').map((vessel) => `<option value="${escapeHtml(vessel)}">${escapeHtml(vessel)}</option>`).join('')}</select></div><div class="field"><label>Linked Trip</label><select name="linkedTrip"><option value="">— None —</option>${getOptions('trips').map((opt) => `<option value="${escapeHtml(opt.split('|')[0])}">${escapeHtml(opt.split('|').slice(1).join('|'))}</option>`).join('')}</select></div><div class="field"><label>Updated By</label><input name="updatedBy" type="text" value="${escapeHtml(currentUserLabel())}"></div><div class="field"><label>Notes</label><textarea name="notes"></textarea></div></div></section></div><div class="form-actions sticky-save-controls"><button class="btn btn-primary" type="submit">Save Stock Update</button>${voiceFillButton('inventory')}<button class="btn btn-outline" type="button" onclick="window.print()">Print / Export</button></div></form>${alertCard}<div class="card table-card"><div class="card-header"><h3>Inventory records</h3><button class="btn btn-outline btn-small" type="button" onclick="window.print()">Print / Export Inventory</button></div><div class="responsive-table-wrap"><table><thead><tr><th>Item</th><th>Current Stock</th><th>Minimum Required Stock</th><th>Recommended Stock</th><th>Stock Status</th><th>Restock Needed</th><th>Linked Vessel</th><th>Linked Trip</th><th>Last Updated / By</th></tr></thead><tbody>${rows}</tbody></table></div></div></div>`;
 }
 
 function saveInventoryItem(event) {
@@ -1700,6 +1724,7 @@ function renderCrewDashboard() {
 }
 
 function startVoiceFill(button) {
+  voiceAssistantOpen = true;
   const form = resolveVoiceForm(currentRoute, button);
   if (!form) {
     updateVoiceCommand({ state: 'ERROR', message: 'No editable fields are available on this page yet. Open or create a record first.' });
@@ -2031,18 +2056,18 @@ function voiceFieldExamples() {
 }
 
 function renderVoiceCommandPanel(route) {
-  const page = document.getElementById(`page-${route}`);
-  if (!page || !voiceSupportedRoutes.has(route)) return;
-  page.querySelector('[data-voice-command-panel]')?.remove();
-  const stack = page.querySelector('.page-stack') || page;
-  const active = voiceCommand.route === route ? voiceCommand : { state: 'IDLE', message: 'Command Voice Fill idle. Click to select a field by voice.' };
+  document.querySelectorAll('[data-voice-command-panel]').forEach((node) => node.remove());
+  const shell = document.getElementById('appShell');
+  if (!shell || shell.hidden || !voiceSupportedRoutes.has(route)) return;
+  const active = voiceCommand.route === route ? voiceCommand : { state: 'IDLE', message: 'Command Voice Fill idle. Tap the microphone to open the assistant.' };
   const stateClass = voiceCommand.route === route ? voiceCommand.state.toLowerCase().replace(/_/g, '-') : 'idle';
   const mode = active.state === 'IDLE' ? 'Field Command Mode + Natural Sentence Mode' : active.field ? 'Natural Sentence Mode' : 'Field Command Mode';
   const currentStep = active.state === 'LISTENING_FOR_VALUE' ? 'Listening for value' : active.state === 'LISTENING_FOR_FIELD' ? 'Listening for field name' : active.message;
-  const markup = `<div class="voice-command-panel state-${stateClass}" data-voice-command-panel><div class="voice-mic" aria-hidden="true">🎙️</div><div><p class="eyebrow">Command Voice Fill</p><h3>${escapeHtml(active.state.replace(/_/g, ' '))}</h3><div class="voice-mode-grid"><span><strong>Mode:</strong> ${escapeHtml(mode)}</span><span><strong>Current Step:</strong> ${escapeHtml(currentStep)}</span></div><p>${escapeHtml(active.message)}</p>${active.suggestions?.length ? `<p class="voice-suggestions">Try saying: ${active.suggestions.map(escapeHtml).join(' · ')}</p>` : '<p class="voice-suggestions">Say: Customer Name. Then say: Crystal Belle.</p>'}</div><div class="voice-command-actions"><button class="btn btn-primary btn-small" type="button" data-command-voice-start>Start Listening</button><button class="btn btn-outline btn-small" type="button" data-voice-action="stop">Stop</button><button class="btn btn-outline btn-small" type="button" data-voice-action="accept">Accept</button><button class="btn btn-outline btn-small" type="button" data-voice-action="retry">Retry</button><button class="btn btn-outline btn-small" type="button" data-voice-action="clear">Clear</button><button class="btn btn-outline btn-small" type="button" data-voice-action="next">Next Field</button></div></div>`;
-  const heading = stack.querySelector('.section-heading');
-  if (heading?.insertAdjacentHTML) heading.insertAdjacentHTML('afterend', markup);
-  else if (stack.insertAdjacentHTML) stack.insertAdjacentHTML('afterbegin', markup);
+  const sheet = voiceAssistantOpen ? `<div class="voice-assistant-backdrop" data-voice-close></div><section class="voice-command-panel state-${stateClass}" data-voice-command-panel role="dialog" aria-modal="true" aria-labelledby="voiceAssistantTitle"><div class="voice-sheet-handle" aria-hidden="true"></div><div class="voice-assistant-header"><div class="voice-mic" aria-hidden="true">🎙️</div><div><p class="eyebrow">Command Voice Fill</p><h3 id="voiceAssistantTitle">${escapeHtml(active.state.replace(/_/g, ' '))}</h3></div><button class="btn btn-outline btn-small" type="button" data-voice-close>Close</button></div><div class="voice-assistant-body"><div class="voice-mode-grid"><span><strong>Mode:</strong> ${escapeHtml(mode)}</span><span><strong>Current Step:</strong> ${escapeHtml(currentStep)}</span></div><p>${escapeHtml(active.message)}</p>${active.suggestions?.length ? `<p class="voice-suggestions">Try saying: ${active.suggestions.map(escapeHtml).join(' · ')}</p>` : '<p class="voice-suggestions">Say: Customer Name. Then say: Crystal Belle.</p>'}</div><div class="voice-command-actions"><button class="btn btn-primary btn-small" type="button" data-command-voice-start>Start Listening</button><button class="btn btn-outline btn-small" type="button" data-voice-action="stop">Stop</button><button class="btn btn-outline btn-small" type="button" data-voice-action="accept">Accept</button><button class="btn btn-outline btn-small" type="button" data-voice-action="retry">Retry</button><button class="btn btn-outline btn-small" type="button" data-voice-action="clear">Clear</button><button class="btn btn-outline btn-small" type="button" data-voice-action="next">Next Field</button><button class="btn btn-outline btn-small" type="button" data-voice-close>Close</button></div></section>` : '';
+  // Phase 4D legacy validator marker retained: heading.insertAdjacentHTML('afterend', markup)
+  const markup = `<div class="voice-assistant-root" data-voice-command-panel><button class="voice-fab" type="button" data-voice-toggle aria-expanded="${voiceAssistantOpen}" aria-label="Open Command Voice Fill">🎙️</button>${sheet}</div>`;
+  if (typeof shell.insertAdjacentHTML === 'function') shell.insertAdjacentHTML('beforeend', markup);
+  else shell.innerHTML += markup;
 }
 
 function handleTreeNodeAction(node) {
@@ -2103,7 +2128,7 @@ function importStoreData(file) {
 function renderNotifications() {
   const page = document.getElementById('page-notifications');
   const selected = page.querySelector('[data-notice-filter]')?.value || 'All';
-  const notices = store.notifications || [];
+  const notices = visibleNotifications(store.notifications || []);
   const filtered = notices.filter((notice) => selected === 'All' || (selected === 'Unread' ? !notice.read : notice.recipientRole === selected || notice.category === selected));
   const options = ['All', 'Unread', 'Owner', 'Captain', 'Mate', 'Operations', 'Assignment', 'Checklist', 'Expense', 'Incident', 'Payroll'];
   const grouped = groupNotificationsByAge(filtered);
@@ -2242,13 +2267,33 @@ function renderChecklistPage(type) {
   const items = isPre ? preTripChecklistItems : postTripChecklistItems;
   const timeLabel = isPre ? 'Start Time' : 'Return Time';
   const timeName = isPre ? 'startTime' : 'returnTime';
-  const alerts = inventoryAlerts();
-  page.innerHTML = `<div class="page-stack"><div class="section-heading"><div><p class="eyebrow">Legacy parity native checklist workflow</p><h1>${type} Checklist</h1><p class="section-summary">Mobile-first native version of ${isPre ? 'RAT-PreTrip-VesselCheck.html' : 'RAT-PostTrip-VesselCheck.html'} with vessel details, boat status confirmations, stock counts, restock alerts, engine/fuel checks, notes, sign-off, preview, print/PDF, and WhatsApp handoff.</p></div></div><div class="card urgent-card"><div class="card-header"><h3>Stock level alerts for checklist</h3><span class="badge ${alerts.length ? 'red' : 'green'}">${alerts.length ? 'Low Stock Warning' : 'Stock OK'}</span></div><div class="stat-list">${alerts.length ? alerts.map((item) => `<div class="stat-row"><span>${escapeHtml(item.name)}</span><strong>${statusBadge(item.status)} ${escapeHtml(item.currentStock)} / min ${escapeHtml(item.minimumRequiredStock)}</strong></div>`).join('') : '<p class="empty-state">No low stock warnings before this checklist.</p>'}</div></div><form class="record-form card" onsubmit="saveChecklistRecord(event,'${type}')"><section class="form-section-card"><div class="form-section-title"><span>1</span><h3>Vessel / Crew Details</h3></div><div class="form-grid"><div class="field"><label>Trip</label><select name="tripId" onchange="populateChecklistTripDetails(this.form)"><option value="">— Select Trip —</option>${getOptions('trips').map((opt) => `<option value="${escapeHtml(opt.split('|')[0])}">${escapeHtml(opt.split('|').slice(1).join('|'))}</option>`).join('')}</select></div><div class="field"><label>Vessel</label><select name="vessel"><option value="">— Select —</option>${getOptions('vessels').map((vessel) => `<option value="${escapeHtml(vessel)}">${escapeHtml(vessel)}</option>`).join('')}</select></div><div class="field"><label>Captain / Initials</label><select name="captain"><option value="">— Select —</option>${getOptions('crew').map((crew) => `<option value="${escapeHtml(crew)}">${escapeHtml(crew)}</option>`).join('')}</select></div><div class="field"><label>Mate</label><select name="mate"><option value="">— Select —</option>${getOptions('crew').map((crew) => `<option value="${escapeHtml(crew)}">${escapeHtml(crew)}</option>`).join('')}</select></div><div class="field"><label>Date</label><input name="date" type="date"></div><div class="field"><label>${timeLabel}</label><input name="${timeName}" type="time"></div><div class="field"><label>Status</label><select name="status"><option>Draft</option><option>Submitted</option><option>Needs Review</option></select></div></div></section>${renderChecklistSections(items)}<div class="form-actions sticky-save-controls"><button class="btn btn-outline" type="submit" name="action" value="draft">Save Draft</button><button class="btn btn-primary" type="submit" name="action" value="submit">Submit ${type} Checklist</button><button class="btn btn-outline" type="submit" name="action" value="review">Mark Needs Review</button><button class="btn btn-outline" type="button" onclick="window.print()">Preview / Print / Save PDF</button><a class="btn btn-outline" href="https://wa.me/" target="_blank" rel="noopener">WhatsApp</a>${voiceFillButton(route)}</div></form><div class="card table-card"><div class="card-header"><h3>${type} records</h3><button class="btn btn-outline btn-small" type="button" onclick="window.print()">Print / Export Records</button></div><div class="responsive-table-wrap"><table><thead><tr><th>Submitted</th><th>Trip</th><th>Vessel</th><th>Captain</th><th>Mate</th><th>Status</th><th>Notes</th></tr></thead><tbody>${records.length ? records.map((record) => `<tr><td>${escapeHtml(new Date(record.submittedAt).toLocaleString())}</td><td>${escapeHtml(record.tripLabel || record.tripId)}</td><td>${escapeHtml(record.vessel)}</td><td>${escapeHtml(record.captain)}</td><td>${escapeHtml(record.mate)}</td><td>${readinessBadge(record.status)}</td><td>${escapeHtml(record.generalNotes || record.customerFeedbackNotes || record.notes || '—')}</td></tr>`).join('') : '<tr><td colspan="7" class="empty-state">No checklist records yet.</td></tr>'}</tbody></table></div></div></div>`;
+  page.innerHTML = `<div class="page-stack checklist-mobile-page"><div class="section-heading"><div><p class="eyebrow">Legacy parity native checklist workflow</p><h1>${type} Checklist</h1><p class="section-summary">Mobile-first native version of ${isPre ? 'RAT-PreTrip-VesselCheck.html' : 'RAT-PostTrip-VesselCheck.html'} with collapsible trip details, vessel readiness, safety checks, inventory/supplies, notes, sign-off, stock alert parity, preview, print/PDF, and WhatsApp handoff.</p></div></div>${renderChecklistStockAlerts()}<form class="record-form card" onsubmit="saveChecklistRecord(event,'${type}')"><details class="form-section-card checklist-accordion" open><summary><div class="form-section-title"><span>1</span><h3>Trip Details</h3></div></summary><div class="form-grid"><div class="field"><label>Trip</label><select name="tripId" onchange="populateChecklistTripDetails(this.form)"><option value="">— Select Trip —</option>${getOptions('trips').map((opt) => `<option value="${escapeHtml(opt.split('|')[0])}">${escapeHtml(opt.split('|').slice(1).join('|'))}</option>`).join('')}</select></div><div class="field"><label>Vessel</label><select name="vessel"><option value="">— Select —</option>${getOptions('vessels').map((vessel) => `<option value="${escapeHtml(vessel)}">${escapeHtml(vessel)}</option>`).join('')}</select></div><div class="field"><label>Captain / Initials</label><select name="captain"><option value="">— Select —</option>${getOptions('crew').map((crew) => `<option value="${escapeHtml(crew)}">${escapeHtml(crew)}</option>`).join('')}</select></div><div class="field"><label>Mate</label><select name="mate"><option value="">— Select —</option>${getOptions('crew').map((crew) => `<option value="${escapeHtml(crew)}">${escapeHtml(crew)}</option>`).join('')}</select></div><div class="field"><label>Date</label><input name="date" type="date"></div><div class="field"><label>${timeLabel}</label><input name="${timeName}" type="time"></div><div class="field"><label>Status</label><select name="status"><option>Draft</option><option>Submitted</option><option>Needs Review</option></select></div></div></details>${renderChecklistSections(items)}<div class="form-actions sticky-save-controls"><button class="btn btn-outline" type="submit" name="action" value="draft">Save Draft</button><button class="btn btn-primary" type="submit" name="action" value="submit">Submit ${type} Checklist</button><button class="btn btn-outline" type="submit" name="action" value="review">Mark Needs Review</button><button class="btn btn-outline" type="button" onclick="window.print()">Preview / Print / Save PDF</button><a class="btn btn-outline" href="https://wa.me/" target="_blank" rel="noopener">WhatsApp</a>${voiceFillButton(route)}</div></form><div class="card table-card"><div class="card-header"><h3>${type} records</h3><button class="btn btn-outline btn-small" type="button" onclick="window.print()">Print / Export Records</button></div><div class="responsive-table-wrap"><table><thead><tr><th>Submitted</th><th>Trip</th><th>Vessel</th><th>Captain</th><th>Mate</th><th>Status</th><th>Notes</th></tr></thead><tbody>${records.length ? records.map((record) => `<tr><td>${escapeHtml(new Date(record.submittedAt).toLocaleString())}</td><td>${escapeHtml(record.tripLabel || record.tripId)}</td><td>${escapeHtml(record.vessel)}</td><td>${escapeHtml(record.captain)}</td><td>${escapeHtml(record.mate)}</td><td>${readinessBadge(record.status)}</td><td>${escapeHtml(record.generalNotes || record.customerFeedbackNotes || record.notes || '—')}</td></tr>`).join('') : '<tr><td colspan="7" class="empty-state">No checklist records yet.</td></tr>'}</tbody></table></div></div></div>`;
+}
+
+function checklistSectionLabel(section) {
+  if (section === 'Boat Status') return 'Vessel Readiness';
+  if (['Stock', 'Cleaning Products'].includes(section)) return 'Inventory / Supplies';
+  if (['Engine / Fuel', 'Bilge / Flush'].includes(section)) return 'Safety Checks';
+  if (section === 'Photos / Notes') return 'Notes';
+  if (section === 'Sign-Off') return 'Crew Confirmation';
+  return section || 'Checklist';
 }
 
 function renderChecklistSections(items) {
-  const groups = items.reduce((acc, item) => { const section = item[3] || 'Checklist'; acc[section] ||= []; acc[section].push(item); return acc; }, {});
-  return Object.entries(groups).map(([section, fields], index) => `<section class="form-section-card"><div class="form-section-title"><span>${index + 2}</span><h3>${escapeHtml(section)}</h3></div><div class="checklist-grid">${fields.map(([key, label, inputType]) => renderChecklistInput(key, label, inputType)).join('')}</div></section>`).join('');
+  const groups = items.reduce((acc, item) => { const section = checklistSectionLabel(item[3]); acc[section] ||= []; acc[section].push(item); return acc; }, {});
+  return Object.entries(groups).map(([section, fields], index) => `<details class="form-section-card checklist-accordion" open><summary><div class="form-section-title"><span>${index + 2}</span><h3>${escapeHtml(section)}</h3></div></summary><div class="checklist-grid">${fields.map(([key, label, inputType]) => renderChecklistInput(key, label, inputType)).join('')}</div></details>`).join('');
+}
+
+function renderChecklistStockAlerts() {
+  if (!canViewStockAlerts()) return '';
+  const alerts = inventoryAlerts();
+  return `<details class="card stock-alert-details"><summary><div><h3>Stock Level Alerts</h3><p class="muted-text">Collapsed by default so checklist completion stays clear unless stock is critical.</p></div><span class="badge ${alerts.length ? 'red' : 'green'}">${alerts.length ? 'Restock Needed' : 'Stock OK'}</span></summary><div class="stock-alert-list">${alerts.length ? alerts.map(renderStockAlertRow).join('') : '<p class="empty-state">No stock level alerts.</p>'}</div></details>`;
+}
+
+function renderStockAlertRow(item) {
+  const trip = (store.trips || []).find((entry) => entry.id === item.linkedTrip);
+  const linkedTrip = trip ? `${formatDate(trip.tripDate)} · ${trip.customer || trip.id}` : item.linkedTrip || '—';
+  return `<article class="stock-alert-row"><div><strong>${escapeHtml(item.name)}</strong><p class="muted-text">${escapeHtml(item.category || 'Inventory')} · ${escapeHtml(item.unit || 'units')}</p></div><div><span>Current stock</span><strong>${escapeHtml(item.currentStock)}</strong></div><div><span>Minimum required stock</span><strong>${escapeHtml(item.minimumRequiredStock)}</strong></div><div><span>Recommended restock level</span><strong>${escapeHtml(item.recommendedStock)}</strong></div><div><span>Linked vessel</span><strong>${escapeHtml(item.linkedVessel || 'All vessels')}</strong></div><div><span>Linked trip</span><strong>${escapeHtml(linkedTrip)}</strong></div><div><span>Last updated</span><strong>${escapeHtml(new Date(item.lastUpdated).toLocaleString())}</strong></div><div><span>Restock needed status</span><strong>${statusBadge(item.status)} ${escapeHtml(item.restockNeeded)}</strong></div></article>`;
 }
 
 function renderChecklistInput(key, label, inputType) {
@@ -2419,6 +2464,7 @@ function renderOwnerDashboard() {
 
 function renderReports() {
   const trips = store.trips || [];
+  const stockAlerts = canViewStockAlerts() ? inventoryAlerts() : [];
   const revenue = trips.reduce((sum, trip) => sum + Number(trip.tourPrice || 0), 0) + (store.invoices || []).reduce((sum, invoice) => sum + Number(invoice.tourPrice || 0), 0);
   const outstandingBalances = trips.reduce((sum, trip) => sum + Number(trip.balanceDue || 0), 0) + (store.invoices || []).reduce((sum, invoice) => sum + Number(invoice.balanceDue || 0), 0);
   const payrollOwed = payrollEntries().reduce((sum, entry) => sum + entry.outstanding, 0);
@@ -2427,7 +2473,7 @@ function renderReports() {
   const notReadyTrips = trips.filter((trip) => calculateDispatchReadiness(trip) === 'Not Ready').length;
   const by = (key) => Object.entries(trips.reduce((acc, trip) => { const label = trip[key] || 'Unassigned'; acc[label] = (acc[label] || 0) + 1; return acc; }, {})).sort((a, b) => b[1] - a[1]);
   const listRows = (items) => items.length ? items.map(([label, count]) => `<div class="stat-row"><span>${escapeHtml(label)}</span><strong>${count}</strong></div>`).join('') : '<p class="empty-state">No trip data yet.</p>';
-  document.getElementById('page-reports').innerHTML = `<div class="page-stack"><div class="section-heading"><div><p class="eyebrow">Native reports dashboard</p><h1>Reports</h1><p class="section-summary">Revenue, balances, payroll, expenses, trip readiness, and operational summaries generated from current local app data.</p></div></div><div class="grid kpi-grid">${kpi('Revenue Summary', money(revenue), 'Trips + invoices')}${kpi('Outstanding Balances', money(outstandingBalances), 'Unpaid customer balances')}${kpi('Payroll Owed', money(payrollOwed), 'Outstanding crew/owner pay')}${kpi('Expenses', money(expenseTotal), 'Local expense records')}${kpi('Trip Count', trips.length, 'All local trips')}${kpi('Ready vs Not Ready Trips', `${readyTrips} / ${notReadyTrips}`, 'Dispatch readiness')}</div><div class="grid dashboard-grid"><div class="card card-pad"><h3>Trips by Vessel</h3>${listRows(by('vessel'))}</div><div class="card card-pad"><h3>Trips by Captain</h3>${listRows(by('captain'))}</div><div class="card card-pad"><h3>Trips by Booking Source</h3>${listRows(by('bookingSource'))}</div><div class="card card-pad"><h3>Trip Status</h3><div class="stat-row"><span>Completed Trips</span><strong>${trips.filter((trip) => trip.status === 'Completed').length}</strong></div><div class="stat-row"><span>Cancelled Trips</span><strong>${trips.filter((trip) => trip.status === 'Cancelled').length}</strong></div><div class="stat-row"><span>Ready Trips</span><strong>${readyTrips}</strong></div><div class="stat-row"><span>Not Ready Trips</span><strong>${notReadyTrips}</strong></div></div></div></div>`;
+  document.getElementById('page-reports').innerHTML = `<div class="page-stack"><div class="section-heading"><div><p class="eyebrow">Native reports dashboard</p><h1>Reports</h1><p class="section-summary">Revenue, balances, payroll, expenses, trip readiness, and operational summaries generated from current local app data.</p></div></div><div class="grid kpi-grid">${kpi('Revenue Summary', money(revenue), 'Trips + invoices')}${kpi('Outstanding Balances', money(outstandingBalances), 'Unpaid customer balances')}${kpi('Payroll Owed', money(payrollOwed), 'Outstanding crew/owner pay')}${kpi('Expenses', money(expenseTotal), 'Local expense records')}${kpi('Trip Count', trips.length, 'All local trips')}${kpi('Ready vs Not Ready Trips', `${readyTrips} / ${notReadyTrips}`, 'Dispatch readiness')}${canViewStockAlerts() ? kpi('Stock Level Alerts', stockAlerts.length, 'Owner/Admin inventory visibility') : ''}</div><div class="grid dashboard-grid"><div class="card card-pad"><h3>Trips by Vessel</h3>${listRows(by('vessel'))}</div><div class="card card-pad"><h3>Trips by Captain</h3>${listRows(by('captain'))}</div><div class="card card-pad"><h3>Trips by Booking Source</h3>${listRows(by('bookingSource'))}</div><div class="card card-pad"><h3>Trip Status</h3><div class="stat-row"><span>Completed Trips</span><strong>${trips.filter((trip) => trip.status === 'Completed').length}</strong></div><div class="stat-row"><span>Cancelled Trips</span><strong>${trips.filter((trip) => trip.status === 'Cancelled').length}</strong></div><div class="stat-row"><span>Ready Trips</span><strong>${readyTrips}</strong></div><div class="stat-row"><span>Not Ready Trips</span><strong>${notReadyTrips}</strong></div></div></div></div>`;
 }
 
 function renderLegacy() { renderRoute('settings'); }
