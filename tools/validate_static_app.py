@@ -251,6 +251,51 @@ def validate_phase_4d_native_workflows() -> tuple[bool, str]:
     return True, "PASS — Phase 4D native invoices, checklists, cruise schedule, reports, reminders, and voice field controls are present"
 
 
+
+def validate_phase_4e_mobile_redesign() -> tuple[bool, str]:
+    app_js = (ROOT / "app.js").read_text()
+    styles = (ROOT / "styles.css").read_text()
+    index_html = (ROOT / "index.html").read_text()
+    manifest = json.loads((ROOT / "manifest.json").read_text())
+    failures: list[str] = []
+    required_tokens = {
+        "Mobile bottom navigation exists": (index_html + app_js + styles, "mobileBottomNav"),
+        "Mobile nav More menu exists": (app_js, "const mobileMoreNav"),
+        "Mobile notification badge exists": (app_js + styles, "mobile-nav-badge"),
+        "Dashboard quick actions exist": (app_js, "data-dashboard-quick-actions"),
+        "Dashboard Create Trip action exists": (app_js, "Create Trip"),
+        "Dashboard Voice Fill action exists": (app_js, "Voice Fill"),
+        "Dashboard Add Expense action exists": (app_js, "Add Expense"),
+        "Dashboard Report Incident action exists": (app_js, "Report Incident"),
+        "Dashboard Open Dispatch action exists": (app_js, "Open Dispatch"),
+        "Command Voice Fill top panel exists": (app_js, "data-voice-command-panel"),
+        "Voice assistant mode labels exist": (app_js, "Mode:"),
+        "Voice assistant current step exists": (app_js, "Current Step:"),
+        "Dispatch tree mobile layout hooks exist": (app_js + styles, "true-dispatch-tree"),
+        "Dispatch color rail hooks exist": (styles, "box-shadow: inset 6px 0 0"),
+        "Sticky save controls exist": (app_js + styles, "sticky-save-controls"),
+        "Status badge system exists": (app_js, "function statusColor"),
+        "Notifications grouped inbox exists": (app_js, "groupNotificationsByAge"),
+        "Notification quick actions exist": (app_js, "Open Related Trip"),
+        "Owner dashboard alert cards exist": (app_js, "Outstanding owner payouts"),
+        "Crew large action buttons exist": (app_js, "Voice Fill Notes"),
+        "Legacy archive still in Settings": (app_js, "Archived Legacy Tools"),
+        "No primary workflow depends on legacy tools": (app_js, "Active operations should be completed through the main application tabs."),
+        "Existing Phase 4D functionality preserved": (app_js, "function renderInvoiceModule"),
+        "PWA safe area support exists": (styles, "env(safe-area-inset-bottom)"),
+        "Offline state message exists": (index_html + app_js, "offlineState"),
+    }
+    for label, (haystack, token) in required_tokens.items():
+        if token not in haystack:
+            failures.append(f"missing {label}")
+    if manifest.get("display") != "standalone":
+        failures.append("manifest display is not standalone")
+    if manifest.get("background_color") != "#081d33":
+        failures.append("manifest splash background color not updated")
+    if failures:
+        return False, "FAIL — " + "; ".join(failures)
+    return True, "PASS — Phase 4E mobile nav, command dashboard, voice panel, dispatch hooks, sticky saves, badges, archive safeguards, and PWA app-feel hooks are present"
+
 def validate_phase_4d_voice_examples() -> tuple[bool, str]:
     script = r"""
 const fs = require('fs');
@@ -282,6 +327,7 @@ def main() -> int:
         ("Legacy functionality preserved", validate_legacy_preserved),
         ("App load console errors", validate_app_bootstrap),
         ("Phase 4D native workflow checks", validate_phase_4d_native_workflows),
+        ("Phase 4E mobile redesign checks", validate_phase_4e_mobile_redesign),
         ("Phase 4D voice examples", validate_phase_4d_voice_examples),
     ]
     all_passed = True
