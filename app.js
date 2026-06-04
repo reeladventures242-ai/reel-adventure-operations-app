@@ -1,5 +1,5 @@
 const STORE_KEY = 'rat_ops_v1_store';
-const STORE_VERSION = 6;
+const STORE_VERSION = 7;
 
 const navItems = [
   ['dashboard', '🏠', 'Dashboard'], ['bookings', '📘', 'Bookings'], ['invoices', '🧾', 'Invoices'],
@@ -81,7 +81,9 @@ const seedData = {
   auditTrail: [],
   expenses: [],
   incidentReports: [],
-  checklistRecords: []
+  checklistRecords: [],
+  invoices: [],
+  cruiseSchedule: []
 };
 
 const crudConfig = {
@@ -109,6 +111,16 @@ const crudConfig = {
     title: 'Expenses', eyebrow: 'Operations costs', summary: 'Capture operating expenses, receipt/photo notes, approvals, and vessel cost alerts directly in the native operations app.', collection: 'expenses', addLabel: 'Add expense',
     fields: [['date','Expense date','date'], ['vessel','Vessel','select:vessels'], ['category','Category','select:expenseCategories'], ['amount','Amount','number'], ['paidBy','Paid by','select:crew'], ['status','Status','select:expenseStatus'], ['receiptPhotos','Receipt/photo notes','textarea'], ['notes','Notes','textarea']],
     columns: [['date','Date'], ['vessel','Vessel'], ['category','Category'], ['amount','Amount'], ['paidBy','Paid by'], ['status','Status']]
+  },
+  invoices: {
+    title: 'Invoices', eyebrow: 'Native billing', summary: 'Create, edit, link, and settle customer invoices directly in the main operations app.', collection: 'invoices', addLabel: 'Create Invoice',
+    fields: [['invoiceNumber','Invoice Number','text'], ['customerName','Customer Name','text'], ['phone','Phone Number','tel'], ['email','Email','email'], ['tripDate','Trip Date','date'], ['tourType','Tour Type','text'], ['guestCount','Guest Count','number'], ['vessel','Vessel','select:vessels'], ['bookingSource','Booking Source','select:bookingSources'], ['tourPrice','Tour Price','number'], ['depositPaid','Deposit Paid','number'], ['balanceDue','Balance Due','number'], ['paymentStatus','Payment Status','select:paymentStatus'], ['paymentMethod','Payment Method','select:paymentMethods'], ['tripId','Link Invoice to Trip','select:trips'], ['bookingId','Link Invoice to Booking','select:bookings'], ['notes','Notes','textarea']],
+    columns: [['invoiceNumber','Invoice #'], ['customerName','Customer'], ['tripDate','Trip Date'], ['tourPrice','Total Price'], ['depositPaid','Deposit'], ['balanceDue','Balance'], ['paymentStatus','Payment Status'], ['vessel','Vessel']]
+  },
+  'cruise-schedule': {
+    title: 'Cruise Schedule', eyebrow: 'Native ships in port', summary: 'Track cruise ship arrivals, departures, capacity, terminal, and upcoming port load inside the app.', collection: 'cruiseSchedule', addLabel: 'Create Cruise Entry',
+    fields: [['shipName','Ship Name','text'], ['cruiseLine','Cruise Line','text'], ['arrivalDate','Arrival Date','date'], ['arrivalTime','Arrival Time','time'], ['departureTime','Departure Time','time'], ['passengerCapacity','Passenger Capacity','number'], ['terminalDock','Terminal / Dock','text'], ['notes','Notes','textarea']],
+    columns: [['shipName','Ship Name'], ['cruiseLine','Cruise Line'], ['arrivalDate','Arrival Date'], ['arrivalTime','Arrival Time'], ['departureTime','Departure Time'], ['passengerCapacity','Passenger Capacity'], ['terminalDock','Terminal / Dock']]
   },
   'incident-reports': {
     title: 'Incident Reports', eyebrow: 'Safety and operations', summary: 'Document guest, vessel, weather, injury, and equipment incidents for operational follow-up.', collection: 'incidentReports', addLabel: 'Add incident',
@@ -154,6 +166,8 @@ function migrateStore(existing = {}) {
   next.expenses = Array.isArray(next.expenses) ? next.expenses : [];
   next.incidentReports = Array.isArray(next.incidentReports) ? next.incidentReports : [];
   next.checklistRecords = Array.isArray(next.checklistRecords) ? next.checklistRecords : [];
+  next.invoices = Array.isArray(next.invoices) ? next.invoices : [];
+  next.cruiseSchedule = Array.isArray(next.cruiseSchedule) ? next.cruiseSchedule : [];
   next.vessels = (Array.isArray(next.vessels) ? next.vessels : []).map((vessel) => ({ ...vessel, readinessStatus: vessel.readinessStatus || vessel.status || 'Operational' }));
   next.trips = (Array.isArray(next.trips) ? next.trips : []).map((trip) => normalizeTrip(trip));
   localStorage.setItem(STORE_KEY, JSON.stringify(next));
@@ -251,7 +265,11 @@ function getOptions(kind) {
     incidentSeverity: ['Low', 'Medium', 'High', 'Critical'],
     incidentCategories: ['Guest', 'Crew', 'Vessel', 'Weather', 'Injury', 'Equipment', 'Other'],
     incidentStatus: ['Open', 'Needs Review', 'Resolved'],
-    trips: store.trips.map((t) => `${t.id}|${formatDate(t.tripDate)} ${t.startTime || ''} ${t.customer || 'Trip'}`)
+    trips: store.trips.map((t) => `${t.id}|${formatDate(t.tripDate)} ${t.startTime || ''} ${t.customer || 'Trip'}`),
+    bookings: store.bookings.map((b) => `${b.id}|${formatDate(b.date)} ${b.time || ''} ${b.customer || 'Booking'}`),
+    paymentStatus: ['Deposit Due', 'Deposit Paid', 'Balance Due', 'Paid in Full', 'Refunded', 'Cancelled'],
+    paymentMethods: ['Cash', 'Credit Card', 'Debit Card', 'Zelle', 'ACH', 'Check', 'Online', 'Other'],
+    checklistStatus: ['Draft', 'Submitted', 'Needs Review']
   };
   return maps[kind] || [];
 }
@@ -259,6 +277,7 @@ function getOptions(kind) {
 function init() {
   renderNav();
   wireEvents();
+  generateChecklistReminders();
   renderRoute('dashboard');
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('service-worker.js').catch(console.warn);
 }
@@ -319,6 +338,7 @@ function toggleSidebar() {
 function closeSidebar() { document.getElementById('sidebar').classList.remove('open'); document.getElementById('sidebarOverlay').classList.remove('open'); document.getElementById('menuBtn').setAttribute('aria-expanded', 'false'); }
 
 function renderRoute(route) {
+  generateChecklistReminders();
   currentRoute = route;
   closeSidebar();
   document.querySelectorAll('.page').forEach((page) => page.classList.remove('active'));
@@ -336,9 +356,9 @@ function renderRoute(route) {
   else if (route === 'owner-dashboard') renderOwnerDashboard();
   else if (route === 'pre-trip-checklist') renderChecklistPage('Pre Trip');
   else if (route === 'post-trip-checklist') renderChecklistPage('Post Trip');
+  else if (route === 'reports') renderReports();
   else if (route === 'notifications') renderNotifications();
   else if (route === 'audit') renderAuditTrail();
-  else if (route === 'legacy') renderLegacy();
   else renderPlaceholder(route);
   renderVoiceCommandPanel(route);
 }
@@ -351,7 +371,7 @@ function renderDashboard() {
   const outstandingPayroll = payroll.reduce((sum, entry) => sum + entry.outstanding, 0);
   document.getElementById('page-dashboard').innerHTML = `
     <div class="page-stack">
-      <div class="section-heading"><div><p class="eyebrow">Phase 4C native operations</p><h1>Daily trip operations dashboard</h1><p class="section-summary">Create bookings, invoices, assignments, checklists, expenses, incidents, payroll, and reports through the primary application tabs without opening retained legacy HTML tools.</p></div><button class="btn btn-primary" data-route="trips">Create / assign trips</button></div>
+      <div class="section-heading"><div><p class="eyebrow">Phase 4D native operations</p><h1>Daily trip operations dashboard</h1><p class="section-summary">Create bookings, invoices, assignments, checklists, expenses, incidents, payroll, and reports through the primary application tabs.</p></div><button class="btn btn-primary" data-route="trips">Create / assign trips</button></div>
       <div class="grid kpi-grid dashboard-kpis">
         ${kpi('Active bookings', store.bookings.length, `${money(totalBalance)} total balances`)}
         ${kpi('Scheduled trips', scheduledTrips.length, 'Assignment board ready')}
@@ -360,7 +380,7 @@ function renderDashboard() {
       </div>
       <div class="grid dashboard-grid">
         <div class="card"><div class="card-header"><h3>Upcoming bookings</h3><button class="btn btn-outline btn-small" data-route="bookings">View all</button></div><div class="stat-list">${upcomingBookings.length ? upcomingBookings.map((b) => `<div class="stat-row"><span>${escapeHtml(b.date)} · ${escapeHtml(b.time)}</span><strong>${escapeHtml(b.customer)}<br><small>${escapeHtml(b.product)} · ${b.guests} guests · Balance ${money(b.balance)}</small></strong></div>`).join('') : '<p class="empty-state">No upcoming bookings yet.</p>'}</div></div>
-        <div class="card"><div class="card-header"><h3>Native daily workflow</h3><span class="badge green">No legacy tool required</span></div><div class="stat-list">
+        <div class="card"><div class="card-header"><h3>Native daily workflow</h3><span class="badge green">All native</span></div><div class="stat-list">
           ${['Booking', 'Invoice', 'Trip Assignment', 'Captain Dashboard', 'Mate Dashboard', 'Owner Dashboard', 'Pre Trip Checklist', 'Post Trip Checklist', 'Expenses', 'Incident Reports', 'Payroll', 'Reports'].map((item) => `<div class="stat-row"><span>${item}</span><strong>Available in main navigation</strong></div>`).join('')}
         </div></div>
       </div>
@@ -436,12 +456,17 @@ function renderRoleArchiveTrip(trip, role) {
   return `<div class="stat-row"><span>${escapeHtml(formatDate(trip.tripDate))} · ${escapeHtml(formatTime(trip.startTime))}</span><strong>${escapeHtml(trip.customer || 'Trip')}<br><small>${escapeHtml(trip.vessel || 'No vessel')} · ${escapeHtml(role === 'captain' ? 'Captain' : 'Mate')} ${escapeHtml(status)}</small></strong></div>`;
 }
 
+function tripReminderBadges(trip, role = '') {
+  const notices = (store.notifications || []).filter((notice) => notice.metadata?.tripId === trip.id && notice.metadata?.reminderType && (!role || notice.recipientRole.toLowerCase() === role));
+  return notices.length ? `<div class="reminder-strip">${notices.slice(0, 3).map((notice) => `<span class="badge gold">${escapeHtml(notice.message)}</span>`).join('')}</div>` : '';
+}
+
 function renderRoleTripCard(trip, role) {
   const roleLabel = role === 'captain' ? 'Captain' : 'Mate';
   const notesKey = role === 'captain' ? 'captainNotes' : 'mateNotes';
   const status = normalizeAssignmentStatus(trip)[role];
   const readiness = calculateDispatchReadiness(trip);
-  return `<div class="card role-trip-card ${readinessColorClass(readiness)}"><div class="card-header"><div class="role-card-title">${crewAvatar(trip[role], roleLabel)}<div><h3>${escapeHtml(trip.customer || 'Trip')}</h3><p>${escapeHtml(formatDate(trip.tripDate))} · ${escapeHtml(formatTime(trip.startTime))} · ${escapeHtml(trip.vessel || 'No vessel')} · ${Number(trip.passengers || 0)} guests</p></div></div><div>${assignmentStatusBadge(status)} ${readinessBadge(readiness)}</div></div>${readinessChecklistHtml(trip)}<div class="assignment-actions"><button class="btn btn-primary btn-small" onclick="acceptAssignment('${trip.id}','${role}')">Accept Assignment</button><button class="btn btn-danger btn-small" onclick="declineAssignment('${trip.id}','${role}')">Decline Assignment</button><button class="btn btn-outline btn-small" onclick="completeAssignment('${trip.id}','${role}')">Mark Completed</button></div><div class="field"><label>${roleLabel} notes</label><textarea data-trip-notes="${trip.id}" data-note-role="${role}">${escapeHtml(trip[notesKey] || '')}</textarea></div><div class="form-actions"><button class="btn btn-outline btn-small" onclick="saveCrewTripNotes('${trip.id}','${role}')">Submit Notes</button>${role === 'captain' ? `<label class="btn btn-outline btn-small">Upload Photos<input type="file" accept="image/*" multiple hidden onchange="saveCaptainPhotos('${trip.id}', this.files)"></label>` : ''}</div>${role === 'captain' ? renderPhotoList(trip.captainPhotos) : ''}</div>`;
+  return `<div class="card role-trip-card ${readinessColorClass(readiness)}"><div class="card-header"><div class="role-card-title">${crewAvatar(trip[role], roleLabel)}<div><h3>${escapeHtml(trip.customer || 'Trip')}</h3><p>${escapeHtml(formatDate(trip.tripDate))} · ${escapeHtml(formatTime(trip.startTime))} · ${escapeHtml(trip.vessel || 'No vessel')} · ${Number(trip.passengers || 0)} guests</p></div></div><div>${assignmentStatusBadge(status)} ${readinessBadge(readiness)}</div></div>${tripReminderBadges(trip, role)}${readinessChecklistHtml(trip)}<div class="assignment-actions"><button class="btn btn-primary btn-small" onclick="acceptAssignment('${trip.id}','${role}')">Accept Assignment</button><button class="btn btn-danger btn-small" onclick="declineAssignment('${trip.id}','${role}')">Decline Assignment</button><button class="btn btn-outline btn-small" onclick="completeAssignment('${trip.id}','${role}')">Mark Completed</button></div><div class="field"><label>${roleLabel} notes</label><textarea data-trip-notes="${trip.id}" data-note-role="${role}">${escapeHtml(trip[notesKey] || '')}</textarea></div><div class="form-actions"><button class="btn btn-outline btn-small" onclick="saveCrewTripNotes('${trip.id}','${role}')">Submit Notes</button>${role === 'captain' ? `<label class="btn btn-outline btn-small">Upload Photos<input type="file" accept="image/*" multiple hidden onchange="saveCaptainPhotos('${trip.id}', this.files)"></label>` : ''}</div>${role === 'captain' ? renderPhotoList(trip.captainPhotos) : ''}</div>`;
 }
 
 function saveCrewTripNotes(tripId, role) {
@@ -492,12 +517,18 @@ function renderCrud(route) {
   if (route === 'crew') renderCrewDashboard();
   if (route === 'vessels') renderVesselReadinessPanel();
   renderTable(route);
+  if (route === 'invoices') renderInvoiceModule();
+  if (route === 'cruise-schedule') renderCruiseScheduleModule();
 }
 
 function renderForm(route, record = {}) {
   const config = crudConfig[route];
   const form = document.querySelector(`#page-${route} .record-form`);
   form.innerHTML = `${route === 'trips' ? naturalSentenceModeHint() : ''}<div class="form-grid">${config.fields.map(([key, label, type]) => renderField(key, label, type, record[key])).join('')}</div>${route === 'trips' ? '<div class="conflict-panel" data-conflict-panel hidden></div>' : ''}<div class="form-actions"><button class="btn btn-primary" type="submit">Save ${config.title.slice(0, -1)}</button>${voiceFillButton(route)}<button class="btn btn-outline" type="button" data-cancel>Cancel</button></div>`;
+  if (route === 'invoices') {
+    form.addEventListener('input', () => updateInvoiceBalanceDue(form));
+    form.addEventListener('change', () => updateInvoiceBalanceDue(form));
+  }
   if (route === 'trips') {
     form.addEventListener('input', () => updateTripConflictPreview(form));
     form.addEventListener('change', (event) => {
@@ -541,6 +572,11 @@ function saveRecord(event, route) {
   const data = Object.fromEntries(new FormData(event.currentTarget).entries());
   config.fields.forEach(([key,, type]) => { if (type === 'number') data[key] = Number(data[key] || 0); });
   if (data.phone) data.phone = normalizePhoneNumber(data.phone);
+  if (route === 'invoices') {
+    data.balanceDue = Math.max(Number(data.tourPrice || 0) - Number(data.depositPaid || 0), Number(data.balanceDue || 0));
+    data.paymentStatus = data.paymentStatus || (data.balanceDue <= 0 ? 'Paid in Full' : Number(data.depositPaid || 0) > 0 ? 'Deposit Paid' : 'Deposit Due');
+    data.invoiceNumber = data.invoiceNumber || `INV-${new Date().toISOString().slice(0,10).replace(/-/g,'')}-${String(store.invoices.length + 1).padStart(3, '0')}`;
+  }
   if (route === 'trips') {
     const missing = missingTripAssignmentFields(data);
     if (missing.length) {
@@ -588,6 +624,9 @@ function saveRecord(event, route) {
     const owner = ownerForVesselName(data.vessel);
     if (owner) addRoleNotification('Owner', owner, 'Expense alert', `${data.category || 'Expense'} ${money(data.amount)} was saved for ${data.vessel}.`, 'warning', 'Expense', { route, vessel: data.vessel });
   }
+  if (route === 'invoices') {
+    addNotification('Invoice saved', `${data.invoiceNumber || 'Invoice'} for ${data.customerName || 'customer'} is ${data.paymentStatus}.`, 'success', { route, category: 'Invoice', invoiceId: savedId });
+  }
   if (route === 'incident-reports') {
     addRoleNotification('Operations', '', 'Incident alert', `${data.severity || 'Incident'} report saved for ${data.vessel || 'operations'}.`, data.severity === 'Critical' ? 'critical' : 'warning', 'Incident', { route, vessel: data.vessel });
     const owner = ownerForVesselName(data.vessel);
@@ -611,6 +650,8 @@ function deleteRecord(route, id) {
   if (route === 'crew') renderCrewDashboard();
   if (route === 'vessels') renderVesselReadinessPanel();
   renderTable(route);
+  if (route === 'invoices') renderInvoiceModule();
+  if (route === 'cruise-schedule') renderCruiseScheduleModule();
   toast(`${config.title.slice(0, -1)} deleted locally.`);
 }
 
@@ -876,6 +917,7 @@ function renderDispatchTripNode(trip) {
     ${renderDispatchLeaf('Captain', `${crewAvatar(trip.captain, 'Captain')}<span>${escapeHtml(trip.captain || 'Unassigned')}</span>`, assignment.captain, 'captain', trip.captain, assignmentColor(assignment.captain), true)}
     ${renderDispatchLeaf('Mate', `${crewAvatar(trip.mate, 'Mate')}<span>${escapeHtml(trip.mate && trip.mate !== 'None' ? trip.mate : 'Unassigned')}</span>`, assignment.mate, 'mate', trip.mate, assignmentColor(assignment.mate), true)}
     ${renderDispatchLeaf('Readiness', readiness, 'Open details', 'status', trip.id, readiness === 'Dispatch Ready' ? 'green' : readiness === 'Not Ready' ? 'red' : 'gold')}
+    ${tripReminderBadges(trip)}
     ${renderDispatchLeaf('Pre Trip Status', preStatus, 'Checklist', 'pre', trip.id, checklistColor(preStatus))}
     ${renderDispatchLeaf('Post Trip Status', postStatus, 'Checklist', 'post', trip.id, checklistColor(postStatus))}
     ${renderDispatchLeaf('Countdown', departureCountdown(trip), 'Departure timer', 'trip', trip.id, 'blue')}
@@ -1033,6 +1075,62 @@ function renderPayrollRow(entry) {
   return `<tr><td>${escapeHtml(formatDate(entry.trip.tripDate))}<br><small>${escapeHtml(formatTime(entry.trip.startTime))} · ${escapeHtml(entry.trip.customer || 'No customer')} · ${escapeHtml(entry.trip.vessel || 'No vessel')}</small></td><td>${escapeHtml(entry.person || 'Unassigned')}</td><td><span class="badge blue">${escapeHtml(entry.role)}</span></td><td>${money(entry.amountOwed)}<br><small>${escapeHtml(entry.rule || '')}</small></td><td>${money(entry.amountPaid)}${history}</td><td><strong>${money(entry.outstanding)}</strong></td><td><form class="inline-payment-form" onsubmit="savePayrollPayment(event, decodeURIComponent('${encodeURIComponent(entry.key)}'))"><input name="amountPaid" type="number" min="0" step="0.01" value="${entry.outstanding > 0 ? entry.outstanding.toFixed(2) : 0}"><input name="datePaid" type="date"><select name="paymentMethod"><option value="Cash">Cash</option><option value="Zelle">Zelle</option><option value="Check">Check</option><option value="ACH">ACH</option><option value="Other">Other</option></select><input name="paymentNotes" type="text" placeholder="Notes"><button class="btn btn-primary btn-small" type="submit">Save</button></form></td></tr>`;
 }
 
+function updateInvoiceBalanceDue(form) {
+  const tourPrice = Number(form.elements.tourPrice?.value || 0);
+  const depositPaid = Number(form.elements.depositPaid?.value || 0);
+  if (form.elements.balanceDue) form.elements.balanceDue.value = Math.max(tourPrice - depositPaid, 0).toFixed(2).replace(/\.00$/, '');
+}
+
+function renderInvoiceModule() {
+  const page = document.getElementById('page-invoices');
+  if (!page || page.querySelector('[data-invoice-module]')) return;
+  const table = page.querySelector('.table-card');
+  const invoices = store.invoices || [];
+  const cards = invoices.length ? invoices.map((invoice) => `<article class="invoice-card"><div class="card-header"><div><h3>${escapeHtml(invoice.customerName || 'Customer')}</h3><p>${escapeHtml(invoice.invoiceNumber || 'No invoice #')} · ${escapeHtml(formatDate(invoice.tripDate))}</p></div>${readinessBadge(invoice.paymentStatus || 'Deposit Due')}</div><div class="assignment-card-metrics"><div><span>Total Price</span><strong>${money(invoice.tourPrice)}</strong></div><div><span>Deposit</span><strong>${money(invoice.depositPaid)}</strong></div><div><span>Balance</span><strong>${money(invoice.balanceDue)}</strong></div><div><span>Payment Status</span><strong>${escapeHtml(invoice.paymentStatus || 'Deposit Due')}</strong></div></div><p class="muted-text">${escapeHtml(invoice.vessel || 'No vessel')} · ${escapeHtml(invoice.bookingSource || 'No source')}</p><div class="assignment-actions"><button class="btn btn-outline btn-small" onclick="showForm('invoices','${invoice.id}')">Edit Invoice</button><button class="btn btn-outline btn-small" onclick="markInvoiceDepositPaid('${invoice.id}')">Mark Deposit Paid</button><button class="btn btn-primary btn-small" onclick="markInvoicePaidInFull('${invoice.id}')">Mark Paid in Full</button><button class="btn btn-outline btn-small" onclick="generateReceiptSummary('${invoice.id}')">Generate Receipt Summary</button></div></article>`).join('') : '<p class="empty-state">No invoices yet. Use Create Invoice to add a native invoice.</p>';
+  const module = document.createElement('div');
+  module.className = 'card native-invoice-module';
+  module.dataset.invoiceModule = 'true';
+  module.innerHTML = `<div class="card-header"><div><h3>Native Invoice Module</h3><p class="muted-text">Create Invoice · Edit Invoice · Mark Deposit Paid · Mark Paid in Full · Generate Receipt Summary · Link Invoice to Trip · Link Invoice to Booking</p></div></div><div class="grid invoice-card-grid">${cards}</div><div class="card card-pad" data-receipt-summary><strong>Receipt summary output</strong><p class="muted-text">Choose Generate Receipt Summary on an invoice to review a customer receipt before sending externally.</p></div>`;
+  table.before(module);
+}
+
+function findInvoice(id) { return (store.invoices || []).find((invoice) => invoice.id === id); }
+function markInvoiceDepositPaid(id) {
+  const invoice = findInvoice(id); if (!invoice) return;
+  invoice.paymentStatus = 'Deposit Paid';
+  invoice.balanceDue = Math.max(Number(invoice.tourPrice || 0) - Number(invoice.depositPaid || 0), 0);
+  addAudit('updated', 'Invoices', `Marked deposit paid for ${invoice.customerName || invoice.invoiceNumber}.`, { invoiceId: id });
+  saveStore(); renderCrud('invoices'); toast('Deposit marked paid.');
+}
+function markInvoicePaidInFull(id) {
+  const invoice = findInvoice(id); if (!invoice) return;
+  invoice.paymentStatus = 'Paid in Full'; invoice.depositPaid = Number(invoice.tourPrice || invoice.depositPaid || 0); invoice.balanceDue = 0;
+  addAudit('updated', 'Invoices', `Marked paid in full for ${invoice.customerName || invoice.invoiceNumber}.`, { invoiceId: id });
+  saveStore(); renderCrud('invoices'); toast('Invoice marked paid in full.');
+}
+function generateReceiptSummary(id) {
+  const invoice = findInvoice(id); if (!invoice) return;
+  const target = document.querySelector('[data-receipt-summary]');
+  if (target) target.innerHTML = `<strong>Receipt Summary</strong><p>${escapeHtml(invoice.invoiceNumber || 'Invoice')} · ${escapeHtml(invoice.customerName || 'Customer')} · ${escapeHtml(formatDate(invoice.tripDate))}</p><p>Total ${money(invoice.tourPrice)} · Deposit ${money(invoice.depositPaid)} · Balance ${money(invoice.balanceDue)} · ${escapeHtml(invoice.paymentStatus || 'Deposit Due')}</p>`;
+  addAudit('generated', 'Invoices', `Generated receipt summary for ${invoice.customerName || invoice.invoiceNumber}.`, { invoiceId: id });
+  saveStore(); toast('Receipt summary generated for review.');
+}
+
+function renderCruiseScheduleModule() {
+  const page = document.getElementById('page-cruise-schedule');
+  if (!page || page.querySelector('[data-cruise-module]')) return;
+  const table = page.querySelector('.table-card');
+  const today = new Date().toISOString().slice(0, 10);
+  const entries = store.cruiseSchedule || [];
+  const todayShips = entries.filter((entry) => entry.arrivalDate === today);
+  const upcoming = entries.filter((entry) => String(entry.arrivalDate || '') >= today).sort((a, b) => String(a.arrivalDate + a.arrivalTime).localeCompare(String(b.arrivalDate + b.arrivalTime))).slice(0, 8);
+  const panel = document.createElement('div');
+  panel.className = 'grid cruise-dashboard-grid';
+  panel.dataset.cruiseModule = 'true';
+  panel.innerHTML = `<div class="card card-pad"><h3>Ships in Port Today</h3>${todayShips.length ? todayShips.map((entry) => `<div class="stat-row"><span>${escapeHtml(entry.arrivalTime || 'No arrival')}–${escapeHtml(entry.departureTime || 'No departure')}</span><strong>${escapeHtml(entry.shipName)}<br><small>${escapeHtml(entry.terminalDock || 'No dock')}</small></strong></div>`).join('') : '<p class="empty-state">No ships in port today.</p>'}</div><div class="card card-pad"><h3>Upcoming Ships</h3>${upcoming.length ? upcoming.map((entry) => `<div class="stat-row"><span>${escapeHtml(formatDate(entry.arrivalDate))}</span><strong>${escapeHtml(entry.shipName)}<br><small>${escapeHtml(entry.cruiseLine || 'Cruise line')} · ${Number(entry.passengerCapacity || 0).toLocaleString()} pax</small></strong></div>`).join('') : '<p class="empty-state">No upcoming cruise entries.</p>'}</div>`;
+  table.before(panel);
+}
+
 function renderCrewDashboard() {
   const page = document.getElementById('page-crew');
   const form = page.querySelector('.record-form');
@@ -1108,6 +1206,7 @@ function processVoiceCommandTranscript(transcript) {
       return updateVoiceCommand({ state: 'ERROR', message: 'Field not found.', suggestions: voiceFieldExamples() });
     }
     voiceCommand.field = field;
+    highlightVoiceField(field.element);
     updateVoiceCommand({ state: 'FIELD_SELECTED', message: `${field.label} selected. Now say the value.` });
     window.setTimeout?.(() => {
       updateVoiceCommand({ state: 'LISTENING_FOR_VALUE', message: `Listening for value for ${field.label}.` });
@@ -1127,7 +1226,7 @@ function fillVoiceFieldValue(value) {
   if (field.key === 'phone') normalized = normalizePhoneNumber(value);
   else if (['passengers', 'guests', 'guestCount'].includes(field.key)) normalized = spokenNumberToNumber(value) ?? (value.replace(/[^0-9]/g, '') || value);
   else if (['depositPaid', 'balanceDue', 'balance', 'tourPrice', 'amount'].includes(field.key)) normalized = spokenNumberToNumber(value) ?? (value.replace(/[^0-9.]/g, '') || value);
-  else if (['startTime', 'time'].includes(field.key)) normalized = normalizeTimeInput(value);
+  else if (['startTime', 'time', 'arrivalTime', 'departureTime', 'returnTime'].includes(field.key)) normalized = normalizeTimeInput(value);
 
   if (field.element.tagName === 'SELECT') {
     const matched = setSelectLikeValue(field.element, normalized);
@@ -1141,11 +1240,17 @@ function fillVoiceFieldValue(value) {
   }
   field.element.dispatchEvent(new Event('change', { bubbles: true }));
   field.element.dispatchEvent(new Event('input', { bubbles: true }));
+  highlightVoiceField(field.element);
   if (currentRoute === 'trips' && voiceCommand.form?.elements) { updateBalanceDue(voiceCommand.form); updateTripConflictPreview(voiceCommand.form); }
+  if (currentRoute === 'invoices' && voiceCommand.form?.elements) updateInvoiceBalanceDue(voiceCommand.form);
   voiceCommand.lastValue = normalized;
-  addAudit('voice-fill', currentRoute, `Command Voice Fill set ${field.label}.`, { field: field.key });
-  saveStore();
-  updateVoiceCommand({ state: 'VALUE_FILLED', message: `${field.label} filled: ${normalized}` });
+  updateVoiceCommand({ state: 'VALUE_FILLED', message: `Filled ${field.label}: ${normalized}` });
+}
+
+function highlightVoiceField(element) {
+  document.querySelectorAll('.voice-selected-field').forEach((item) => item.classList.remove('voice-selected-field'));
+  element?.classList?.add('voice-selected-field');
+  element?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
 }
 
 function handleVoiceAction(action) {
@@ -1333,19 +1438,30 @@ function similarityScore(a, b) {
 }
 
 const voiceFieldAliases = [
-  { key: 'customer', label: 'Customer Name', aliases: ['customer', 'customer name', 'guest name', 'client name', 'booking name'] },
+  { key: 'customer', fallbackKeys: ['customerName'], label: 'Customer Name', aliases: ['customer', 'customer name', 'guest name', 'client name', 'booking name'] },
   { key: 'phone', label: 'Phone Number', aliases: ['phone', 'phone number', 'telephone', 'cell', 'cell number', 'contact number'] },
   { key: 'email', label: 'Email', aliases: ['email', 'email address'] },
-  { key: 'passengers', fallbackKeys: ['guests'], label: 'Guest Count', aliases: ['guests', 'guest count', 'party size', 'passengers'] },
-  { key: 'captain', label: 'Captain', aliases: ['captain', 'assigned captain', 'boat captain'] },
-  { key: 'mate', label: 'Mate', aliases: ['mate', 'crew mate', 'assigned mate'] },
+  { key: 'passengers', fallbackKeys: ['guests', 'guestCount', 'passengerCapacity'], label: 'Guest Count', aliases: ['guests', 'guest count', 'party size', 'passengers', 'passenger capacity'] },
+  { key: 'tourType', fallbackKeys: ['product'], label: 'Tour Type', aliases: ['tour type', 'tour package', 'package', 'trip type'] },
+  { key: 'tripDate', fallbackKeys: ['date', 'arrivalDate'], label: 'Trip Date', aliases: ['trip date', 'date', 'arrival date'] },
+  { key: 'startTime', fallbackKeys: ['time', 'arrivalTime'], label: 'Start Time', aliases: ['start time', 'departure time', 'trip time', 'pickup time', 'arrival time'] },
+  { key: 'departureTime', fallbackKeys: ['returnTime'], label: 'Departure Time', aliases: ['departure time', 'return time'] },
   { key: 'vessel', label: 'Vessel', aliases: ['vessel', 'boat', 'assigned boat'] },
   { key: 'owner', label: 'Owner', aliases: ['owner', 'boat owner', 'vessel owner'] },
-  { key: 'tourType', fallbackKeys: ['product'], label: 'Tour Type', aliases: ['tour type', 'tour package', 'package', 'trip type'] },
-  { key: 'startTime', fallbackKeys: ['time'], label: 'Departure Time', aliases: ['departure time', 'trip time', 'start time', 'pickup time'] },
+  { key: 'captain', label: 'Captain', aliases: ['captain', 'assigned captain', 'boat captain'] },
+  { key: 'mate', label: 'Mate', aliases: ['mate', 'crew mate', 'assigned mate'] },
+  { key: 'tourPrice', fallbackKeys: ['price'], label: 'Price', aliases: ['price', 'tour price', 'total price'] },
   { key: 'depositPaid', label: 'Deposit', aliases: ['deposit', 'deposit paid'] },
   { key: 'balanceDue', fallbackKeys: ['balance'], label: 'Balance', aliases: ['balance', 'balance due'] },
-  { key: 'notes', fallbackKeys: ['description', 'actionsTaken', 'paymentNotes'], label: 'Notes', aliases: ['notes', 'trip notes', 'special notes', 'customer notes'] }
+  { key: 'paymentStatus', label: 'Payment Status', aliases: ['payment status', 'invoice status'] },
+  { key: 'paymentMethod', label: 'Payment Method', aliases: ['payment method', 'pay method'] },
+  { key: 'notes', fallbackKeys: ['description', 'actionsTaken', 'paymentNotes', 'customerFeedbackNotes'], label: 'Notes', aliases: ['notes', 'trip notes', 'special notes', 'customer notes', 'checklist notes'] },
+  { key: 'amount', label: 'Expense Amount', aliases: ['expense amount', 'amount', 'cost'] },
+  { key: 'notes', fallbackKeys: ['description'], label: 'Expense Description', aliases: ['expense description', 'description'] },
+  { key: 'severity', label: 'Incident Severity', aliases: ['incident severity', 'severity'] },
+  { key: 'description', label: 'Incident Description', aliases: ['incident description'] },
+  { key: 'captainSignature', label: 'Captain Signature', aliases: ['captain signature', 'captain signature name'] },
+  { key: 'mateSignature', label: 'Mate Signature', aliases: ['mate signature', 'mate signature name'] }
 ];
 
 function matchVoiceField(transcript, form) {
@@ -1361,7 +1477,7 @@ function matchVoiceField(transcript, form) {
 }
 
 function voiceFieldExamples() {
-  return ['Customer Name', 'Phone Number', 'Captain', 'Mate', 'Vessel', 'Deposit', 'Balance', 'Notes'];
+  return ['Customer Name', 'Phone Number', 'Email', 'Guest Count', 'Tour Type', 'Trip Date', 'Start Time', 'Departure Time', 'Vessel', 'Owner', 'Captain', 'Mate', 'Price', 'Deposit', 'Balance', 'Payment Status', 'Payment Method', 'Notes', 'Expense Amount', 'Incident Severity', 'Captain Signature', 'Mate Signature'];
 }
 
 function renderVoiceCommandPanel(route) {
@@ -1467,30 +1583,96 @@ function renderAuditTrail() {
 }
 
 
+
+const preTripChecklistItems = [
+  ['fuelLevelConfirmed','Fuel Level Confirmed','checkbox'], ['engineCheckComplete','Engine Check Complete','checkbox'], ['batteryPowerCheckComplete','Battery / Power Check Complete','checkbox'], ['bilgePumpChecked','Bilge Pump Checked','checkbox'], ['radioCommunicationChecked','Radio / Communication Checked','checkbox'], ['gpsNavigationChecked','GPS / Navigation Checked','checkbox'], ['lifeJacketsConfirmed','Life Jackets Confirmed','checkbox'], ['fireExtinguisherConfirmed','Fire Extinguisher Confirmed','checkbox'], ['firstAidKitConfirmed','First Aid Kit Confirmed','checkbox'], ['snorkelGearConfirmed','Snorkel Gear Confirmed','checkbox'], ['coolerDrinksLoaded','Cooler / Drinks Loaded','checkbox'], ['iceLoaded','Ice Loaded','checkbox'], ['rumPunchBeveragesLoaded','Rum Punch / Beverages Loaded','checkbox'], ['trashBagsCleaningSuppliesLoaded','Trash Bags / Cleaning Supplies Loaded','checkbox'], ['weatherReviewed','Weather Reviewed','checkbox'], ['passengerCountConfirmed','Passenger Count Confirmed','checkbox'], ['vesselClean','Vessel Clean','checkbox'], ['captainSignature','Captain Signature / Name','text'], ['mateSignature','Mate Signature / Name','text'], ['notes','Notes','textarea']
+];
+const postTripChecklistItems = [
+  ['guestsReturnedSafely','Guests Returned Safely','checkbox'], ['vesselCleaned','Vessel Cleaned','checkbox'], ['trashRemoved','Trash Removed','checkbox'], ['coolersRemovedCleaned','Coolers Removed / Cleaned','checkbox'], ['remainingInventoryNoted','Remaining Inventory Noted','checkbox'], ['fuelLevelNoted','Fuel Level Noted','checkbox'], ['engineIssuesNoted','Engine Issues Noted','checkbox'], ['damageChecked','Damage Checked','checkbox'], ['lostItemsChecked','Lost Items Checked','checkbox'], ['snorkelGearCounted','Snorkel Gear Counted','checkbox'], ['lifeJacketsCounted','Life Jackets Counted','checkbox'], ['incidentReportNeeded','Incident Report Needed','checkbox'], ['customerFeedbackNotes','Customer Feedback Notes','textarea'], ['captainSignature','Captain Signature / Name','text'], ['mateSignature','Mate Signature / Name','text'], ['notes','Notes','textarea']
+];
+
 function renderChecklistPage(type) {
   const route = type === 'Pre Trip' ? 'pre-trip-checklist' : 'post-trip-checklist';
   const page = document.getElementById(`page-${route}`);
-  const relatedLegacy = type === 'Pre Trip' ? 'RAT-PreTrip-VesselCheck.html' : 'RAT-PostTrip-VesselCheck.html';
   const records = (store.checklistRecords || []).filter((record) => record.type === type).sort((a, b) => String(b.submittedAt || '').localeCompare(String(a.submittedAt || '')));
-  page.innerHTML = `<div class="page-stack"><div class="section-heading"><div><p class="eyebrow">Checklist integration</p><h1>${type} Checklist</h1><p class="section-summary">Track checklist status inside dispatch readiness while preserving the original legacy checklist tool.</p></div><button class="btn btn-primary" data-route="legacy" data-embed-legacy="${relatedLegacy}">Open legacy ${type.toLowerCase()} tool</button></div><form class="record-form card" onsubmit="saveChecklistRecord(event,'${type}')"><div class="form-grid"><div class="field"><label>Related trip</label><select name="tripId">${getOptions('trips').map((opt) => `<option value="${escapeHtml(opt.split('|')[0])}">${escapeHtml(opt.split('|').slice(1).join('|'))}</option>`).join('')}</select></div><div class="field"><label>Vessel</label><select name="vessel"><option value="">— Select —</option>${getOptions('vessels').map((vessel) => `<option value="${escapeHtml(vessel)}">${escapeHtml(vessel)}</option>`).join('')}</select></div><div class="field"><label>Submitted by</label><select name="submittedBy">${getOptions('crew').map((crew) => `<option value="${escapeHtml(crew)}">${escapeHtml(crew)}</option>`).join('')}</select></div><div class="field"><label>Status</label><select name="status"><option>Not Started</option><option>In Progress</option><option>Completed</option><option>Needs Review</option></select></div><div class="field"><label>Photo notes</label><textarea name="photos"></textarea></div><div class="field"><label>Notes</label><textarea name="notes"></textarea></div></div><div class="form-actions"><button class="btn btn-primary" type="submit">Save ${type} Status</button>${voiceFillButton(route)}</div></form><div class="card table-card"><div class="card-header"><h3>${type} records</h3></div><div class="responsive-table-wrap"><table><thead><tr><th>Submitted</th><th>Trip</th><th>Vessel</th><th>By</th><th>Status</th><th>Notes</th></tr></thead><tbody>${records.length ? records.map((record) => `<tr><td>${escapeHtml(new Date(record.submittedAt).toLocaleString())}</td><td>${escapeHtml(record.tripLabel || record.tripId)}</td><td>${escapeHtml(record.vessel)}</td><td>${escapeHtml(record.submittedBy)}</td><td>${readinessBadge(record.status)}</td><td>${escapeHtml(record.notes || '—')}</td></tr>`).join('') : '<tr><td colspan="6" class="empty-state">No checklist records yet.</td></tr>'}</tbody></table></div></div></div>`;
+  const isPre = type === 'Pre Trip';
+  const items = isPre ? preTripChecklistItems : postTripChecklistItems;
+  const timeLabel = isPre ? 'Start Time' : 'Return Time';
+  const timeName = isPre ? 'startTime' : 'returnTime';
+  page.innerHTML = `<div class="page-stack"><div class="section-heading"><div><p class="eyebrow">Native checklist workflow</p><h1>${type} Checklist</h1><p class="section-summary">Complete ${type.toLowerCase()} safety, vessel, crew, and dispatch readiness checks directly in the main app.</p></div></div><form class="record-form card" onsubmit="saveChecklistRecord(event,'${type}')"><div class="form-grid"><div class="field"><label>Trip</label><select name="tripId" onchange="populateChecklistTripDetails(this.form)"><option value="">— Select Trip —</option>${getOptions('trips').map((opt) => `<option value="${escapeHtml(opt.split('|')[0])}">${escapeHtml(opt.split('|').slice(1).join('|'))}</option>`).join('')}</select></div><div class="field"><label>Vessel</label><select name="vessel"><option value="">— Select —</option>${getOptions('vessels').map((vessel) => `<option value="${escapeHtml(vessel)}">${escapeHtml(vessel)}</option>`).join('')}</select></div><div class="field"><label>Captain</label><select name="captain"><option value="">— Select —</option>${getOptions('crew').map((crew) => `<option value="${escapeHtml(crew)}">${escapeHtml(crew)}</option>`).join('')}</select></div><div class="field"><label>Mate</label><select name="mate"><option value="">— Select —</option>${getOptions('crew').map((crew) => `<option value="${escapeHtml(crew)}">${escapeHtml(crew)}</option>`).join('')}</select></div><div class="field"><label>Date</label><input name="date" type="date"></div><div class="field"><label>${timeLabel}</label><input name="${timeName}" type="time"></div><div class="field"><label>Status</label><select name="status"><option>Draft</option><option>Submitted</option><option>Needs Review</option></select></div></div><div class="checklist-grid">${items.map(([key, label, inputType]) => renderChecklistInput(key, label, inputType)).join('')}</div><div class="form-actions"><button class="btn btn-outline" type="submit" name="action" value="draft">Save Draft</button><button class="btn btn-primary" type="submit" name="action" value="submit">Submit ${type} Checklist</button><button class="btn btn-outline" type="submit" name="action" value="review">Mark Needs Review</button></div></form><div class="card table-card"><div class="card-header"><h3>${type} records</h3></div><div class="responsive-table-wrap"><table><thead><tr><th>Submitted</th><th>Trip</th><th>Vessel</th><th>Captain</th><th>Mate</th><th>Status</th><th>Notes</th></tr></thead><tbody>${records.length ? records.map((record) => `<tr><td>${escapeHtml(new Date(record.submittedAt).toLocaleString())}</td><td>${escapeHtml(record.tripLabel || record.tripId)}</td><td>${escapeHtml(record.vessel)}</td><td>${escapeHtml(record.captain)}</td><td>${escapeHtml(record.mate)}</td><td>${readinessBadge(record.status)}</td><td>${escapeHtml(record.notes || record.customerFeedbackNotes || '—')}</td></tr>`).join('') : '<tr><td colspan="7" class="empty-state">No checklist records yet.</td></tr>'}</tbody></table></div></div></div>`;
+}
+
+function renderChecklistInput(key, label, inputType) {
+  if (inputType === 'checkbox') return `<label class="checklist-item"><input type="checkbox" name="${key}" value="Yes"><span>${escapeHtml(label)}</span></label>`;
+  if (inputType === 'textarea') return `<div class="field checklist-field"><label>${escapeHtml(label)}</label><textarea name="${key}"></textarea></div>`;
+  return `<div class="field checklist-field"><label>${escapeHtml(label)}</label><input name="${key}" type="text"></div>`;
+}
+
+function populateChecklistTripDetails(form) {
+  const trip = store.trips.find((item) => item.id === form.elements.tripId?.value);
+  if (!trip) return;
+  setFormValue(form, 'vessel', trip.vessel || '');
+  setFormValue(form, 'captain', trip.captain || '');
+  setFormValue(form, 'mate', trip.mate || '');
+  setFormValue(form, 'date', trip.tripDate || '');
+  setFormValue(form, 'startTime', trip.startTime || '');
 }
 
 function saveChecklistRecord(event, type) {
   event.preventDefault();
+  const submitterAction = event.submitter?.value || 'draft';
   const data = Object.fromEntries(new FormData(event.currentTarget).entries());
+  data.status = submitterAction === 'submit' ? 'Submitted' : submitterAction === 'review' ? 'Needs Review' : 'Draft';
   const trip = store.trips.find((item) => item.id === data.tripId);
   const record = { id: makeId('checklist'), type, ...data, tripLabel: trip ? `${formatDate(trip.tripDate)} ${trip.customer || ''}` : '', submittedAt: new Date().toISOString() };
   store.checklistRecords.push(record);
   if (trip) {
-    if (type === 'Pre Trip') trip.preTripChecklistStatus = data.status;
-    else trip.postTripChecklistStatus = data.status;
+    if (type === 'Pre Trip') trip.preTripChecklistStatus = data.status === 'Submitted' ? 'Completed' : data.status;
+    else trip.postTripChecklistStatus = data.status === 'Submitted' ? 'Completed' : data.status;
+    if (type === 'Post Trip' && data.status === 'Submitted' && ['Completed', 'Accepted'].includes(trip.assignmentStatus?.captain) && ['Completed', 'Accepted'].includes(trip.assignmentStatus?.mate)) trip.status = 'Completed';
     trip.dispatchReadinessStatus = calculateDispatchReadiness(trip);
+    if (type === 'Post Trip' && data.status === 'Submitted') trip.payrollReady = true;
   }
-  addAudit('created', `${type} Checklist`, `${type} status ${data.status} saved for ${data.vessel || 'trip'}.`, { tripId: data.tripId });
-  addRoleNotification('Operations', '', `${type} checklist ${data.status}`, `${data.vessel || 'A vessel'} checklist is ${data.status}.`, data.status === 'Needs Review' ? 'warning' : 'success', 'Checklist', { tripId: data.tripId, vessel: data.vessel });
+  const completeLabel = data.status === 'Submitted' ? 'Complete' : data.status;
+  addAudit(data.status === 'Draft' ? 'drafted' : data.status === 'Needs Review' ? 'review' : 'submitted', `${type} Checklist`, `${type} checklist ${completeLabel} for ${data.vessel || 'trip'}.`, { tripId: data.tripId });
+  addRoleNotification('Operations', '', `${type} checklist ${completeLabel}`, `${data.vessel || 'A vessel'} checklist is ${completeLabel}.`, data.status === 'Needs Review' ? 'warning' : 'success', 'Checklist', { tripId: data.tripId, vessel: data.vessel });
   saveStore();
   renderChecklistPage(type);
-  toast(`${type} checklist saved.`);
+  toast(`${type} checklist ${completeLabel}.`);
+}
+
+function tripDateTime(trip) {
+  if (!trip.tripDate || !trip.startTime) return null;
+  const date = new Date(`${trip.tripDate}T${trip.startTime}`);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+function postTripReminderTime(trip) {
+  const start = tripDateTime(trip);
+  if (!start) return null;
+  return new Date(start.getTime() + Math.max(Number(trip.hours || 4) * 60 - 30, 0) * 60000);
+}
+function reminderExists(key) {
+  return (store.notifications || []).some((notice) => notice.metadata?.reminderKey === key);
+}
+function generateChecklistReminders(now = new Date()) {
+  (store.trips || []).filter((trip) => trip.status !== 'Cancelled').forEach((trip) => {
+    const crew = crewAssignmentsForTrip(trip);
+    const start = tripDateTime(trip);
+    if (start && now <= start && latestChecklistStatus(trip, 'Pre Trip') !== 'Completed') {
+      crew.forEach(({ role, name }) => {
+        const key = `pre-${trip.id}-${role}-${name}`;
+        if (!reminderExists(key)) addRoleNotification(role, name, 'Pre Trip Checklist due', `Pre Trip Checklist due for ${trip.customer || 'customer'} on ${trip.vessel || 'assigned vessel'}.`, 'warning', 'Checklist', { tripId: trip.id, reminderKey: key, reminderType: 'pre-trip', displayTargets: ['Notifications', 'Captain Dashboard', 'Mate Dashboard', 'Trip card', 'Dispatch Tree node'] });
+      });
+    }
+    const postReminderAt = postTripReminderTime(trip);
+    if (postReminderAt && now >= postReminderAt && latestChecklistStatus(trip, 'Post Trip') !== 'Completed') {
+      crew.forEach(({ role, name }) => {
+        const key = `post-${trip.id}-${role}-${name}`;
+        if (!reminderExists(key)) addRoleNotification(role, name, 'Post Trip Checklist due soon', `Post Trip Checklist due soon for ${trip.customer || 'customer'} on ${trip.vessel || 'assigned vessel'}.`, 'warning', 'Checklist', { tripId: trip.id, reminderKey: key, reminderType: 'post-trip-30-minute', reminderAt: postReminderAt.toISOString(), displayTargets: ['Notifications', 'Captain Dashboard', 'Mate Dashboard', 'Trip card', 'Dispatch Tree node'] });
+      });
+    }
+  });
+  saveStore();
 }
 
 function renderVesselReadinessPanel() {
@@ -1526,26 +1708,35 @@ function renderOwnerDashboard() {
   page.innerHTML = `<div class="page-stack"><div class="section-heading"><div><p class="eyebrow">Phase 4B owner operations</p><h1>Owner Dashboard</h1><p class="section-summary">Assignment, completion, expense, incident, and payroll alert view for vessel owners.</p></div><select data-owner-select onchange="renderOwnerDashboard()">${getOptions('owners').map((owner) => `<option value="${escapeHtml(owner)}" ${owner === selected ? 'selected' : ''}>${escapeHtml(owner)}</option>`).join('')}</select></div><div class="grid kpi-grid dashboard-kpis">${kpi('Owned vessels', ownerVessels.length, ownerVessels.join(', ') || 'None')}${kpi('Assigned trips', trips.length, 'Active owner vessels')}${kpi('Unread alerts', notices.filter((notice) => !notice.read).length, 'Owner related')}${kpi('Outstanding payroll', money(ownerPayroll.reduce((sum, entry) => sum + entry.outstanding, 0)), 'Owner payouts')}</div><div class="grid dashboard-grid"><div class="card"><div class="card-header"><h3>Assignment alerts</h3></div><div class="stat-list">${trips.length ? trips.map((trip) => `<div class="stat-row"><span>${escapeHtml(formatDate(trip.tripDate))} · ${escapeHtml(trip.vessel)}</span><strong>${escapeHtml(trip.customer || 'Trip')}<br><small>Captain ${escapeHtml(trip.captain || '—')} · Mate ${escapeHtml(trip.mate || '—')}</small></strong></div>`).join('') : '<p class="empty-state">No owner vessel assignments.</p>'}</div></div><div class="card"><div class="card-header"><h3>Owner alerts</h3></div><div class="notice-list card-pad">${notices.length ? notices.slice(0, 8).map((notice) => `<div class="notice-item ${notice.read ? '' : 'unread'}"><span class="badge gold">${escapeHtml(notice.category)}</span><div><strong>${escapeHtml(notice.title)}</strong><p>${escapeHtml(notice.message)}</p></div></div>`).join('') : '<p class="empty-state">No owner alerts.</p>'}</div></div></div></div>`;
 }
 
-function renderLegacy() {
-  document.getElementById('page-legacy').innerHTML = `<div class="page-stack"><div class="section-heading"><div><p class="eyebrow">Preserved HTML tools</p><h1>Legacy tools</h1><p class="section-summary">These tools are intentionally linked and embeddable during Phase 2. They have not been rewritten or removed.</p></div></div><div class="grid">${legacyTools.map((tool) => `<div class="legacy-tool"><h3>${tool.title}</h3><p>${tool.desc}</p><div class="legacy-actions"><a class="btn btn-outline" href="${tool.file}" target="_blank" rel="noopener">Open in new tab</a><button class="btn btn-primary" data-embed-legacy="${tool.file}">Embed in shell</button></div></div>`).join('')}</div><div id="legacyEmbedTarget"></div></div>`;
+function renderReports() {
+  const trips = store.trips || [];
+  const invoices = store.invoices || [];
+  const expenses = store.expenses || [];
+  const payroll = payrollEntries();
+  const revenue = trips.reduce((sum, trip) => sum + Number(trip.tourPrice || 0), 0) + invoices.reduce((sum, invoice) => sum + Number(invoice.tourPrice || 0), 0);
+  const outstandingBalances = trips.reduce((sum, trip) => sum + Number(trip.balanceDue || 0), 0) + invoices.reduce((sum, invoice) => sum + Number(invoice.balanceDue || 0), 0);
+  const payrollOwed = payroll.reduce((sum, entry) => sum + entry.outstanding, 0);
+  const expenseTotal = expenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
+  const readyTrips = trips.filter((trip) => ['Dispatch Ready', 'Completed'].includes(calculateDispatchReadiness(trip))).length;
+  const notReadyTrips = trips.filter((trip) => calculateDispatchReadiness(trip) === 'Not Ready').length;
+  const by = (key) => Object.entries(trips.reduce((acc, trip) => { const label = trip[key] || 'Unassigned'; acc[label] = (acc[label] || 0) + 1; return acc; }, {})).sort((a, b) => b[1] - a[1]);
+  const listRows = (items) => items.length ? items.map(([label, count]) => `<div class="stat-row"><span>${escapeHtml(label)}</span><strong>${count}</strong></div>`).join('') : '<p class="empty-state">No trip data yet.</p>';
+  document.getElementById('page-reports').innerHTML = `<div class="page-stack"><div class="section-heading"><div><p class="eyebrow">Native reports dashboard</p><h1>Reports</h1><p class="section-summary">Revenue, balances, payroll, expenses, trip readiness, and operational summaries generated from current local app data.</p></div></div><div class="grid kpi-grid">${kpi('Revenue Summary', money(revenue), 'Trips + invoices')}${kpi('Outstanding Balances', money(outstandingBalances), 'Unpaid customer balances')}${kpi('Payroll Owed', money(payrollOwed), 'Outstanding crew/owner pay')}${kpi('Expenses', money(expenseTotal), 'Local expense records')}${kpi('Trip Count', trips.length, 'All local trips')}${kpi('Ready vs Not Ready Trips', `${readyTrips} / ${notReadyTrips}`, 'Dispatch readiness')}</div><div class="grid dashboard-grid"><div class="card card-pad"><h3>Trips by Vessel</h3>${listRows(by('vessel'))}</div><div class="card card-pad"><h3>Trips by Captain</h3>${listRows(by('captain'))}</div><div class="card card-pad"><h3>Trips by Booking Source</h3>${listRows(by('bookingSource'))}</div><div class="card card-pad"><h3>Trip Status</h3><div class="stat-row"><span>Completed Trips</span><strong>${trips.filter((trip) => trip.status === 'Completed').length}</strong></div><div class="stat-row"><span>Cancelled Trips</span><strong>${trips.filter((trip) => trip.status === 'Cancelled').length}</strong></div><div class="stat-row"><span>Ready Trips</span><strong>${readyTrips}</strong></div><div class="stat-row"><span>Not Ready Trips</span><strong>${notReadyTrips}</strong></div></div></div></div>`;
 }
-function embedLegacy(file) {
-  renderRoute('legacy');
-  document.getElementById('legacyEmbedTarget').innerHTML = `<iframe class="legacy-frame" src="${file}" title="Embedded legacy tool: ${file}"></iframe>`;
-  document.getElementById('legacyEmbedTarget').scrollIntoView({ behavior: 'smooth' });
-}
+
+function renderLegacy() { renderRoute('settings'); }
+
+function embedLegacy() { renderRoute('settings'); }
 
 function renderPlaceholder(route) {
   const label = (navItems.find(([key]) => key === route) || [,'',route])[2];
   const map = {
-    invoices: ['Invoice list and customer balance workflow placeholder.', 'Create and track invoices natively from the main app; archived legacy tools are reference-only in Settings.'],
     payroll: ['Payroll summaries will later connect to trips, roles, owner payouts, and rates.', 'Gmail automation is not implemented.'],
-    expenses: ['Expense capture placeholder for ice, reimbursements, and operating costs.', 'Expense capture, approvals, alerts, and reporting are handled in this native tab.'],
+    expenses: ['Expense capture, approvals, alerts, and reporting are handled in this native tab.'],
     inventory: ['Inventory placeholder for supplies, parts, and vessel consumables.'],
     'pre-trip-checklist': ['Native pre-trip checklist records are available here for daily dispatch readiness.'],
     'post-trip-checklist': ['Native post-trip checklist records are available here for completion and archive workflows.'],
-    'cruise-schedule': ['Cruise schedule operations are available here using trip data from the native app.'],
-    reports: ['Reports placeholder with demo data totals from local storage.'],
+    reports: ['Reports use current local app data for revenue, balances, payroll, expenses, and trip readiness.'],
     settings: ['Local storage tools, seed data summaries, and phase guardrails.']
   };
   const lines = map[route] || ['Phase 2 placeholder.'];
@@ -1557,7 +1748,7 @@ function legacyShortcut(route) {
 }
 
 function settingsMarkup() {
-  return `<div class="grid settings-grid" style="margin-top:18px"><div class="legacy-tool"><h3>Seed data</h3><p>${store.vessels.length} vessels, ${store.crew.length} crew members, ${store.roles.length} roles, ${store.bookingSources.length} booking sources, ${store.standardPayoutRates.length} standard crew payout rates, and ${store.vesselOwnerPayoutRates.length} documented owner payout rules loaded.</p></div><div class="legacy-tool"><h3>Local data layer</h3><p>Storage key: ${STORE_KEY}. Last updated: ${new Date(store.updatedAt).toLocaleString()}.</p><div class="legacy-actions"><button class="btn btn-outline" data-export-store>Export JSON</button><label class="btn btn-outline" for="importStoreFile">Import JSON<input id="importStoreFile" data-import-store type="file" accept="application/json" hidden></label><button class="btn btn-danger" data-reset-store>Reset seed data</button></div></div><div class="legacy-tool"><h3>Preserved Phase 4 safeguards</h3><p>Dispatch board, true tree view, assignment lifecycle, crew dashboards, checklist readiness, vessel readiness, passenger manifests, payroll, audit trail, notifications, command voice fill, export/import, and the static validator are all active.</p></div><div class="legacy-tool archived-legacy-tools"><h3>Archived Legacy Tools</h3><p><strong>These tools are retained for reference only.</strong> Active operations should be managed through the primary application tabs.</p><div class="legacy-list">${legacyTools.map((tool) => `<div class="legacy-tool"><h3>${tool.title}</h3><p>${tool.desc}</p><div class="legacy-actions"><a class="btn btn-outline btn-small" href="${tool.file}" target="_blank" rel="noopener">Open reference</a></div></div>`).join('')}</div></div></div>`;
+  return `<div class="grid settings-grid" style="margin-top:18px"><div class="legacy-tool"><h3>Seed data</h3><p>${store.vessels.length} vessels, ${store.crew.length} crew members, ${store.roles.length} roles, ${store.bookingSources.length} booking sources, ${store.standardPayoutRates.length} standard crew payout rates, and ${store.vesselOwnerPayoutRates.length} documented owner payout rules loaded.</p></div><div class="legacy-tool"><h3>Local data layer</h3><p>Storage key: ${STORE_KEY}. Last updated: ${new Date(store.updatedAt).toLocaleString()}.</p><div class="legacy-actions"><button class="btn btn-outline" data-export-store>Export JSON</button><label class="btn btn-outline" for="importStoreFile">Import JSON<input id="importStoreFile" data-import-store type="file" accept="application/json" hidden></label><button class="btn btn-danger" data-reset-store>Reset seed data</button></div></div><div class="legacy-tool"><h3>Preserved Phase 4 safeguards</h3><p>Dispatch board, true tree view, assignment lifecycle, crew dashboards, checklist readiness, vessel readiness, passenger manifests, payroll, audit trail, notifications, command voice fill, export/import, and the static validator are all active.</p></div><div class="legacy-tool archived-legacy-tools"><h3>Archived Legacy Tools</h3><p>Legacy tools are retained for reference only. Active operations should be completed through the main application tabs.</p><div class="legacy-list">${legacyTools.map((tool) => `<div class="legacy-tool"><h3>${tool.title}</h3><p>${tool.desc}</p><div class="legacy-actions"><a class="btn btn-outline btn-small" href="${tool.file}" target="_blank" rel="noopener">Open reference</a></div></div>`).join('')}</div></div></div>`;
 }
 function toast(message) {
   const el = document.getElementById('toast');

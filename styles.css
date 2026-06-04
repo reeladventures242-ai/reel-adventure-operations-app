@@ -375,3 +375,10 @@ td { font-size: .9rem; }
 }
 .node-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
 @media (max-width: 700px) { .node-actions { justify-content: stretch; } .node-actions .btn { flex: 1 1 120px; } }
+.voice-selected-field { outline: 3px solid var(--gold); box-shadow: 0 0 0 4px rgba(244,176,43,.18); background: #fffaf0; }
+.invoice-card-grid, .cruise-dashboard-grid { gap: 16px; }
+.invoice-card { border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; background: #fff; }
+.checklist-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px 14px; margin-top: 16px; }
+.checklist-item { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: #fff; font-weight: 700; }
+.checklist-field { margin: 0; }
+.reminder-strip { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
