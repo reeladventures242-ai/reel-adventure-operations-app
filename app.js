@@ -10,6 +10,21 @@ const navItems = [
   ['notifications', '🔔', 'Notifications'], ['audit', '🧾', 'Audit Trail'], ['settings', '⚙️', 'Settings']
 ];
 
+const mobilePrimaryNav = [
+  ['dashboard', '🏠', 'Dashboard'],
+  ['trips', '🧭', 'Dispatch'],
+  ['bookings', '📘', 'Bookings'],
+  ['crew', '👥', 'Crew'],
+  ['more', '☰', 'More']
+];
+
+const mobileMoreNav = [
+  ['invoices', '🧾', 'Invoices'], ['vessels', '⛵', 'Vessels'], ['payroll', '💸', 'Payroll'],
+  ['expenses', '💳', 'Expenses'], ['inventory', '📦', 'Inventory'], ['pre-trip-checklist', '✅', 'Pre Trip'],
+  ['post-trip-checklist', '🧽', 'Post Trip'], ['incident-reports', '🚨', 'Incident Reports'], ['cruise-schedule', '🚢', 'Cruise Schedule'],
+  ['reports', '📊', 'Reports'], ['notifications', '🔔', 'Notifications'], ['audit', '🧾', 'Audit Trail'], ['settings', '⚙️', 'Settings']
+];
+
 const legacyTools = [
   { title: 'Legacy Booking Dashboard', file: 'reel_adventure_tours_dashboard.html', desc: 'Original cruise schedule and booking tracking board.' },
   { title: 'Customer Invoice / Booking Tool', file: 'customer-invoice.html', desc: 'Existing customer invoice and tour booking HTML tool.' },
@@ -286,6 +301,32 @@ function renderNav() {
   document.getElementById('primaryNav').innerHTML = navItems.map(([route, icon, label]) => `
     <button class="nav-link" data-route="${route}"><span class="nav-icon">${icon}</span><span>${label}</span></button>
   `).join('');
+  renderMobileNav();
+}
+
+function renderMobileNav() {
+  const bottom = document.getElementById('mobileBottomNav');
+  const more = document.getElementById('mobileMoreMenu');
+  if (!bottom || !more) return;
+  const unread = unreadNotificationCount();
+  bottom.innerHTML = mobilePrimaryNav.map(([route, icon, label]) => {
+    const isMore = route === 'more';
+    const active = isMore ? mobileMoreNav.some(([itemRoute]) => itemRoute === currentRoute) : currentRoute === route;
+    const badge = label === 'More' && unread ? `<span class="mobile-nav-badge" aria-label="${unread} unread notifications">${unread}</span>` : '';
+    return `<button class="mobile-nav-link ${active ? 'active' : ''}" data-${isMore ? 'mobile-more-toggle' : 'route'}="${route}"><span class="mobile-nav-icon">${icon}${badge}</span><span>${label}</span></button>`;
+  }).join('');
+  more.innerHTML = `<div class="mobile-more-sheet"><div class="mobile-more-handle" aria-hidden="true"></div><div class="card-header"><h3>More operations</h3><button class="btn btn-outline btn-small" type="button" data-close-mobile-more>Close</button></div><div class="mobile-more-grid">${mobileMoreNav.map(([route, icon, label]) => `<button class="mobile-more-item ${currentRoute === route ? 'active' : ''}" data-route="${route}"><span>${icon}</span><strong>${label}</strong>${route === 'notifications' && unread ? `<em>${unread}</em>` : ''}</button>`).join('')}</div></div>`;
+}
+
+function closeMobileMore() {
+  const menu = document.getElementById('mobileMoreMenu');
+  if (menu) menu.hidden = true;
+}
+
+function updateMobileChrome() {
+  renderMobileNav();
+  const offline = document.getElementById('offlineState');
+  if (offline) offline.hidden = navigator.onLine !== false;
 }
 
 function wireEvents() {
@@ -299,7 +340,10 @@ function wireEvents() {
   document.getElementById('sidebarOverlay').addEventListener('click', closeSidebar);
   document.body.addEventListener('click', (event) => {
     const routeBtn = event.target.closest('[data-route]');
-    if (routeBtn) renderRoute(routeBtn.dataset.route);
+    if (routeBtn) { closeMobileMore(); renderRoute(routeBtn.dataset.route); }
+    const mobileMoreToggle = event.target.closest('[data-mobile-more-toggle]');
+    if (mobileMoreToggle) { const menu = document.getElementById('mobileMoreMenu'); if (menu) menu.hidden = !menu.hidden; renderMobileNav(); }
+    if (event.target.closest('[data-close-mobile-more]')) closeMobileMore();
     const legacyEmbed = event.target.closest('[data-embed-legacy]');
     if (legacyEmbed) embedLegacy(legacyEmbed.dataset.embedLegacy);
     const voiceButton = event.target.closest('[data-voice-fill], [data-command-voice-start]');
@@ -319,6 +363,8 @@ function wireEvents() {
   document.body.addEventListener('change', (event) => {
     if (event.target.matches('[data-import-store]')) importStoreData(event.target.files[0]);
   });
+  window.addEventListener('online', updateMobileChrome);
+  window.addEventListener('offline', updateMobileChrome);
   window.addEventListener('beforeinstallprompt', (event) => {
     event.preventDefault();
     deferredInstallPrompt = event;
@@ -343,6 +389,7 @@ function renderRoute(route) {
   closeSidebar();
   document.querySelectorAll('.page').forEach((page) => page.classList.remove('active'));
   document.querySelectorAll('.nav-link').forEach((link) => link.classList.toggle('active', link.dataset.route === route));
+  closeMobileMore();
   const page = document.getElementById(`page-${route}`);
   if (!page) return;
   page.classList.add('active');
@@ -361,36 +408,80 @@ function renderRoute(route) {
   else if (route === 'audit') renderAuditTrail();
   else renderPlaceholder(route);
   renderVoiceCommandPanel(route);
+  updateMobileChrome();
 }
 
 function renderDashboard() {
-  const upcomingBookings = store.bookings.filter((b) => b.status !== 'Cancelled').sort(byDate).slice(0, 4);
+  const todayKey = new Date().toISOString().slice(0, 10);
   const scheduledTrips = store.trips.filter((t) => t.status === 'Scheduled').sort(byDate);
-  const totalBalance = store.bookings.reduce((sum, b) => sum + Number(b.balance || 0), 0) + store.trips.reduce((sum, t) => sum + Number(t.balanceDue || 0), 0);
-  const payroll = payrollEntries();
-  const outstandingPayroll = payroll.reduce((sum, entry) => sum + entry.outstanding, 0);
+  const todayTrips = scheduledTrips.filter((trip) => trip.tripDate === todayKey);
+  const readyTrips = scheduledTrips.filter((trip) => calculateDispatchReadiness(trip) === 'Dispatch Ready');
+  const notReadyTrips = scheduledTrips.filter((trip) => calculateDispatchReadiness(trip) === 'Not Ready');
+  const needsAttention = scheduledTrips.filter((trip) => !['Dispatch Ready', 'Completed'].includes(calculateDispatchReadiness(trip)));
+  const totalBalance = store.bookings.reduce((sum, b) => sum + Number(b.balance || 0), 0) + store.trips.reduce((sum, t) => sum + Number(t.balanceDue || 0), 0) + store.invoices.reduce((sum, invoice) => sum + Number(invoice.balanceDue || 0), 0);
+  const urgentItems = dashboardUrgentItems(scheduledTrips).slice(0, 8);
   document.getElementById('page-dashboard').innerHTML = `
-    <div class="page-stack">
-      <div class="section-heading"><div><p class="eyebrow">Phase 4D native operations</p><h1>Daily trip operations dashboard</h1><p class="section-summary">Create bookings, invoices, assignments, checklists, expenses, incidents, payroll, and reports through the primary application tabs.</p></div><button class="btn btn-primary" data-route="trips">Create / assign trips</button></div>
-      <div class="grid kpi-grid dashboard-kpis">
-        ${kpi('Active bookings', store.bookings.length, `${money(totalBalance)} total balances`)}
-        ${kpi('Scheduled trips', scheduledTrips.length, 'Assignment board ready')}
-        ${kpi('Payroll owed', money(outstandingPayroll), 'Outstanding by role')}
-        ${kpi('Unread alerts', unreadNotificationCount(), `${(store.auditTrail || []).length} audit entries`)}
+    <div class="page-stack dashboard-command-center" data-mobile-command-center>
+      <div class="hero-command-card">
+        <div><p class="eyebrow">Phase 4E mobile command center</p><h1>Today’s Operations</h1><p class="section-summary">Premium one-handed dashboard for Admin, Owner, Captain, Mate, and Bookkeeper workflows.</p></div>
+        <div class="hero-badge">Reel Adventure Tours</div>
+      </div>
+      <div class="grid kpi-grid dashboard-kpis command-kpis">
+        ${kpi('Today’s Trips', todayTrips.length, 'Departures for today')}
+        ${kpi('Ready Trips', readyTrips.length, 'Dispatch ready')}
+        ${kpi('Needs Attention', needsAttention.length, `${notReadyTrips.length} not ready`)}
+        ${kpi('Outstanding Balances', money(totalBalance), 'Bookings + trips + invoices')}
+        ${kpi('Unread Alerts', unreadNotificationCount(), 'Mobile notification inbox')}
+      </div>
+      <div class="quick-action-dock" data-dashboard-quick-actions>
+        <button class="btn btn-primary" data-route="trips">Create Trip</button>
+        <button class="btn btn-outline" data-command-voice-start>🎙️ Voice Fill</button>
+        <button class="btn btn-outline" data-route="expenses">Add Expense</button>
+        <button class="btn btn-danger" data-route="incident-reports">Report Incident</button>
+        <button class="btn btn-outline" data-route="trips">Open Dispatch</button>
       </div>
       <div class="grid dashboard-grid">
-        <div class="card"><div class="card-header"><h3>Upcoming bookings</h3><button class="btn btn-outline btn-small" data-route="bookings">View all</button></div><div class="stat-list">${upcomingBookings.length ? upcomingBookings.map((b) => `<div class="stat-row"><span>${escapeHtml(b.date)} · ${escapeHtml(b.time)}</span><strong>${escapeHtml(b.customer)}<br><small>${escapeHtml(b.product)} · ${b.guests} guests · Balance ${money(b.balance)}</small></strong></div>`).join('') : '<p class="empty-state">No upcoming bookings yet.</p>'}</div></div>
+        <div class="card urgent-card"><div class="card-header"><h3>Urgent items first</h3><span class="badge red">Needs review</span></div><div class="stat-list">${urgentItems.length ? urgentItems.map((item) => `<button class="urgent-item" data-route="trips"><span class="badge ${item.color}">${escapeHtml(item.type)}</span><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.detail)}</small></button>`).join('') : '<p class="empty-state">No urgent dispatch blockers right now.</p>'}</div></div>
         <div class="card"><div class="card-header"><h3>Native daily workflow</h3><span class="badge green">All native</span></div><div class="stat-list">
-          ${['Booking', 'Invoice', 'Trip Assignment', 'Captain Dashboard', 'Mate Dashboard', 'Owner Dashboard', 'Pre Trip Checklist', 'Post Trip Checklist', 'Expenses', 'Incident Reports', 'Payroll', 'Reports'].map((item) => `<div class="stat-row"><span>${item}</span><strong>Available in main navigation</strong></div>`).join('')}
+          ${['Bookings', 'Invoices', 'Dispatch Tree', 'Card View', 'Captain Dashboard', 'Mate Dashboard', 'Owner Dashboard', 'Pre Trip Checklist', 'Post Trip Checklist', 'Expenses', 'Incident Reports', 'Payroll', 'Reports', 'Notifications', 'Audit Trail', 'Settings'].map((item) => `<div class="stat-row"><span>${item}</span><strong>Available in main navigation</strong></div>`).join('')}
         </div></div>
       </div>
     </div>`;
 }
+
+function dashboardUrgentItems(trips) {
+  const items = [];
+  trips.forEach((trip) => {
+    const readiness = calculateDispatchReadiness(trip);
+    if (readiness === 'Not Ready') items.push({ type: 'Not Ready', color: 'red', title: trip.customer || 'Trip missing customer', detail: `${formatDate(trip.tripDate)} · ${formatTime(trip.startTime)} · ${trip.vessel || 'Missing vessel'}` });
+    if (!trip.captain) items.push({ type: 'Missing captain', color: 'red', title: trip.customer || 'Unassigned trip', detail: 'Assign a captain before dispatch.' });
+    if (!trip.mate || trip.mate === 'None') items.push({ type: 'Missing mate', color: 'red', title: trip.customer || 'Unassigned trip', detail: 'Assign a mate before dispatch.' });
+    if (latestChecklistStatus(trip, 'Pre Trip') !== 'Completed') items.push({ type: 'Pre trip', color: 'gold', title: trip.customer || 'Checklist needed', detail: 'Pre trip not complete.' });
+    if (Number(trip.balanceDue || 0) > 0) items.push({ type: 'Balance Due', color: 'gold', title: trip.customer || 'Customer balance', detail: `${money(trip.balanceDue)} outstanding.` });
+  });
+  (store.incidentReports || []).filter((incident) => incident.status !== 'Resolved').forEach((incident) => items.push({ type: 'Incident', color: 'red', title: incident.vessel || incident.category || 'Incident alert', detail: incident.description || 'Open incident requires review.' }));
+  return items;
+}
+
 function kpi(label, value, sub) { return `<div class="card kpi"><div class="kpi-label">${label}</div><div class="kpi-value">${value}</div><div class="kpi-sub">${sub}</div></div>`; }
 
+function statusColor(value = '') {
+  const text = String(value || '').toLowerCase();
+  if (/ready|accepted|paid|complete|resolved|success|operational/.test(text)) return 'green';
+  if (/pending|review|balance|deposit due|submitted|draft|notified|partial/.test(text)) return 'gold';
+  if (/missing|declined|conflict|not ready|incident|critical|out of service|open/.test(text)) return 'red';
+  if (/completed|archived/.test(text)) return 'blue';
+  if (/cancelled|canceled|inactive|none/.test(text)) return 'gray';
+  return 'blue';
+}
+
+function statusBadge(value, fallback = 'Status') {
+  const label = value || fallback;
+  return `<span class="badge ${statusColor(label)}">${escapeHtml(label)}</span>`;
+}
+
 function assignmentStatusBadge(status) {
-  const color = status === 'Accepted' || status === 'Completed' ? 'green' : status === 'Declined' ? 'red' : status === 'Notified' ? 'gold' : 'blue';
-  return `<span class="badge ${color}">${escapeHtml(status || 'Assigned')}</span>`;
+  return statusBadge(status || 'Assigned');
 }
 
 function addRoleNotification(recipientRole, recipientName, title, message, level = 'info', category = 'General', metadata = {}) {
@@ -466,7 +557,7 @@ function renderRoleTripCard(trip, role) {
   const notesKey = role === 'captain' ? 'captainNotes' : 'mateNotes';
   const status = normalizeAssignmentStatus(trip)[role];
   const readiness = calculateDispatchReadiness(trip);
-  return `<div class="card role-trip-card ${readinessColorClass(readiness)}"><div class="card-header"><div class="role-card-title">${crewAvatar(trip[role], roleLabel)}<div><h3>${escapeHtml(trip.customer || 'Trip')}</h3><p>${escapeHtml(formatDate(trip.tripDate))} · ${escapeHtml(formatTime(trip.startTime))} · ${escapeHtml(trip.vessel || 'No vessel')} · ${Number(trip.passengers || 0)} guests</p></div></div><div>${assignmentStatusBadge(status)} ${readinessBadge(readiness)}</div></div>${tripReminderBadges(trip, role)}${readinessChecklistHtml(trip)}<div class="assignment-actions"><button class="btn btn-primary btn-small" onclick="acceptAssignment('${trip.id}','${role}')">Accept Assignment</button><button class="btn btn-danger btn-small" onclick="declineAssignment('${trip.id}','${role}')">Decline Assignment</button><button class="btn btn-outline btn-small" onclick="completeAssignment('${trip.id}','${role}')">Mark Completed</button></div><div class="field"><label>${roleLabel} notes</label><textarea data-trip-notes="${trip.id}" data-note-role="${role}">${escapeHtml(trip[notesKey] || '')}</textarea></div><div class="form-actions"><button class="btn btn-outline btn-small" onclick="saveCrewTripNotes('${trip.id}','${role}')">Submit Notes</button>${role === 'captain' ? `<label class="btn btn-outline btn-small">Upload Photos<input type="file" accept="image/*" multiple hidden onchange="saveCaptainPhotos('${trip.id}', this.files)"></label>` : ''}</div>${role === 'captain' ? renderPhotoList(trip.captainPhotos) : ''}</div>`;
+  return `<div class="card role-trip-card ${readinessColorClass(readiness)}"><div class="card-header"><div class="role-card-title">${crewAvatar(trip[role], roleLabel)}<div><h3>${escapeHtml(formatTime(trip.startTime))} · ${escapeHtml(trip.customer || 'Trip')}</h3><p>${escapeHtml(formatDate(trip.tripDate))} · ${Number(trip.passengers || 0)} guests · ${escapeHtml(trip.vessel || 'No vessel')}</p></div></div><div>${assignmentStatusBadge(status)} ${readinessBadge(readiness)}</div></div>${tripReminderBadges(trip, role)}<div class="role-trip-details"><div><span>Pickup / Departure</span><strong>${escapeHtml(formatTime(trip.startTime))}</strong></div><div><span>${roleLabel} role</span><strong>${escapeHtml(trip[role] || 'Unassigned')}</strong></div><div><span>Pre Trip Status</span><strong>${escapeHtml(latestChecklistStatus(trip, 'Pre Trip'))}</strong></div><div><span>Post Trip Status</span><strong>${escapeHtml(latestChecklistStatus(trip, 'Post Trip'))}</strong></div></div>${readinessChecklistHtml(trip)}<div class="assignment-actions"><button class="btn btn-primary" onclick="acceptAssignment('${trip.id}','${role}')">Accept</button><button class="btn btn-danger" onclick="declineAssignment('${trip.id}','${role}')">Decline</button><button class="btn btn-outline" onclick="completeAssignment('${trip.id}','${role}')">Complete</button><button class="btn btn-outline" onclick="document.querySelector('[data-trip-notes=\'${trip.id}\'][data-note-role=\'${role}\']')?.focus()">Add Notes</button><button class="btn btn-outline" data-command-voice-start>🎙️ Voice Fill Notes</button></div><div class="field"><label>${roleLabel} notes</label><textarea data-trip-notes="${trip.id}" data-note-role="${role}">${escapeHtml(trip[notesKey] || '')}</textarea></div><div class="form-actions"><button class="btn btn-outline btn-small" onclick="saveCrewTripNotes('${trip.id}','${role}')">Submit Notes</button>${role === 'captain' ? `<label class="btn btn-outline btn-small">Upload Photos<input type="file" accept="image/*" multiple hidden onchange="saveCaptainPhotos('${trip.id}', this.files)"></label>` : ''}</div>${role === 'captain' ? renderPhotoList(trip.captainPhotos) : ''}</div>`;
 }
 
 function saveCrewTripNotes(tripId, role) {
@@ -524,7 +615,7 @@ function renderCrud(route) {
 function renderForm(route, record = {}) {
   const config = crudConfig[route];
   const form = document.querySelector(`#page-${route} .record-form`);
-  form.innerHTML = `${route === 'trips' ? naturalSentenceModeHint() : ''}<div class="form-grid">${config.fields.map(([key, label, type]) => renderField(key, label, type, record[key])).join('')}</div>${route === 'trips' ? '<div class="conflict-panel" data-conflict-panel hidden></div>' : ''}<div class="form-actions"><button class="btn btn-primary" type="submit">Save ${config.title.slice(0, -1)}</button>${voiceFillButton(route)}<button class="btn btn-outline" type="button" data-cancel>Cancel</button></div>`;
+  form.innerHTML = `${route === 'trips' ? naturalSentenceModeHint() : ''}<div class="form-section-stack" data-mobile-form-sections>${renderFormSections(route, config, record)}</div>${route === 'trips' ? '<div class="conflict-panel" data-conflict-panel hidden></div>' : ''}<div class="form-actions sticky-save-controls" data-sticky-save-controls><button class="btn btn-primary" type="submit">Save ${config.title.slice(0, -1)}</button>${voiceFillButton(route)}<button class="btn btn-outline" type="button" data-cancel>Cancel</button></div>`;
   if (route === 'invoices') {
     form.addEventListener('input', () => updateInvoiceBalanceDue(form));
     form.addEventListener('change', () => updateInvoiceBalanceDue(form));
@@ -537,6 +628,24 @@ function renderForm(route, record = {}) {
   }
   form.onsubmit = (event) => saveRecord(event, route);
   form.querySelector('[data-cancel]').onclick = () => { editing[route] = null; form.hidden = true; };
+}
+
+function formSectionForField(key) {
+  if (['customer', 'customerName', 'phone', 'email', 'bookingSource', 'source'].includes(key)) return 'Customer';
+  if (['tripDate', 'date', 'startTime', 'time', 'arrivalDate', 'arrivalTime', 'departureTime', 'passengers', 'guests', 'guestCount', 'hours', 'tourType', 'product', 'vessel', 'shipName', 'cruiseLine', 'terminalDock', 'passengerCapacity'].includes(key)) return 'Trip';
+  if (['tourPrice', 'price', 'depositPaid', 'balanceDue', 'balance', 'paymentStatus', 'paymentMethod', 'amount', 'defaultPayout', 'invoiceNumber'].includes(key)) return 'Financial';
+  if (['captain', 'mate', 'owner', 'role', 'active', 'tripId', 'bookingId', 'reportedBy', 'severity', 'category', 'status'].includes(key)) return 'Assignment';
+  return 'Notes';
+}
+
+function renderFormSections(route, config, record) {
+  const sections = config.fields.reduce((acc, field) => {
+    const section = formSectionForField(field[0]);
+    acc[section] ||= [];
+    acc[section].push(field);
+    return acc;
+  }, {});
+  return Object.entries(sections).map(([section, fields], index) => `<section class="form-section-card"><div class="form-section-title"><span>${index + 1}</span><h3>${escapeHtml(section)}</h3></div><div class="form-grid">${fields.map(([key, label, type]) => renderField(key, label, type, record[key])).join('')}</div>${index < Object.keys(sections).length - 1 ? '<button class="btn btn-outline btn-small next-section-btn" type="button" onclick="this.closest(\'.form-section-card\').nextElementSibling?.scrollIntoView({behavior:\'smooth\',block:\'start\'})">Next Section</button>' : ''}</section>`).join('');
 }
 
 function naturalSentenceModeHint() {
@@ -666,8 +775,8 @@ function renderTable(route) {
 function formatCell(key, value) {
   if (['balance', 'tourPrice', 'depositPaid', 'balanceDue', 'defaultPayout', 'amount'].includes(key)) return value === '' || value == null ? '—' : money(value);
   if (key === 'passengerManifest') return passengerManifestSummary(value);
-  if (key === 'status' || key === 'readinessStatus') return `<span class="badge blue">${escapeHtml(value || '—')}</span>`;
-  if (key === 'active') return `<span class="badge ${value === 'Yes' ? 'green' : 'red'}">${escapeHtml(value || '—')}</span>`;
+  if (key === 'status' || key === 'readinessStatus' || key === 'paymentStatus') return statusBadge(value || '—');
+  if (key === 'active') return statusBadge(value === 'Yes' ? 'Ready' : 'Inactive');
   return escapeHtml(value || '—');
 }
 
@@ -806,8 +915,7 @@ function calculateDispatchReadiness(trip) {
 
 function readinessBadge(status) {
   const normalized = status === 'Ready' ? 'Dispatch Ready' : status === 'Needs Review' ? 'Partial' : status;
-  const color = normalized === 'Dispatch Ready' || normalized === 'Completed' ? 'green' : normalized === 'Not Ready' ? 'red' : 'gold';
-  return `<span class="badge ${color}">${escapeHtml(normalized || 'Partial')}</span>`;
+  return statusBadge(normalized || 'Partial');
 }
 
 function readinessColorClass(status) {
@@ -1254,6 +1362,7 @@ function highlightVoiceField(element) {
 }
 
 function handleVoiceAction(action) {
+  if (action === 'stop') { if (voiceRecognition) voiceRecognition.stop(); return updateVoiceCommand({ state: 'IDLE', message: 'Command Voice Fill stopped.' }); }
   if (action === 'accept') return updateVoiceCommand({ state: 'CONFIRMING', message: `${voiceCommand.field?.label || 'Field'} accepted. Say or select Next Field to continue.` });
   if (action === 'retry') {
     updateVoiceCommand({ state: 'LISTENING_FOR_VALUE', message: `Listening for value for ${voiceCommand.field?.label || 'selected field'}.` });
@@ -1487,7 +1596,9 @@ function renderVoiceCommandPanel(route) {
   const stack = page.querySelector('.page-stack') || page;
   const active = voiceCommand.route === route ? voiceCommand : { state: 'IDLE', message: 'Command Voice Fill idle. Click to select a field by voice.' };
   const stateClass = voiceCommand.route === route ? voiceCommand.state.toLowerCase().replace(/_/g, '-') : 'idle';
-  const markup = `<div class="voice-command-panel state-${stateClass}" data-voice-command-panel><div><p class="eyebrow">Command Voice Fill</p><h3>${escapeHtml(active.state.replace(/_/g, ' '))}</h3><p>${escapeHtml(active.message)}</p>${active.suggestions?.length ? `<p class="voice-suggestions">Try saying: ${active.suggestions.map(escapeHtml).join(' · ')}</p>` : '<p class="voice-suggestions">Say a field: Customer Name · Phone Number · Captain · Mate · Vessel · Deposit · Balance · Notes</p>'}</div><div class="voice-command-actions"><button class="btn btn-primary btn-small" type="button" data-command-voice-start>🎙️ Command Voice Fill</button><button class="btn btn-outline btn-small" type="button" data-voice-action="accept">Accept</button><button class="btn btn-outline btn-small" type="button" data-voice-action="retry">Retry</button><button class="btn btn-outline btn-small" type="button" data-voice-action="clear">Clear</button><button class="btn btn-outline btn-small" type="button" data-voice-action="next">Next Field</button></div></div>`;
+  const mode = active.state === 'IDLE' ? 'Field Command Mode + Natural Sentence Mode' : active.field ? 'Natural Sentence Mode' : 'Field Command Mode';
+  const currentStep = active.state === 'LISTENING_FOR_VALUE' ? 'Listening for value' : active.state === 'LISTENING_FOR_FIELD' ? 'Listening for field name' : active.message;
+  const markup = `<div class="voice-command-panel state-${stateClass}" data-voice-command-panel><div class="voice-mic" aria-hidden="true">🎙️</div><div><p class="eyebrow">Command Voice Fill</p><h3>${escapeHtml(active.state.replace(/_/g, ' '))}</h3><div class="voice-mode-grid"><span><strong>Mode:</strong> ${escapeHtml(mode)}</span><span><strong>Current Step:</strong> ${escapeHtml(currentStep)}</span></div><p>${escapeHtml(active.message)}</p>${active.suggestions?.length ? `<p class="voice-suggestions">Try saying: ${active.suggestions.map(escapeHtml).join(' · ')}</p>` : '<p class="voice-suggestions">Say: Customer Name. Then say: Crystal Belle.</p>'}</div><div class="voice-command-actions"><button class="btn btn-primary btn-small" type="button" data-command-voice-start>Start Listening</button><button class="btn btn-outline btn-small" type="button" data-voice-action="stop">Stop</button><button class="btn btn-outline btn-small" type="button" data-voice-action="accept">Accept</button><button class="btn btn-outline btn-small" type="button" data-voice-action="retry">Retry</button><button class="btn btn-outline btn-small" type="button" data-voice-action="clear">Clear</button><button class="btn btn-outline btn-small" type="button" data-voice-action="next">Next Field</button></div></div>`;
   const heading = stack.querySelector('.section-heading');
   if (heading?.insertAdjacentHTML) heading.insertAdjacentHTML('afterend', markup);
   else if (stack.insertAdjacentHTML) stack.insertAdjacentHTML('afterbegin', markup);
@@ -1554,7 +1665,25 @@ function renderNotifications() {
   const notices = store.notifications || [];
   const filtered = notices.filter((notice) => selected === 'All' || (selected === 'Unread' ? !notice.read : notice.recipientRole === selected || notice.category === selected));
   const options = ['All', 'Unread', 'Owner', 'Captain', 'Mate', 'Operations', 'Assignment', 'Checklist', 'Expense', 'Incident', 'Payroll'];
-  page.innerHTML = `<div class="page-stack"><div class="section-heading"><div><p class="eyebrow">Operational alerts</p><h1>Notification Center</h1><p class="section-summary">Role-targeted owner, captain, mate, and operations alerts with read/unread status.</p></div><div class="notification-tools"><select data-notice-filter onchange="renderNotifications()">${options.map((option) => `<option value="${option}" ${option === selected ? 'selected' : ''}>${option}</option>`).join('')}</select><button class="btn btn-outline" data-mark-notices-read>Mark all read</button></div></div><div class="grid kpi-grid dashboard-kpis">${kpi('Owner alerts', unreadByRole('Owner'), 'Unread')}${kpi('Captain alerts', unreadByRole('Captain'), 'Unread')}${kpi('Mate alerts', unreadByRole('Mate'), 'Unread')}${kpi('Operations alerts', unreadByRole('Operations'), 'Unread')}</div><div class="card card-pad notice-list">${filtered.length ? filtered.map((notice) => `<div class="notice-item ${notice.read ? '' : 'unread'}"><span class="badge ${notice.level === 'critical' ? 'red' : notice.level === 'success' ? 'green' : notice.level === 'warning' ? 'gold' : 'blue'}">${escapeHtml(notice.category || notice.level || 'info')}</span><div><strong>${escapeHtml(notice.title)}</strong><p>${escapeHtml(notice.message)}</p><small>${escapeHtml([notice.recipientRole || 'All', notice.recipientName, new Date(notice.at).toLocaleString()].filter(Boolean).join(' · '))}</small></div><button class="btn btn-outline btn-small" data-mark-notice-read="${notice.id}">${notice.read ? 'Read' : 'Mark read'}</button></div>`).join('') : '<p class="empty-state">No notifications match this filter.</p>'}</div></div>`;
+  const grouped = groupNotificationsByAge(filtered);
+  const groupMarkup = ['Today', 'This Week', 'Older'].map((group) => `<section class="notification-group"><h3>${group}</h3>${grouped[group].length ? grouped[group].map(renderNoticeItem).join('') : '<p class="empty-state">No notifications in this group.</p>'}</section>`).join('');
+  page.innerHTML = `<div class="page-stack"><div class="section-heading"><div><p class="eyebrow">Modern mobile inbox</p><h1>Notifications</h1><p class="section-summary">Grouped by Today, This Week, and Older with unread, assignment, checklist, incident, payroll, and expense badges.</p></div><div class="notification-tools"><select data-notice-filter onchange="renderNotifications()">${options.map((option) => `<option value="${option}" ${option === selected ? 'selected' : ''}>${option}</option>`).join('')}</select><button class="btn btn-outline" data-mark-notices-read>Mark all read</button></div></div><div class="grid kpi-grid dashboard-kpis">${kpi('Owner alerts', unreadByRole('Owner'), 'Unread')}${kpi('Captain alerts', unreadByRole('Captain'), 'Unread')}${kpi('Mate alerts', unreadByRole('Mate'), 'Unread')}${kpi('Operations alerts', unreadByRole('Operations'), 'Unread')}</div><div class="card notification-inbox">${groupMarkup}</div></div>`;
+}
+
+function groupNotificationsByAge(notices) {
+  const today = startOfDay(new Date());
+  const weekStart = startOfWeekSunday(today);
+  return notices.reduce((groups, notice) => {
+    const date = notice.at ? startOfDay(new Date(notice.at)) : today;
+    const key = sameDate(date, today) ? 'Today' : date >= weekStart ? 'This Week' : 'Older';
+    groups[key].push(notice);
+    return groups;
+  }, { Today: [], 'This Week': [], Older: [] });
+}
+
+function renderNoticeItem(notice) {
+  const level = notice.level === 'critical' ? 'red' : notice.level === 'success' ? 'green' : notice.level === 'warning' ? 'gold' : 'blue';
+  return `<article class="notice-item ${notice.read ? '' : 'unread'}"><div class="notice-badges"><span class="badge ${notice.read ? 'gray' : 'green'}">${notice.read ? 'Read' : 'Unread'}</span><span class="badge ${level}">${escapeHtml(notice.category || notice.level || 'info')}</span></div><div><strong>${escapeHtml(notice.title)}</strong><p>${escapeHtml(notice.message)}</p><small>${escapeHtml([notice.recipientRole || 'All', notice.recipientName, new Date(notice.at).toLocaleString()].filter(Boolean).join(' · '))}</small><div class="notice-actions"><button class="btn btn-outline btn-small" data-mark-notice-read="${notice.id}">${notice.read ? 'Read' : 'Mark Read'}</button><button class="btn btn-outline btn-small" data-mark-notice-read="${notice.id}">Acknowledge</button><button class="btn btn-primary btn-small" data-route="${notice.metadata?.tripId ? 'trips' : 'dashboard'}">Open Related Trip</button></div></div></article>`;
 }
 
 function unreadByRole(role) {
@@ -1705,19 +1834,21 @@ function renderOwnerDashboard() {
   const trips = store.trips.filter((trip) => ownerVessels.includes(trip.vessel)).sort(byDate);
   const notices = (store.notifications || []).filter((notice) => notice.recipientRole === 'Owner' || ownerVessels.includes(notice.metadata?.vessel));
   const ownerPayroll = payrollEntries().filter((entry) => entry.role === 'Owner' && entry.person === selected);
-  page.innerHTML = `<div class="page-stack"><div class="section-heading"><div><p class="eyebrow">Phase 4B owner operations</p><h1>Owner Dashboard</h1><p class="section-summary">Assignment, completion, expense, incident, and payroll alert view for vessel owners.</p></div><select data-owner-select onchange="renderOwnerDashboard()">${getOptions('owners').map((owner) => `<option value="${escapeHtml(owner)}" ${owner === selected ? 'selected' : ''}>${escapeHtml(owner)}</option>`).join('')}</select></div><div class="grid kpi-grid dashboard-kpis">${kpi('Owned vessels', ownerVessels.length, ownerVessels.join(', ') || 'None')}${kpi('Assigned trips', trips.length, 'Active owner vessels')}${kpi('Unread alerts', notices.filter((notice) => !notice.read).length, 'Owner related')}${kpi('Outstanding payroll', money(ownerPayroll.reduce((sum, entry) => sum + entry.outstanding, 0)), 'Owner payouts')}</div><div class="grid dashboard-grid"><div class="card"><div class="card-header"><h3>Assignment alerts</h3></div><div class="stat-list">${trips.length ? trips.map((trip) => `<div class="stat-row"><span>${escapeHtml(formatDate(trip.tripDate))} · ${escapeHtml(trip.vessel)}</span><strong>${escapeHtml(trip.customer || 'Trip')}<br><small>Captain ${escapeHtml(trip.captain || '—')} · Mate ${escapeHtml(trip.mate || '—')}</small></strong></div>`).join('') : '<p class="empty-state">No owner vessel assignments.</p>'}</div></div><div class="card"><div class="card-header"><h3>Owner alerts</h3></div><div class="notice-list card-pad">${notices.length ? notices.slice(0, 8).map((notice) => `<div class="notice-item ${notice.read ? '' : 'unread'}"><span class="badge gold">${escapeHtml(notice.category)}</span><div><strong>${escapeHtml(notice.title)}</strong><p>${escapeHtml(notice.message)}</p></div></div>`).join('') : '<p class="empty-state">No owner alerts.</p>'}</div></div></div></div>`;
+  const outstanding = ownerPayroll.reduce((sum, entry) => sum + entry.outstanding, 0);
+  const checklistDone = trips.filter((trip) => latestChecklistStatus(trip, 'Pre Trip') === 'Completed').length;
+  const incidentAlerts = (store.incidentReports || []).filter((incident) => ownerVessels.includes(incident.vessel) && incident.status !== 'Resolved');
+  const expenseAlerts = (store.expenses || []).filter((expense) => ownerVessels.includes(expense.vessel) && expense.status !== 'Paid');
+  page.innerHTML = `<div class="page-stack owner-command-center"><div class="section-heading"><div><p class="eyebrow">Owner mobile command</p><h1>Owner Dashboard</h1><p class="section-summary">Assigned vessels, upcoming trips, owner payouts, checklist completion, incidents, expenses, and payroll alerts at a glance.</p></div><select data-owner-select onchange="renderOwnerDashboard()">${getOptions('owners').map((owner) => `<option value="${escapeHtml(owner)}" ${owner === selected ? 'selected' : ''}>${escapeHtml(owner)}</option>`).join('')}</select></div><div class="grid kpi-grid dashboard-kpis">${kpi('Assigned vessels', ownerVessels.length, ownerVessels.join(', ') || 'None')}${kpi('Upcoming trips', trips.length, 'Owner vessel assignments')}${kpi('Outstanding owner payouts', money(outstanding), 'Unpaid owner payroll')}${kpi('Checklist completion', `${checklistDone}/${trips.length}`, 'Pre trip complete')}${kpi('Incident alerts', incidentAlerts.length, 'Open owner vessel incidents')}${kpi('Expense alerts', expenseAlerts.length, 'Submitted or review needed')}${kpi('Payroll alerts', ownerPayroll.filter((entry) => entry.outstanding > 0).length, 'Outstanding payout lines')}</div><div class="grid dashboard-grid"><div class="card"><div class="card-header"><h3>Upcoming trips</h3>${statusBadge(trips.length ? 'Pending' : 'Ready')}</div><div class="stat-list">${trips.length ? trips.map((trip) => `<div class="stat-row"><span>${escapeHtml(formatDate(trip.tripDate))} · ${escapeHtml(trip.vessel)}</span><strong>${escapeHtml(trip.customer || 'Trip')}<br><small>Captain ${escapeHtml(trip.captain || 'Missing')} · Mate ${escapeHtml(trip.mate || 'Missing')} · ${escapeHtml(calculateDispatchReadiness(trip))}</small></strong></div>`).join('') : '<p class="empty-state">No owner vessel assignments.</p>'}</div></div><div class="card"><div class="card-header"><h3>Owner alerts</h3>${statusBadge(incidentAlerts.length ? 'Incident' : expenseAlerts.length ? 'Needs Review' : 'Ready')}</div><div class="notice-list card-pad">${notices.length ? notices.slice(0, 8).map((notice) => `<div class="notice-item ${notice.read ? '' : 'unread'}"><span class="badge ${statusColor(notice.category)}">${escapeHtml(notice.category)}</span><div><strong>${escapeHtml(notice.title)}</strong><p>${escapeHtml(notice.message)}</p></div></div>`).join('') : '<p class="empty-state">No owner alerts.</p>'}</div></div></div></div>`;
 }
+
 
 function renderReports() {
   const trips = store.trips || [];
-  const invoices = store.invoices || [];
-  const expenses = store.expenses || [];
-  const payroll = payrollEntries();
-  const revenue = trips.reduce((sum, trip) => sum + Number(trip.tourPrice || 0), 0) + invoices.reduce((sum, invoice) => sum + Number(invoice.tourPrice || 0), 0);
-  const outstandingBalances = trips.reduce((sum, trip) => sum + Number(trip.balanceDue || 0), 0) + invoices.reduce((sum, invoice) => sum + Number(invoice.balanceDue || 0), 0);
-  const payrollOwed = payroll.reduce((sum, entry) => sum + entry.outstanding, 0);
-  const expenseTotal = expenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
-  const readyTrips = trips.filter((trip) => ['Dispatch Ready', 'Completed'].includes(calculateDispatchReadiness(trip))).length;
+  const revenue = trips.reduce((sum, trip) => sum + Number(trip.tourPrice || 0), 0) + (store.invoices || []).reduce((sum, invoice) => sum + Number(invoice.tourPrice || 0), 0);
+  const outstandingBalances = trips.reduce((sum, trip) => sum + Number(trip.balanceDue || 0), 0) + (store.invoices || []).reduce((sum, invoice) => sum + Number(invoice.balanceDue || 0), 0);
+  const payrollOwed = payrollEntries().reduce((sum, entry) => sum + entry.outstanding, 0);
+  const expenseTotal = (store.expenses || []).reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
+  const readyTrips = trips.filter((trip) => calculateDispatchReadiness(trip) === 'Dispatch Ready').length;
   const notReadyTrips = trips.filter((trip) => calculateDispatchReadiness(trip) === 'Not Ready').length;
   const by = (key) => Object.entries(trips.reduce((acc, trip) => { const label = trip[key] || 'Unassigned'; acc[label] = (acc[label] || 0) + 1; return acc; }, {})).sort((a, b) => b[1] - a[1]);
   const listRows = (items) => items.length ? items.map(([label, count]) => `<div class="stat-row"><span>${escapeHtml(label)}</span><strong>${count}</strong></div>`).join('') : '<p class="empty-state">No trip data yet.</p>';
