@@ -1,5 +1,5 @@
 const STORE_KEY = 'rat_ops_v1_store';
-const STORE_VERSION = 9;
+const STORE_VERSION = 10;
 
 const navItems = [
   ['dashboard', '🏠', 'Dashboard'], ['bookings', '📘', 'Bookings'], ['invoices', '🧾', 'Invoices'],
@@ -214,6 +214,7 @@ function migrateStore(existing = {}) {
   next.invoices = Array.isArray(next.invoices) ? next.invoices : [];
   next.cruiseSchedule = Array.isArray(next.cruiseSchedule) ? next.cruiseSchedule : [];
   next.uploadReviews = Array.isArray(next.uploadReviews) ? next.uploadReviews : [];
+  next.uploadReviews = next.uploadReviews.map((review) => ({ documentType: 'Unknown', userReviewRequired: true, reviewStatus: 'Pending Review', ...review }));
   next.calendarState = next.calendarState || { view: 'month', selectedDate: '' };
   next.inventory = normalizeInventory(Array.isArray(next.inventory) ? next.inventory : []);
   next.vessels = (Array.isArray(next.vessels) ? next.vessels : []).map((vessel) => ({ ...vessel, readinessStatus: vessel.readinessStatus || vessel.status || 'Operational' }));
@@ -332,7 +333,7 @@ function getOptions(kind) {
     bookings: store.bookings.map((b) => `${b.id}|${formatDate(b.date)} ${b.time || ''} ${b.customer || 'Booking'}`),
     paymentStatus: ['Deposit Due', 'Deposit Paid', 'Balance Due', 'Paid in Full', 'Refunded', 'Cancelled'],
     paymentMethods: ['Cash', 'Credit Card', 'Debit Card', 'Zelle', 'ACH', 'Check', 'Online', 'CashApp', 'PayPal (Friends & Family)', 'Payment Link', 'Other'],
-    documentTypes: ['Quote', 'Invoice'],
+    documentTypes: ['Quote', 'Invoice', 'Booking', 'Tour Confirmation', 'Email', 'Receipt', 'Unknown'],
     pickupLocations: ['Woodes Rodgers Walk', 'Montague Dock', "Jimmy Buffett's Margaritaville", 'Other / Custom Location'],
     postedStatus: ['Not Posted', 'Posted', 'Needs Follow-up'],
     opportunityStatus: ['Opportunity', 'Booked', 'Watched', 'Closed'],
@@ -501,11 +502,13 @@ function renderRoute(route) {
 }
 
 
+const supportedIntakeExtensions = ['pdf', 'png', 'jpg', 'jpeg', 'html', 'htm', 'csv', 'txt', 'json'];
+const supportedIntakeDocumentTypes = ['Quote', 'Invoice', 'Booking', 'Tour Confirmation', 'Email', 'Receipt', 'Unknown'];
 const uploadReviewFields = [
-  ['invoiceNumber', 'Invoice Number'], ['quoteNumber', 'Quote Number'], ['customerName', 'Customer Name'], ['phone', 'Phone Number'], ['email', 'Email'],
-  ['tripDate', 'Trip Date'], ['startTime', 'Start Time'], ['departureTime', 'Departure Time'], ['returnTime', 'Return Time'], ['tourType', 'Tour Type'],
-  ['guestCount', 'Guest Count'], ['bookingSource', 'Booking Source'], ['vessel', 'Vessel'], ['captain', 'Captain'], ['mate', 'Mate'], ['tourPrice', 'Tour Price'],
-  ['depositPaid', 'Deposit Paid'], ['balanceDue', 'Balance Due'], ['paymentStatus', 'Payment Status'], ['paymentMethod', 'Payment Method'], ['pickupLocation', 'Pickup Location'],
+  ['invoiceNumber', 'Invoice Number'], ['quoteNumber', 'Quote Number'], ['customerName', 'Customer Name'], ['phone', 'Phone'], ['email', 'Email'],
+  ['tripDate', 'Date'], ['startTime', 'Time'], ['departureTime', 'Departure Time'], ['returnTime', 'Return Time'], ['tourType', 'Tour Type'],
+  ['guestCount', 'Guest Count'], ['bookingSource', 'Booking Source'], ['vessel', 'Vessel'], ['captain', 'Captain'], ['mate', 'Mate'], ['tourPrice', 'Price'],
+  ['depositPaid', 'Deposit'], ['balanceDue', 'Balance'], ['paymentStatus', 'Payment Status'], ['paymentMethod', 'Payment Method'], ['pickupLocation', 'Pickup Location'],
   ['cruiseShip', 'Cruise Ship'], ['specialRequests', 'Special Requests'], ['notes', 'Notes']
 ];
 let activeUploadReviewId = '';
@@ -513,80 +516,195 @@ let pendingDuplicateAction = '';
 let calendarFilter = 'All';
 
 function renderUploadZone(route) {
-  return `<section class="card upload-zone" data-upload-zone data-upload-route="${escapeHtml(route)}" aria-label="Drop Quote or Invoice Here"><div><p class="eyebrow">Quote / Invoice intake</p><h3>Drop Quote or Invoice Here</h3><p class="muted-text">Upload Quote / Invoice files for PDF, image, HTML, text, CSV, and JSON. Parsed details are always reviewed before records are saved.</p></div><div class="upload-actions"><label class="btn btn-primary">Upload Quote / Invoice<input data-upload-file data-upload-route="${escapeHtml(route)}" type="file" accept=".pdf,image/*,.html,.htm,.txt,.csv,.json,application/pdf,text/html,text/plain,text/csv,application/json" hidden></label><label class="btn btn-outline">Take Photo<input data-upload-file data-upload-route="${escapeHtml(route)}" type="file" accept="image/*" capture="environment" hidden></label><label class="btn btn-outline">Choose from Files<input data-upload-file data-upload-route="${escapeHtml(route)}" type="file" accept=".pdf,image/*,.html,.htm,.txt,.csv,.json,application/pdf,text/html,text/plain,text/csv,application/json" hidden></label></div></section><div data-upload-review-host="${escapeHtml(route)}"></div>`;
+  return `<section class="card upload-zone" data-upload-zone data-upload-route="${escapeHtml(route)}" aria-label="Smart Document Intake"><div><p class="eyebrow">OCR driven intake</p><h3>Smart Document Intake</h3><p class="muted-text">Upload PDF, PNG, JPG, JPEG, HTML, CSV, or legacy .txt files. The app classifies Quote, Invoice, Booking, Tour Confirmation, Email, Receipt, or Unknown documents, maps fields, and requires approval before saving.</p></div><div class="upload-actions"><label class="btn btn-primary">Upload Document<input data-upload-file data-upload-route="${escapeHtml(route)}" type="file" accept=".pdf,.png,.jpg,.jpeg,.html,.htm,.csv,.txt,application/pdf,image/png,image/jpeg,text/html,text/csv,text/plain" hidden></label><label class="btn btn-outline">Take Photo<input data-upload-file data-upload-route="${escapeHtml(route)}" type="file" accept="image/png,image/jpeg" capture="environment" hidden></label><label class="btn btn-outline">Choose from Files<input data-upload-file data-upload-route="${escapeHtml(route)}" type="file" accept=".pdf,.png,.jpg,.jpeg,.html,.htm,.csv,.txt,application/pdf,image/png,image/jpeg,text/html,text/csv,text/plain" hidden></label></div></section><div data-upload-review-host="${escapeHtml(route)}"></div>`;
 }
 
-function handleUploadFiles(files, route = currentRoute) {
+async function handleUploadFiles(files, route = currentRoute) {
   const file = Array.from(files || [])[0];
   if (!file) return;
-  const allowed = ['pdf', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'html', 'htm', 'txt', 'csv', 'json'];
   const extension = (file.name.split('.').pop() || '').toLowerCase();
-  if (!allowed.includes(extension)) {
-    addNotification('Upload parsing failed', `${file.name} is not a supported quote or invoice format.`, 'critical', { route, category: 'Upload' });
-    addAudit('failed', 'Quote / Invoice Upload', `Unsupported upload format for ${file.name}.`, { route, extension });
+  if (!supportedIntakeExtensions.includes(extension)) {
+    addNotification('Upload parsing failed', `${file.name} is not a supported smart intake format.`, 'critical', { route, category: 'Upload' });
+    addAudit('failed', 'Smart Document Intake', `Unsupported upload format for ${file.name}.`, { route, extension, supported: 'PDF, PNG, JPG, JPEG, HTML, CSV' });
     saveStore(); toast('Upload parsing failed. Unsupported file type.'); return;
   }
-  const finish = (text = '') => createUploadReview(file, route, text);
-  if (file.type.startsWith('image/') || extension === 'pdf') return finish(file.name);
-  const reader = new FileReader();
-  reader.onload = () => finish(String(reader.result || ''));
-  reader.onerror = () => { addNotification('Upload parsing failed', `${file.name} could not be read.`, 'critical', { route, category: 'Upload' }); addAudit('failed', 'Quote / Invoice Upload', `Could not read ${file.name}.`, { route }); saveStore(); toast('Upload parsing failed.'); };
-  reader.readAsText(file);
+  toast('Reading document for OCR intake...');
+  try {
+    const result = await extractUploadText(file, extension);
+    createUploadReview(file, route, result.text, result.method, result.warning || '');
+  } catch (error) {
+    addNotification('Upload parsing failed', `${file.name} could not be read for smart intake.`, 'critical', { route, category: 'Upload' });
+    addAudit('failed', 'Smart Document Intake', `Could not read ${file.name}.`, { route, extension, error: String(error?.message || error) });
+    saveStore(); toast('Upload parsing failed.');
+  }
 }
 
-function createUploadReview(file, route, text) {
+function readFileAsText(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(reader.error || new Error('File read failed'));
+    reader.readAsText(file);
+  });
+}
+
+function readFileAsArrayBuffer(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(reader.error || new Error('File read failed'));
+    reader.readAsArrayBuffer(file);
+  });
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(reader.error || new Error('File read failed'));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function extractUploadText(file, extension) {
+  if (['html', 'htm'].includes(extension)) return { text: stripHtmlToText(await readFileAsText(file)), method: 'HTML text extraction' };
+  if (extension === 'csv') return { text: csvToIntakeText(await readFileAsText(file)), method: 'CSV structured text extraction' };
+  if (['txt', 'json'].includes(extension)) return { text: await readFileAsText(file), method: 'Text extraction' };
+  if (extension === 'pdf') return extractPdfText(file);
+  if (['png', 'jpg', 'jpeg'].includes(extension) || file.type.startsWith('image/')) return extractImageOcrText(file);
+  return { text: file.name, method: 'Filename fallback', warning: 'Unsupported parser fallback used.' };
+}
+
+function stripHtmlToText(html = '') {
+  return String(html).replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<br\s*\/?>/gi, '\n').replace(/<\/p>|<\/tr>|<\/li>|<\/div>/gi, '\n').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/gi, ' ').replace(/&amp;/gi, '&').replace(/&lt;/gi, '<').replace(/&gt;/gi, '>').replace(/\s+\n/g, '\n').replace(/[ \t]{2,}/g, ' ').trim();
+}
+
+function csvToIntakeText(csv = '') {
+  const rows = String(csv).split(/\r?\n/).map((line) => line.split(',').map((cell) => cell.replace(/^"|"$/g, '').trim())).filter((row) => row.some(Boolean));
+  if (!rows.length) return '';
+  const headers = rows[0];
+  return rows.slice(1).map((row) => headers.map((header, index) => `${header}: ${row[index] || ''}`).join('\n')).join('\n---\n') || headers.join('\n');
+}
+
+async function extractPdfText(file) {
+  const buffer = await readFileAsArrayBuffer(file);
+  const bytes = new Uint8Array(buffer || []);
+  const raw = Array.from(bytes).map((byte) => byte >= 32 && byte < 127 || byte === 10 || byte === 13 ? String.fromCharCode(byte) : ' ').join('');
+  const text = raw.replace(/\s+/g, ' ').replace(/\(([^()]{2,})\)/g, '\n$1\n').trim();
+  return { text: `${text}\n${file.name}`.trim(), method: 'PDF embedded text/OCR fallback', warning: text.length < 30 ? 'Limited PDF text was available; verify extracted fields carefully.' : '' };
+}
+
+async function extractImageOcrText(file) {
+  const dataUrl = await readFileAsDataUrl(file);
+  if (window.Tesseract?.recognize) {
+    const result = await window.Tesseract.recognize(dataUrl, 'eng');
+    return { text: `${result?.data?.text || ''}\n${file.name}`.trim(), method: 'OCR image extraction' };
+  }
+  try {
+    await loadScriptOnce('https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js', 'tesseract-js');
+    if (window.Tesseract?.recognize) {
+      const result = await window.Tesseract.recognize(dataUrl, 'eng');
+      return { text: `${result?.data?.text || ''}\n${file.name}`.trim(), method: 'OCR image extraction' };
+    }
+  } catch (error) {
+    console.warn('OCR library unavailable; using filename fallback', error);
+  }
+  return { text: file.name, method: 'OCR fallback pending manual review', warning: 'Image OCR library was unavailable. User review is required before any save.' };
+}
+
+function loadScriptOnce(src, id) {
+  return new Promise((resolve, reject) => {
+    const existing = document.getElementById(id);
+    if (existing) { existing.addEventListener('load', resolve, { once: true }); resolve(); return; }
+    const script = document.createElement('script');
+    script.id = id;
+    script.src = src;
+    script.async = true;
+    script.onload = resolve;
+    script.onerror = () => reject(new Error(`Could not load ${src}`));
+    document.head.appendChild(script);
+  });
+}
+
+function createUploadReview(file, route, text, extractionMethod = 'Text extraction', warning = '') {
+  const classification = classifyDocumentText(text, file.name);
   const extracted = parseQuoteInvoiceText(text, file.name);
-  const review = { id: makeId('upload-review'), route, fileName: file.name, fileType: file.type || file.name.split('.').pop(), createdAt: new Date().toISOString(), extracted, duplicateId: findUploadDuplicate(extracted)?.id || '' };
+  const review = { id: makeId('upload-review'), route, fileName: file.name, fileType: file.type || file.name.split('.').pop(), createdAt: new Date().toISOString(), documentType: classification.type, classificationScores: classification.scores, extractionMethod, extractionWarning: warning, sourceTextPreview: String(text || '').slice(0, 600), userReviewRequired: true, reviewStatus: 'Pending Review', extracted, duplicateId: findUploadDuplicate(extracted)?.id || '' };
   store.uploadReviews.unshift(review);
   store.uploadReviews = store.uploadReviews.slice(0, 20);
   activeUploadReviewId = review.id;
   if (review.duplicateId) addNotification('Possible duplicate detected', `${extracted.customerName || 'Uploaded document'} may match an existing trip.`, 'warning', { route, category: 'Upload', reviewId: review.id });
-  addAudit('parsed', 'Quote / Invoice Upload', `Parsed ${file.name} for review; no records were auto-saved.`, { route, reviewId: review.id });
+  addAudit('classified', 'Smart Document Intake', `Detected ${review.documentType} from ${file.name}; extracted fields require user review before saving.`, { route, reviewId: review.id, documentType: review.documentType, extractionMethod, classificationScores: classification.scores });
   saveStore();
   renderUploadReview(route, review);
-  toast('Upload parsed. Review details before saving.');
+  toast('Document classified. Review and approve before saving.');
+}
+
+function classifyDocumentText(text = '', fileName = '') {
+  const source = `${text} ${fileName}`.toLowerCase();
+  const scores = {
+    Quote: scoreText(source, ['quote', 'estimate', 'proposal', 'valid until', 'convert to booking']),
+    Invoice: scoreText(source, ['invoice', 'amount due', 'balance due', 'invoice number', 'bill to']),
+    Booking: scoreText(source, ['booking', 'reservation', 'booked', 'guest count', 'confirmation number']),
+    'Tour Confirmation': scoreText(source, ['tour confirmation', 'confirmed tour', 'confirmation', 'departure time', 'pickup location']),
+    Email: scoreText(source, ['from:', 'to:', 'subject:', 'sent:', '@']),
+    Receipt: scoreText(source, ['receipt', 'paid', 'payment method', 'transaction', 'card', 'cash'])
+  };
+  const [type, score] = Object.entries(scores).sort((a, b) => b[1] - a[1])[0] || ['Unknown', 0];
+  return { type: score > 0 ? type : 'Unknown', scores: { ...scores, Unknown: score > 0 ? 0 : 1 } };
+}
+
+function scoreText(source, terms) {
+  return terms.reduce((sum, term) => sum + (source.includes(term) ? 1 : 0), 0);
 }
 
 function parseQuoteInvoiceText(text = '', fileName = '') {
-  const source = `${text}\n${fileName}`;
+  const source = `${text}
+${fileName}`;
   const pick = (...patterns) => patterns.map((pattern) => source.match(pattern)?.[1]?.trim()).find(Boolean) || '';
   const moneyPick = (...patterns) => (pick(...patterns).replace(/[$,]/g, '') || '');
-  const date = pick(/(?:trip|tour|booking|service)\s*date[:\-\s]+([0-9]{4}-[0-9]{2}-[0-9]{2}|[0-9]{1,2}[\/\-][0-9]{1,2}[\/\-][0-9]{2,4})/i, /\b([0-9]{4}-[0-9]{2}-[0-9]{2})\b/);
+  const date = pick(/(?:trip|tour|booking|service|invoice|quote)?\s*date[:\-\s]+([0-9]{4}-[0-9]{2}-[0-9]{2}|[0-9]{1,2}[\/\-][0-9]{1,2}[\/\-][0-9]{2,4})/i, /\b([0-9]{4}-[0-9]{2}-[0-9]{2})\b/, /\b([0-9]{1,2}[\/\-][0-9]{1,2}[\/\-][0-9]{2,4})\b/);
+  const time = pick(/(?:start\s*time|pickup\s*time|trip\s*time|departure\s*time|time)[\s:#-]+([0-9: apm.]+)/i, /\b([0-9]{1,2}:[0-9]{2}\s*(?:am|pm)?)\b/i);
+  const customerName = pick(/customer(?:\s*name)?[\s:#-]+([^\n,;]+)/i, /bill\s*to[\s:#-]+([^\n,;]+)/i, /(?:guest|client)\s*name[\s:#-]+([^\n,;]+)/i, /name[\s:#-]+([^\n,;]+)/i);
+  const notes = pick(/notes?[\s:#-]+([^\n]+)/i, /message[\s:#-]+([^\n]+)/i, /special\s*instructions?[\s:#-]+([^\n]+)/i);
   return {
-    invoiceNumber: pick(/invoice\s*(?:number|#|no\.?)[\s:#-]*([A-Z0-9-]+)/i),
-    quoteNumber: pick(/quote\s*(?:number|#|no\.?)[\s:#-]*([A-Z0-9-]+)/i),
-    customerName: pick(/customer(?:\s*name)?[\s:#-]+([^\n,;]+)/i, /bill\s*to[\s:#-]+([^\n,;]+)/i, /name[\s:#-]+([^\n,;]+)/i),
-    phone: normalizePhoneNumber(pick(/(?:phone|mobile|cell)[\s:#-]+([+0-9 ()-]{7,})/i)),
+    invoiceNumber: pick(/invoice\s*(?:number|#|no\.?)?[\s:#-]*([A-Z0-9-]+)/i),
+    quoteNumber: pick(/quote\s*(?:number|#|no\.?)?[\s:#-]*([A-Z0-9-]+)/i),
+    customerName,
+    phone: normalizePhoneNumber(pick(/(?:phone|mobile|cell|tel)[\s:#-]+([+0-9 ()-]{7,})/i)),
     email: pick(/([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})/i),
     tripDate: normalizeDateInput(date),
-    startTime: normalizeTimeInput(pick(/(?:start\s*time|pickup\s*time|trip\s*time)[\s:#-]+([0-9: apm.]+)/i)),
+    startTime: normalizeTimeInput(time),
     departureTime: normalizeTimeInput(pick(/departure\s*time[\s:#-]+([0-9: apm.]+)/i)),
-    returnTime: normalizeTimeInput(pick(/return\s*time[\s:#-]+([0-9: apm.]+)/i)),
-    tourType: pick(/(?:tour\s*type|product|package)[\s:#-]+([^\n,;]+)/i),
-    guestCount: pick(/(?:guest\s*count|guests|passengers|pax)[\s:#-]+(\d+)/i),
-    bookingSource: pick(/booking\s*source[\s:#-]+([^\n,;]+)/i),
+    returnTime: normalizeTimeInput(pick(/(?:return|end)\s*time[\s:#-]+([0-9: apm.]+)/i)),
+    tourType: pick(/(?:tour\s*type|tour|product|package|service)[\s:#-]+([^\n,;]+)/i),
+    guestCount: pick(/(?:guest\s*count|guests|passengers|pax|party\s*size)[\s:#-]+(\d+)/i),
+    bookingSource: pick(/booking\s*source[\s:#-]+([^\n,;]+)/i, /source[\s:#-]+([^\n,;]+)/i),
     vessel: pick(/(?:vessel|boat)[\s:#-]+([^\n,;]+)/i), captain: pick(/captain[\s:#-]+([^\n,;]+)/i), mate: pick(/mate[\s:#-]+([^\n,;]+)/i),
-    tourPrice: moneyPick(/(?:tour\s*price|total|amount)[\s:#-]+\$?([0-9,]+(?:\.\d{2})?)/i),
+    tourPrice: moneyPick(/(?:tour\s*price|price|total|amount|subtotal)[\s:#-]+\$?([0-9,]+(?:\.\d{2})?)/i),
     depositPaid: moneyPick(/deposit(?:\s*paid)?[\s:#-]+\$?([0-9,]+(?:\.\d{2})?)/i),
-    balanceDue: moneyPick(/balance(?:\s*due)?[\s:#-]+\$?([0-9,]+(?:\.\d{2})?)/i),
-    paymentStatus: pick(/payment\s*status[\s:#-]+([^\n,;]+)/i), paymentMethod: pick(/payment\s*method[\s:#-]+([^\n,;]+)/i),
+    balanceDue: moneyPick(/balance(?:\s*due)?[\s:#-]+\$?([0-9,]+(?:\.\d{2})?)/i, /amount\s*due[\s:#-]+\$?([0-9,]+(?:\.\d{2})?)/i),
+    paymentStatus: pick(/payment\s*status[\s:#-]+([^\n,;]+)/i), paymentMethod: pick(/payment\s*method[\s:#-]+([^\n,;]+)/i, /paid\s*by[\s:#-]+([^\n,;]+)/i),
     pickupLocation: pick(/pickup\s*location[\s:#-]+([^\n;]+)/i), cruiseShip: pick(/cruise\s*ship[\s:#-]+([^\n;]+)/i),
-    specialRequests: pick(/special\s*requests?[\s:#-]+([^\n;]+)/i), notes: pick(/notes?[\s:#-]+([^\n]+)/i)
+    specialRequests: pick(/special\s*requests?[\s:#-]+([^\n;]+)/i), notes
   };
-}
-
-function normalizeDateInput(value) {
-  if (!value) return '';
-  const parts = String(value).match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{2,4})$/);
-  if (parts) return `${parts[3].length === 2 ? '20' + parts[3] : parts[3]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
-  return value;
 }
 
 function renderUploadReview(route = currentRoute, review = store.uploadReviews.find((item) => item.id === activeUploadReviewId)) {
   const host = document.querySelector(`[data-upload-review-host="${route}"]`) || document.querySelector(`#page-${route} .page-stack`);
   if (!host || !review) return;
-  const fields = uploadReviewFields.map(([key, label]) => `<div class="field ${review.extracted[key] ? '' : 'needs-review'}"><label for="upload-${key}">${label}${review.extracted[key] ? '' : ' — needs review'}</label>${['specialRequests','notes'].includes(key) ? `<textarea id="upload-${key}" name="${key}">${escapeHtml(review.extracted[key] || '')}</textarea>` : `<input id="upload-${key}" name="${key}" type="${['tourPrice','depositPaid','balanceDue','guestCount'].includes(key) ? 'number' : key.includes('Time') ? 'time' : key === 'tripDate' ? 'date' : 'text'}" value="${escapeHtml(review.extracted[key] || '')}">`}</div>`).join('');
-  host.innerHTML = `<form class="card upload-review-card record-form" data-upload-review-form data-review-id="${review.id}"><div class="card-header"><div><p class="eyebrow">Extracted Quote / Invoice Details</p><h3>Review before schedule</h3><p class="muted-text">File: ${escapeHtml(review.fileName)}. Blank fields are highlighted for review. Do not auto-save without review.</p></div>${voiceFillButton(route)}</div>${naturalSentenceModeHint()}${review.duplicateId ? `<div class="duplicate-warning"><strong>Possible Duplicate Found</strong><p>Same customer/date/time may already exist.</p><div class="form-actions"><button class="btn btn-primary btn-small" type="button" data-duplicate-action="update">Update Existing</button><button class="btn btn-outline btn-small" type="button" data-duplicate-action="new">Create New Anyway</button><button class="btn btn-danger btn-small" type="button" data-duplicate-action="cancel">Cancel</button></div></div>` : ''}<div class="form-grid">${fields}</div><div class="form-actions sticky-save-controls"><button class="btn btn-primary" type="button" data-upload-action="booking">Create Booking</button><button class="btn btn-primary" type="button" data-upload-action="invoice">Create Invoice</button><button class="btn btn-primary" type="button" data-upload-action="trip">Create Trip</button><button class="btn btn-outline" type="button" data-upload-action="schedule">Add to Schedule</button><button class="btn btn-danger" type="button" data-upload-action="cancel">Cancel</button></div></form>`;
+  const fields = uploadReviewFields.map(([key, label]) => `<div class="field ${review.extracted[key] ? '' : 'needs-review'}"><label for="upload-${key}">${label}${review.extracted[key] ? '' : ' — needs review'}</label>${['specialRequests','notes'].includes(key) ? `<textarea id="upload-${key}" name="${key}">${escapeHtml(review.extracted[key] || '')}</textarea>` : `<input id="upload-${key}" name="${key}" type="${['tourPrice','depositPaid','balanceDue','guestCount'].includes(key) ? 'number' : key.includes('Time') ? 'time' : key === 'tripDate' ? 'date' : key === 'email' ? 'email' : key === 'phone' ? 'tel' : 'text'}" value="${escapeHtml(review.extracted[key] || '')}">`}</div>`).join('');
+  const scoreRows = Object.entries(review.classificationScores || {}).map(([type, score]) => `<span class="badge ${type === review.documentType ? 'green' : 'blue'}">${escapeHtml(type)} ${escapeHtml(score)}</span>`).join(' ');
+  const actionMarkup = renderUploadReviewActions(review.documentType);
+  host.innerHTML = `<form class="card upload-review-card record-form" data-upload-review-form data-review-id="${review.id}"><div class="card-header"><div><p class="eyebrow">Smart Document Intake</p><h3>Review before saving</h3><p class="muted-text">Extracted Quote / Invoice Details are now part of classified smart intake.</p><p class="muted-text">File: ${escapeHtml(review.fileName)} · ${escapeHtml(review.extractionMethod || 'Text extraction')}. Never automatically saves records.</p></div>${voiceFillButton(route)}</div>${naturalSentenceModeHint()}${review.extractionWarning ? `<div class="intake-warning"><strong>OCR warning</strong><p>${escapeHtml(review.extractionWarning)}</p></div>` : ''}<div class="intake-detection-grid"><div><span class="intake-label">Document Type Detected</span><select name="documentType" data-document-type-select>${supportedIntakeDocumentTypes.map((type) => `<option value="${escapeHtml(type)}" ${type === review.documentType ? 'selected' : ''}>${escapeHtml(type)}</option>`).join('')}</select><div class="classification-scores">${scoreRows}</div></div><div><span class="intake-label">User Review Required</span><strong class="badge gold">Approval required before save</strong><label class="review-approval"><input type="checkbox" name="userApproved" value="Yes"> I reviewed the detected type and extracted fields.</label></div></div><div class="extracted-fields-heading"><h4>Extracted Fields</h4><p>Auto mapping covers Customer Name, Phone, Email, Date, Time, Guest Count, Tour Type, Price, Deposit, Balance, Payment Method, and Notes.</p></div>${review.duplicateId ? `<div class="duplicate-warning"><strong>Possible Duplicate Found</strong><p>Same customer/date/time may already exist.</p><div class="form-actions"><button class="btn btn-primary btn-small" type="button" data-duplicate-action="update">Update Existing</button><button class="btn btn-outline btn-small" type="button" data-duplicate-action="new">Create New Anyway</button><button class="btn btn-danger btn-small" type="button" data-duplicate-action="cancel">Cancel</button></div></div>` : ''}<div class="form-grid">${fields}</div><details class="source-preview"><summary>OCR / parsed text preview</summary><pre>${escapeHtml(review.sourceTextPreview || 'No text preview available.')}</pre></details><div class="form-actions sticky-save-controls">${actionMarkup}<button class="btn btn-danger" type="button" data-upload-action="cancel">Cancel</button></div></form>`;
+}
+
+function renderUploadReviewActions(documentType = 'Unknown') {
+  const button = (action, label, style = 'btn-primary') => `<button class="btn ${style}" type="button" data-upload-action="${action}">${label}</button>`;
+  if (documentType === 'Booking' || documentType === 'Tour Confirmation') return `${button('booking', 'Create Booking')}${button('trip', 'Create Trip')}${button('assign-crew', 'Assign Crew', 'btn-outline')}`;
+  if (documentType === 'Invoice' || documentType === 'Receipt') return `${button('invoice', 'Create Invoice')}${button('link-customer', 'Link Customer', 'btn-outline')}`;
+  if (documentType === 'Quote') return `${button('quote', 'Create Quote')}${button('convert-booking', 'Convert To Booking', 'btn-outline')}`;
+  return `${button('booking', 'Create Booking', 'btn-outline')}${button('invoice', 'Create Invoice', 'btn-outline')}${button('quote', 'Create Quote', 'btn-outline')}${button('trip', 'Create Trip', 'btn-outline')}`;
 }
 
 function uploadReviewData() {
@@ -608,24 +726,46 @@ function handleUploadDuplicateAction(action) {
 function handleUploadReviewAction(action) {
   if (action === 'cancel') { document.querySelector('[data-upload-review-form]')?.remove(); activeUploadReviewId = ''; toast('Upload review cancelled.'); return; }
   const data = uploadReviewData();
+  const review = store.uploadReviews.find((item) => item.id === activeUploadReviewId || item.id === document.querySelector('[data-upload-review-form]')?.dataset.reviewId);
+  if (data.userApproved !== 'Yes') { addNotification('User review required', `${data.customerName || 'Uploaded document'} must be approved before saving.`, 'warning', { category: 'Upload', reviewId: review?.id }); saveStore(); toast('User Review Required. Approve before saving.'); return; }
   if (findUploadDuplicate(data) && pendingDuplicateAction !== 'update' && pendingDuplicateAction !== 'new') { addNotification('Possible duplicate detected', `${data.customerName || 'Uploaded trip'} requires duplicate review.`, 'warning', { category: 'Upload' }); saveStore(); toast('Possible Duplicate Found. Choose an option first.'); return; }
-  if (action === 'booking') createBookingFromUpload(data);
-  if (action === 'invoice') createInvoiceFromUpload(data);
-  if (action === 'trip' || action === 'schedule') createTripFromUpload(data, action === 'schedule');
+  if (review) Object.assign(review, { documentType: data.documentType || review.documentType, reviewStatus: 'Approved', approvedAt: new Date().toISOString(), approvedBy: currentUserLabel(), approvedAction: action, extracted: { ...review.extracted, ...data } });
+  if (action === 'booking' || action === 'convert-booking') createBookingFromUpload(data);
+  if (action === 'invoice' || action === 'link-customer') createInvoiceFromUpload(data, action === 'link-customer');
+  if (action === 'quote') createQuoteFromUpload(data);
+  if (action === 'trip' || action === 'schedule' || action === 'assign-crew') createTripFromUpload(data, action === 'schedule' || action === 'assign-crew');
+  addAudit('approved', 'Smart Document Intake', `User approved ${data.documentType || 'document'} intake action: ${action}.`, { reviewId: review?.id || '', action, documentType: data.documentType || '' });
   pendingDuplicateAction = '';
   saveStore();
-  renderRoute(currentRoute);
-  toast(`${action === 'schedule' ? 'Trip added to calendar' : action + ' created'} from upload.`);
+  renderRoute(action === 'assign-crew' ? 'trips' : currentRoute);
+  toast(`${uploadActionLabel(action)} completed after review.`);
+}
+
+function uploadActionLabel(action) {
+  return { booking: 'Create Booking', 'convert-booking': 'Convert To Booking', invoice: 'Create Invoice', 'link-customer': 'Link Customer', quote: 'Create Quote', trip: 'Create Trip', schedule: 'Add to Schedule', 'assign-crew': 'Assign Crew' }[action] || action;
 }
 
 function createBookingFromUpload(data) {
   const booking = { id: makeId('bookings'), order: data.quoteNumber || data.invoiceNumber || '', customer: data.customerName || '', date: data.tripDate || '', time: data.startTime || data.departureTime || '', guests: Number(data.guestCount || 0), product: data.tourType || '', source: data.bookingSource || '', balance: Number(data.balanceDue || 0), status: Number(data.balanceDue || 0) > 0 ? 'Balance due' : 'Inquiry', notes: [data.specialRequests, data.notes].filter(Boolean).join('\n') };
-  store.bookings.push(booking); addAudit('created', 'Quote / Invoice Upload', `Booking created from uploaded invoice for ${booking.customer || 'customer'}.`, { bookingId: booking.id }); addNotification('Booking created from uploaded invoice.', `${booking.customer || 'Customer'} booking was created after review.`, 'success', { category: 'Upload', bookingId: booking.id });
+  store.bookings.push(booking); addAudit('created', 'Smart Document Intake', `Booking created from reviewed upload for ${booking.customer || 'customer'}.`, { bookingId: booking.id }); addNotification('Booking created from uploaded invoice.', `${booking.customer || 'Customer'} booking was created after review.`, 'success', { category: 'Upload', bookingId: booking.id });
 }
-function createInvoiceFromUpload(data) {
-  const invoice = { id: makeId('invoices'), invoiceNumber: data.invoiceNumber || data.quoteNumber || `INV-${Date.now()}`, documentType: data.invoiceNumber ? 'Invoice' : 'Quote', customerName: data.customerName || '', phone: data.phone || '', email: data.email || '', tripDate: data.tripDate || '', startTime: data.startTime || data.departureTime || '', endTime: data.returnTime || '', tourType: data.tourType || '', guestCount: Number(data.guestCount || 0), pickupLocation: data.pickupLocation || '', vessel: data.vessel || '', bookingSource: data.bookingSource || '', tourPrice: Number(data.tourPrice || 0), depositPaid: Number(data.depositPaid || 0), balanceDue: Number(data.balanceDue || 0), paymentStatus: data.paymentStatus || (Number(data.balanceDue || 0) > 0 ? 'Balance Due' : 'Deposit Due'), paymentMethod: data.paymentMethod || '', notes: [data.cruiseShip && `Cruise Ship: ${data.cruiseShip}`, data.specialRequests, data.notes].filter(Boolean).join('\n') };
-  store.invoices.push(invoice); addAudit('created', 'Quote / Invoice Upload', `Invoice created from upload for ${invoice.customerName || 'customer'}.`, { invoiceId: invoice.id }); addNotification('Invoice created from upload.', `${invoice.invoiceNumber} was created after review.`, 'success', { category: 'Upload', invoiceId: invoice.id });
+function createInvoiceFromUpload(data, linkCustomer = false) {
+  const linked = linkCustomer ? findRelatedCustomerRecord(data) : {};
+  const invoice = { id: makeId('invoices'), invoiceNumber: data.invoiceNumber || data.quoteNumber || `INV-${Date.now()}`, documentType: data.documentType === 'Receipt' ? 'Invoice' : data.documentType || (data.invoiceNumber ? 'Invoice' : 'Quote'), customerName: data.customerName || '', phone: data.phone || '', email: data.email || '', tripDate: data.tripDate || '', startTime: data.startTime || data.departureTime || '', endTime: data.returnTime || '', tourType: data.tourType || '', guestCount: Number(data.guestCount || 0), pickupLocation: data.pickupLocation || '', vessel: data.vessel || '', bookingSource: data.bookingSource || '', tourPrice: Number(data.tourPrice || 0), depositPaid: Number(data.depositPaid || 0), balanceDue: Number(data.balanceDue || 0), paymentStatus: data.paymentStatus || (Number(data.balanceDue || 0) > 0 ? 'Balance Due' : 'Deposit Due'), paymentMethod: data.paymentMethod || '', bookingId: linked.bookingId || data.bookingId || '', tripId: linked.tripId || data.tripId || '', notes: [data.cruiseShip && `Cruise Ship: ${data.cruiseShip}`, data.specialRequests, data.notes].filter(Boolean).join('\n') };
+  store.invoices.push(invoice); addAudit('created', 'Smart Document Intake', `${linkCustomer ? invoice.documentType + ' created and linked' : invoice.documentType + ' created'} from reviewed upload for ${invoice.customerName || 'customer'}.`, { invoiceId: invoice.id, bookingId: invoice.bookingId, tripId: invoice.tripId }); addNotification(invoice.documentType === 'Quote' ? 'Quote created from upload.' : 'Invoice created from upload.', `${invoice.invoiceNumber} was created after review.`, 'success', { category: 'Upload', invoiceId: invoice.id });
 }
+function createQuoteFromUpload(data) {
+  createInvoiceFromUpload({ ...data, documentType: 'Quote', invoiceNumber: data.quoteNumber || data.invoiceNumber || `QUOTE-${Date.now()}` });
+}
+
+function findRelatedCustomerRecord(data = {}) {
+  const customer = String(data.customerName || '').toLowerCase().trim();
+  if (!customer) return {};
+  const booking = store.bookings.find((item) => String(item.customer || '').toLowerCase().trim() === customer);
+  const trip = store.trips.find((item) => String(item.customer || '').toLowerCase().trim() === customer);
+  return { bookingId: booking?.id || '', tripId: trip?.id || '' };
+}
+
 function createTripFromUpload(data, scheduleOnly = false) {
   const duplicate = findUploadDuplicate(data);
   const trip = duplicate && pendingDuplicateAction === 'update' ? duplicate : { id: makeId('trips') };
@@ -633,7 +773,7 @@ function createTripFromUpload(data, scheduleOnly = false) {
   trip.dispatchReadinessStatus = calculateDispatchReadiness(trip);
   if (!trip.vessel || !trip.captain || !trip.mate) trip.unassignedReason = 'Unassigned';
   if (!duplicate || pendingDuplicateAction !== 'update') store.trips.push(trip);
-  addAudit(duplicate && pendingDuplicateAction === 'update' ? 'updated' : 'created', 'Quote / Invoice Upload', `${scheduleOnly ? 'Trip added to calendar' : 'Trip created'} from upload for ${trip.customer || 'customer'}.`, { tripId: trip.id });
+  addAudit(duplicate && pendingDuplicateAction === 'update' ? 'updated' : 'created', 'Smart Document Intake', `${scheduleOnly ? 'Trip added to calendar' : 'Trip created'} from upload for ${trip.customer || 'customer'}.`, { tripId: trip.id });
   addNotification(scheduleOnly ? 'Trip added to calendar.' : 'Trip created from upload.', `${trip.customer || 'Trip'} is scheduled for ${formatDate(trip.tripDate)}.`, 'success', { category: 'Upload', tripId: trip.id });
 }
 
@@ -1961,6 +2101,14 @@ function applyVoiceTranscript(form, transcript) {
   addAudit('voice-fill', currentRoute, `Voice fill parsed fields for ${currentRoute}.`, { transcriptLength: clean.length });
   saveStore();
   toast('Voice fill populated matching fields. Review before saving.');
+}
+
+function normalizeDateInput(value) {
+  if (!value) return '';
+  const text = String(value).trim();
+  const parts = text.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{2,4})$/);
+  if (parts) return `${parts[3].length === 2 ? '20' + parts[3] : parts[3]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
+  return text;
 }
 
 function normalizeTimeInput(value) {
