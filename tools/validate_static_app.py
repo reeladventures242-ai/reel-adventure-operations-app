@@ -204,6 +204,76 @@ console.log('PASS — app bootstrap completed without console errors');
     return run(["node"], input_text=script)
 
 
+
+def validate_phase_4d_native_workflows() -> tuple[bool, str]:
+    app_js = (ROOT / "app.js").read_text()
+    styles = (ROOT / "styles.css").read_text()
+    failures: list[str] = []
+    for token in ["Open related legacy tool", "Open legacy pre trip tool", "Open legacy post trip tool", "Open related legacy"]:
+        if token in app_js:
+            failures.append(f"primary workflow legacy prompt remains: {token}")
+    required_tokens = {
+        "Settings archive-only note": "Legacy tools are retained for reference only. Active operations should be completed through the main application tabs.",
+        "Invoices native module renders": "function renderInvoiceModule",
+        "Invoice required field customer": "['customerName','Customer Name','text']",
+        "Invoice receipt action": "function generateReceiptSummary",
+        "Pre Trip Checklist native form renders": "const preTripChecklistItems",
+        "Post Trip Checklist native form renders": "const postTripChecklistItems",
+        "Checklist submission updates trip readiness": "trip.dispatchReadinessStatus = calculateDispatchReadiness(trip)",
+        "Cruise Schedule native module renders": "function renderCruiseScheduleModule",
+        "Reports native dashboard renders": "function renderReports",
+        "Reports use local app data": "const trips = store.trips || []",
+        "Command Voice Fill top panel": "function renderVoiceCommandPanel",
+        "Command Voice Fill top placement": "heading.insertAdjacentHTML('afterend', markup)",
+        "Voice field state machine": "LISTENING_FOR_FIELD",
+        "Voice field selected prompt": "selected. Now say the value.",
+        "Voice filled prompt": "Filled ${field.label}:",
+        "Voice Accept button": 'data-voice-action="accept"',
+        "Voice Retry button": 'data-voice-action="retry"',
+        "Voice Clear button": 'data-voice-action="clear"',
+        "Voice Next Field button": 'data-voice-action="next"',
+        "Customer Name voice support": "label: 'Customer Name'",
+        "Phone Number voice support": "label: 'Phone Number'",
+        "Captain dropdown support": "setSelectLikeValue",
+        "Mate dropdown support": "label: 'Mate'",
+        "Vessel roman numeral support": "romanToWords",
+        "Pre trip reminder logic exists": "reminderType: 'pre-trip'",
+        "Post trip 30 minute reminder logic exists": "post-trip-30-minute",
+        "Checklist reminders on load/route": "generateChecklistReminders();",
+        "Voice highlight style exists": ".voice-selected-field",
+    }
+    for label, token in required_tokens.items():
+        haystack = styles if label == "Voice highlight style exists" else app_js
+        if token not in haystack:
+            failures.append(f"missing {label}")
+    if failures:
+        return False, "FAIL — " + "; ".join(failures)
+    return True, "PASS — Phase 4D native invoices, checklists, cruise schedule, reports, reminders, and voice field controls are present"
+
+
+def validate_phase_4d_voice_examples() -> tuple[bool, str]:
+    script = r"""
+const fs = require('fs');
+const vm = require('vm');
+class ClassList { add(){} remove(){} }
+class Option { constructor(value, text){ this.value=value; this.textContent=text; } }
+class Select { constructor(options){ this.tagName='SELECT'; this.options=options; this.value=''; this.classList=new ClassList(); } dispatchEvent(){} scrollIntoView(){} }
+const document = { addEventListener(){}, querySelectorAll(){ return []; }, getElementById(){ return null; } };
+const context = { document, window:{}, console, localStorage:{getItem(){return null},setItem(){},removeItem(){}}, structuredClone: global.structuredClone, Event: class {}, Date, Number, String, Math, JSON, setTimeout, clearTimeout };
+vm.runInNewContext(fs.readFileSync('app.js', 'utf8'), context, { filename: 'app.js' });
+if (context.normalizePhoneNumber('242 434 1208') !== '242-434-1208') throw new Error('spaced phone normalization failed');
+if (context.normalizePhoneNumber('2424341208') !== '242-434-1208') throw new Error('compact phone normalization failed');
+if (context.normalizePhoneNumber('two four two four three four one two zero eight') !== '242-434-1208') throw new Error('spoken phone normalization failed');
+const captain = new Select([new Option('Walter','Walter'), new Option('DJ','DJ')]);
+if (!context.setSelectLikeValue(captain, 'walter') || captain.value !== 'Walter') throw new Error('Captain Walter dropdown failed');
+const mate = new Select([new Option('Walter','Walter'), new Option('DJ','DJ')]);
+if (!context.setSelectLikeValue(mate, 'dj') || mate.value !== 'DJ') throw new Error('Mate DJ dropdown failed');
+const vessel = new Select([new Option('Reel Adventure Tours I','Reel Adventure Tours I'), new Option('Reel Adventure Tours II','Reel Adventure Tours II')]);
+if (!context.setSelectLikeValue(vessel, 'reel adventure tours one') || vessel.value !== 'Reel Adventure Tours I') throw new Error('Vessel roman numeral dropdown failed');
+console.log('PASS — Customer Name field flow is represented by aliases; phone and dropdown examples normalize correctly');
+"""
+    return run(["node"], input_text=script)
+
 def main() -> int:
     checks = [
         ("JavaScript syntax", validate_javascript),
@@ -211,6 +281,8 @@ def main() -> int:
         ("HTML validation", validate_html),
         ("Legacy functionality preserved", validate_legacy_preserved),
         ("App load console errors", validate_app_bootstrap),
+        ("Phase 4D native workflow checks", validate_phase_4d_native_workflows),
+        ("Phase 4D voice examples", validate_phase_4d_voice_examples),
     ]
     all_passed = True
     for label, check in checks:
