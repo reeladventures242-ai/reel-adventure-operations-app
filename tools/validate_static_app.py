@@ -169,7 +169,7 @@ class Element {
   querySelector(){ return null; }
   querySelectorAll(){ return []; }
 }
-const ids = ['toast','loginScreen','appShell','roleSelect','enterAppBtn','activeRole','menuBtn','sidebar','sidebarOverlay','primaryNav','installBtn','pageTitle','page-dashboard','page-bookings','page-invoices','page-trips','page-captain-dashboard','page-mate-dashboard','page-owner-dashboard','page-vessels','page-crew','page-payroll','page-expenses','page-inventory','page-incident-reports','page-pre-trip-checklist','page-post-trip-checklist','page-cruise-schedule','page-reports','page-notifications','page-audit','page-settings','page-legacy'];
+const ids = ['toast','loginScreen','appShell','roleSelect','enterAppBtn','activeRole','menuBtn','sidebar','sidebarOverlay','primaryNav','installBtn','pageTitle','page-dashboard','page-bookings','page-invoices','page-trips','page-calendar','page-captain-dashboard','page-mate-dashboard','page-owner-dashboard','page-vessels','page-crew','page-payroll','page-expenses','page-inventory','page-incident-reports','page-pre-trip-checklist','page-post-trip-checklist','page-cruise-schedule','page-reports','page-notifications','page-audit','page-settings','page-legacy'];
 const elements = Object.fromEntries(ids.map(id => [id, new Element(id)]));
 for (const id of ids.filter(id => id.startsWith('page-'))) elements[id].classList.add('page');
 const listeners = {};
@@ -376,6 +376,57 @@ def validate_phase_4f_legacy_parity() -> tuple[bool, str]:
         return False, "FAIL — " + "; ".join(failures)
     return True, "PASS — Phase 4F legacy audit, checklist parity, invoice parity, cruise fields, inventory alerts, payroll statements, reimbursement fields, reports, voice fill, and archive safeguards are present"
 
+
+def validate_phase_4g_upload_calendar() -> tuple[bool, str]:
+    app_js = (ROOT / "app.js").read_text()
+    index_html = (ROOT / "index.html").read_text()
+    combined = app_js + index_html
+    required_tokens = {
+        "Drag and drop upload zone exists": "data-upload-zone",
+        "Mobile upload button exists": "Take Photo",
+        "Upload review screen exists": "Extracted Quote / Invoice Details",
+        "Extracted fields review exists": "uploadReviewFields",
+        "Create Booking from upload exists": "Create Booking",
+        "Create Invoice from upload exists": "Create Invoice",
+        "Create Trip from upload exists": "Create Trip",
+        "Add to Schedule exists": "Add to Schedule",
+        "PDF uploads supported": ".pdf",
+        "Image uploads supported": "image/*",
+        "HTML uploads supported": ".html",
+        "Text uploads supported": ".txt",
+        "CSV uploads supported": ".csv",
+        "JSON uploads supported": ".json",
+        "Duplicate review exists": "Possible Duplicate Found",
+        "Update existing duplicate option exists": "Update Existing",
+        "Create new anyway duplicate option exists": "Create New Anyway",
+        "Calendar native tab exists": "page-calendar",
+        "Calendar month view exists": "Month View",
+        "Calendar week view exists": "Week View",
+        "Calendar day view exists": "Day View",
+        "Agenda view exists": "Agenda View",
+        "Role based calendar filtering exists": "visibleCalendarTrips",
+        "Admin can see all trips": "role === 'Admin'",
+        "Owner sees only owned vessel trips": "ownerForVesselName(trip.vessel) === person",
+        "Captain sees only captain assigned trips": "trip.captain === person",
+        "Mate sees only mate assigned trips": "trip.mate === person",
+        "Bookkeeper sees financial calendar view": "Bookkeeper financial calendar view",
+        "Calendar day counts show number of tours": "Tours",
+        "Calendar day cards show readiness and balance status": "Balance Due",
+        "Notifications and audit entries are created for upload actions": "Booking created from uploaded invoice.",
+        "Trip added to calendar notification exists": "Trip added to calendar.",
+        "Invoice created from upload notification exists": "Invoice created from upload.",
+        "Upload parsing failed notification exists": "Upload parsing failed",
+        "Upload review supports voice fill": "data-upload-review-form",
+        "Calendar day schedule supports voice fill": "Day Schedule",
+        "Quick filters exist": "data-calendar-filter",
+        "Unassigned Trips marker exists": "Unassigned",
+        "Status colors exist": "calendarStatusClass",
+    }
+    failures = [label for label, token in required_tokens.items() if token not in combined]
+    if failures:
+        return False, "FAIL — " + "; ".join(f"missing {label}" for label in failures)
+    return True, "PASS — Phase 4G upload intake, editable review, duplicate handling, upload-created records, role-filtered calendar views, mobile upload controls, statuses, notifications, audit entries, and voice-fill hooks are present"
+
 def main() -> int:
     checks = [
         ("JavaScript syntax", validate_javascript),
@@ -387,6 +438,7 @@ def main() -> int:
         ("Phase 4E mobile redesign checks", validate_phase_4e_mobile_redesign),
         ("Phase 4D voice examples", validate_phase_4d_voice_examples),
         ("Phase 4F legacy parity correction", validate_phase_4f_legacy_parity),
+        ("Phase 4G upload and calendar checks", validate_phase_4g_upload_calendar),
     ]
     all_passed = True
     for label, check in checks:
