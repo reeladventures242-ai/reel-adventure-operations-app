@@ -319,6 +319,63 @@ console.log('PASS — Customer Name field flow is represented by aliases; phone 
 """
     return run(["node"], input_text=script)
 
+
+def validate_phase_4f_legacy_parity() -> tuple[bool, str]:
+    app_js = (ROOT / "app.js").read_text()
+    failures: list[str] = []
+    required_tokens = {
+        "Legacy audit object exists": "const legacyFeatureAudit",
+        "Pre trip audited file documented": "RAT-PreTrip-VesselCheck.html",
+        "Post trip audited file documented": "RAT-PostTrip-VesselCheck.html",
+        "Invoice audited file documented": "customer-invoice.html",
+        "Cruise dashboard audited file documented": "reel_adventure_tours_dashboard.html",
+        "Operations v5 audited file documented": "ReelAdventureTours_App_v5.html",
+        "Pre trip stock parity rum": "Rum — minimum 3 bottles required on board",
+        "Pre trip bilge parity": "Bilge Pump 1 — Tested and confirmed working",
+        "Pre trip export parity": "Preview / Print / Save PDF",
+        "Post trip remaining stock parity": "Rum remaining — minimum 3 bottles needed for next charter",
+        "Post trip flush parity": "Engine 1 flushed today after this trip",
+        "Post trip captain confirmation": "Captain confirmation / initials",
+        "Invoice pickup parity": "Pickup Location",
+        "Invoice second boat parity": "Add Second Boat",
+        "Invoice deposit percent parity": "Deposit Percent",
+        "Invoice receipt summary parity": "Customer-Facing Summary",
+        "Cruise opportunity fields": "Facebook Search Term",
+        "Cruise posted status": "Posted?",
+        "Inventory default water": "name: 'Water'",
+        "Inventory default soda": "name: 'Coke'",
+        "Inventory default rum punch": "name: 'Rum Punch Mixed & Ready'",
+        "Inventory default ice": "name: 'Ice'",
+        "Inventory default snacks": "name: 'Chips / Snacks'",
+        "Inventory default cups": "name: 'Cups'",
+        "Inventory default napkins": "name: 'Napkins'",
+        "Inventory default trash bags": "name: 'Trash Bags'",
+        "Inventory default cleaning supplies": "name: 'Cleaning Supplies'",
+        "Inventory default snorkel gear": "name: 'Snorkel Gear'",
+        "Inventory default life jackets": "name: 'Life Jackets'",
+        "Inventory default fuel": "name: 'Fuel'",
+        "Inventory alert function": "function inventoryAlerts",
+        "Dashboard low stock alerts": "Low Stock Alerts",
+        "Checklist inventory sync": "function syncChecklistInventory",
+        "Notifications display targets": "'Dispatch Tree', 'Notifications'",
+        "Payroll person statements": "function renderPersonStatementSummary",
+        "Payroll owner/captain/mate statements": "Owner Statements",
+        "Expenses reimbursement fields": "Reimbursement Status",
+        "Reports local data no legacy dependency": "Native reports dashboard",
+        "Settings archive remains": "Archived Legacy Tools",
+        "Voice top migrated forms": "renderVoiceCommandPanel(route)",
+    }
+    for label, token in required_tokens.items():
+        if token not in app_js:
+            failures.append(f"missing {label}")
+    forbidden = ["Open related legacy tool", "Open legacy pre trip tool", "Open legacy post trip tool"]
+    for token in forbidden:
+        if token in app_js:
+            failures.append(f"active workflow legacy link remains: {token}")
+    if failures:
+        return False, "FAIL — " + "; ".join(failures)
+    return True, "PASS — Phase 4F legacy audit, checklist parity, invoice parity, cruise fields, inventory alerts, payroll statements, reimbursement fields, reports, voice fill, and archive safeguards are present"
+
 def main() -> int:
     checks = [
         ("JavaScript syntax", validate_javascript),
@@ -329,6 +386,7 @@ def main() -> int:
         ("Phase 4D native workflow checks", validate_phase_4d_native_workflows),
         ("Phase 4E mobile redesign checks", validate_phase_4e_mobile_redesign),
         ("Phase 4D voice examples", validate_phase_4d_voice_examples),
+        ("Phase 4F legacy parity correction", validate_phase_4f_legacy_parity),
     ]
     all_passed = True
     for label, check in checks:
