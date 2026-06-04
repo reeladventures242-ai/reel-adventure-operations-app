@@ -1,5 +1,5 @@
 const STORE_KEY = 'rat_ops_v1_store';
-const STORE_VERSION = 11;
+const STORE_VERSION = 12;
 
 const navItems = [
   ['dashboard', '🏠', 'Dashboard'], ['bookings', '📘', 'Bookings'], ['invoices', '🧾', 'Invoice / Quote'],
@@ -126,8 +126,8 @@ const crudConfig = {
   },
   vessels: {
     title: 'Vessels', eyebrow: 'Simple CRUD', summary: 'Manage boats and owner payout defaults from the documented legacy payout rules.', collection: 'vessels', addLabel: 'Add vessel',
-    fields: [['name','Vessel name','text'], ['model','Model','text'], ['owner','Owner','select:owners'], ['capacity','Capacity','number'], ['status','Status','text'], ['readinessStatus','Readiness status','select:vesselReadiness'], ['notes','Notes','textarea']],
-    columns: [['name','Vessel'], ['model','Model'], ['owner','Owner'], ['capacity','Capacity'], ['status','Status'], ['readinessStatus','Readiness'], ['notes','Notes']]
+    fields: [['name','Vessel Name','text'], ['model','Model / Description','text'], ['owner','Owner','select:owners'], ['capacity','Capacity','number'], ['status','Status','text'], ['assignedTrips','Assigned Trips','textarea'], ['maintenanceNotes','Maintenance Notes','textarea'], ['readinessSummary','Readiness Summary','textarea'], ['notes','Notes','textarea']],
+    columns: [['name','Vessel Name'], ['model','Model / Description'], ['owner','Owner'], ['capacity','Capacity'], ['status','Status'], ['assignedTrips','Assigned Trips'], ['maintenanceNotes','Maintenance Notes'], ['readinessSummary','Readiness Summary'], ['notes','Notes']]
   },
   expenses: {
     title: 'Expenses', eyebrow: 'Operations costs', summary: 'Capture operating expenses, receipt/photo notes, approvals, and vessel cost alerts directly in the native operations app.', collection: 'expenses', addLabel: 'Add expense',
@@ -136,7 +136,7 @@ const crudConfig = {
   },
   invoices: {
     title: 'Invoice / Quote', eyebrow: 'Native billing', summary: 'Create, edit, link, and settle quotes, invoices, tour confirmations, booking confirmations, and receipts directly in the main operations app.', collection: 'invoices', addLabel: 'Create Invoice / Quote',
-    fields: [['invoiceNumber','Invoice Number','text'], ['documentType','Record Type','select:documentTypes'], ['customerName','Customer Name','text'], ['phone','Phone Number','tel'], ['email','Email','email'], ['tripDate','Trip Date','date'], ['startTime','Start Time','time'], ['endTime','End Time','time'], ['tourType','Tour Package / Product','text'], ['adultCount','Adults on Boat 1','number'], ['kidCount','Kids on Boat 1','number'], ['guestCount','Guest Count','number'], ['pickupLocation','Pickup Location','select:pickupLocations'], ['customPickupLocation','Custom Pickup Location','text'], ['pickupDirections','Directions / Notes','textarea'], ['landingFeeNote','Landing Fee / Note','text'], ['baseTourPrice','Base Tour Price','number'], ['swimmingPigsPeople','Swimming Pigs People ($20/person)','number'], ['secondBoat','Add Second Boat','select:yesNo'], ['boat2Adults','Adults on Boat 2','number'], ['boat2Kids','Kids on Boat 2','number'], ['vessel','Vessel','select:vessels'], ['bookingSource','Booking Source','select:bookingSources'], ['tourPrice','Calculated Tour Price','number'], ['depositPercent','Deposit Percent','number'], ['depositPaid','Deposit Paid','number'], ['balanceDue','Balance Due','number'], ['paymentStatus','Payment Status','select:paymentStatus'], ['paymentMethod','Preferred Payment Method','select:paymentMethods'], ['tripId','Link Invoice to Trip','select:trips'], ['bookingId','Link Invoice to Booking','select:bookings'], ['customerSummary','Customer-Facing Summary','textarea'], ['notes','Notes','textarea']],
+    fields: [['invoiceNumber','Invoice Number','text'], ['documentType','Record Type','select:documentTypes'], ['customerName','Customer Name','text'], ['phone','Phone Number','tel'], ['email','Email','email'], ['tripDate','Trip Date','date'], ['startTime','Start Time','time'], ['endTime','End Time','time'], ['tourType','Tour Package / Product','text'], ['adultCount','Adults on Boat 1','number'], ['kidCount','Kids on Boat 1','number'], ['guestCount','Guest Count','number'], ['pickupLocation','Pickup Location','select:pickupLocations'], ['customPickupLocation','Custom Pickup Location','text'], ['pickupDirections','Directions / Notes','textarea'], ['landingFeeNote','Landing Fee / Note','text'], ['baseTourPrice','Base Tour Price','number'], ['swimmingPigsPeople','Swimming Pigs People ($20/person)','number'], ['secondBoat','Add Second Boat','select:yesNo'], ['boat2Adults','Adults on Boat 2','number'], ['boat2Kids','Kids on Boat 2','number'], ['vessel','Vessel','select:vessels'], ['bookingSource','Booking Source','select:bookingSources'], ['tourPrice','Calculated Tour Price','number'], ['depositPercent','Deposit Percent','number'], ['depositPaid','Deposit Paid','number'], ['balanceDue','Balance Due','number'], ['paymentStatus','Payment Status','select:paymentStatus'], ['paymentMethod','Preferred Payment Method','select:paymentMethods'], ['tripId','Link Invoice to Trip','select:trips'], ['bookingId','Link Invoice to Booking','select:bookings'], ['includedItems','Included in your tour','textarea'], ['whatToBring','What to bring','textarea'], ['meetingPoint','Meeting point','textarea'], ['meetingPointImage','Meeting point image placeholder','text'], ['customerSummary','Customer-Facing Summary','textarea'], ['notes','Notes','textarea']],
     columns: [['invoiceNumber','Invoice #'], ['customerName','Customer'], ['tripDate','Trip Date'], ['tourPrice','Total Price'], ['depositPaid','Deposit'], ['balanceDue','Balance'], ['paymentStatus','Payment Status'], ['vessel','Vessel']]
   },
   'cruise-schedule': {
@@ -185,7 +185,7 @@ const dashboardCardCatalog = [
   ['revenueSummary', 'Revenue Summary'], ['incidentAlerts', 'Incident Alerts'], ['upcomingTours', 'Upcoming Tours'], ['upcomingCruiseArrivals', 'Upcoming Cruise Arrivals']
 ];
 const defaultDashboardPreferences = { order: dashboardCardCatalog.map(([key]) => key), hidden: [] };
-const photoNoteRoutes = new Set(['trips', 'captain-dashboard', 'mate-dashboard', 'owner-dashboard', 'pre-trip-checklist', 'post-trip-checklist', 'incident-reports', 'expenses', 'vessels']);
+const photoNoteRoutes = new Set(['invoices', 'trips', 'captain-dashboard', 'mate-dashboard', 'owner-dashboard', 'pre-trip-checklist', 'post-trip-checklist', 'incident-reports', 'expenses', 'vessels', 'crew']);
 
 let store = loadStore();
 let currentRoute = 'dashboard';
@@ -550,7 +550,7 @@ let calendarFilter = 'All';
 
 function renderPhotoNotePanel(route = currentRoute) {
   const notes = (store.photoNotes || []).filter((note) => note.route === route).slice(0, 4);
-  return `<section class="card photo-note-panel"><div class="card-header"><div><h3>Notes with Photos</h3><p class="muted-text">Add Note · Take Photo · Choose File · Preview Photo · Remove Photo. Max file size 4 MB.</p></div></div><div class="photo-note-actions"><textarea data-photo-note-text="${escapeHtml(route)}" placeholder="Add note (optional)"></textarea><label class="btn btn-outline">Take Photo<input data-photo-note-file data-photo-note-route="${escapeHtml(route)}" type="file" accept="image/*" capture="environment" hidden></label><label class="btn btn-outline">Choose File<input data-photo-note-file data-photo-note-route="${escapeHtml(route)}" type="file" accept="image/*" hidden></label></div><div class="photo-note-list">${notes.length ? notes.map(renderPhotoNote).join('') : '<p class="empty-state">No photo notes yet.</p>'}</div></section>`;
+  return `<details class="card photo-note-panel app-accordion" open><summary><div><h3>Notes with Photos</h3><p class="muted-text">Add Note · Take Photo · Choose File · Preview Photo · Remove Photo. Max file size 4 MB.</p></div><span class="chevron" aria-hidden="true">⌄</span></summary><div class="photo-note-actions"><textarea data-photo-note-text="${escapeHtml(route)}" placeholder="Add note (optional)"></textarea><label class="btn btn-outline">Take Photo<input data-photo-note-file data-photo-note-route="${escapeHtml(route)}" type="file" accept="image/*" capture="environment" hidden></label><label class="btn btn-outline">Choose File<input data-photo-note-file data-photo-note-route="${escapeHtml(route)}" type="file" accept="image/*" hidden></label></div><div class="photo-note-list">${notes.length ? notes.map(renderPhotoNote).join('') : '<p class="empty-state">No photo notes yet.</p>'}</div></details>`;
 }
 
 function renderPhotoNote(note) {
@@ -1244,7 +1244,7 @@ function renderCrud(route) {
   renderForm(route);
   if (route === 'trips') renderAssignmentBoard();
   if (route === 'crew') renderCrewDashboard();
-  if (route === 'vessels') renderVesselReadinessPanel();
+  if (route === 'vessels') renderVesselManagementPanel();
   renderTable(route);
   if (route === 'invoices') renderInvoiceModule();
   if (route === 'cruise-schedule') renderCruiseScheduleModule();
@@ -1270,9 +1270,9 @@ function renderForm(route, record = {}) {
 
 function formSectionForField(key) {
   if (['customer', 'customerName', 'phone', 'email', 'bookingSource', 'source'].includes(key)) return 'Customer';
-  if (['tripDate', 'date', 'startTime', 'time', 'arrivalDate', 'arrivalTime', 'departureTime', 'passengers', 'guests', 'guestCount', 'hours', 'tourType', 'product', 'vessel', 'shipName', 'cruiseLine', 'terminalDock', 'passengerCapacity'].includes(key)) return 'Trip';
-  if (['tourPrice', 'price', 'depositPaid', 'balanceDue', 'balance', 'paymentStatus', 'paymentMethod', 'amount', 'defaultPayout', 'invoiceNumber'].includes(key)) return 'Financial';
-  if (['captain', 'mate', 'owner', 'role', 'active', 'tripId', 'bookingId', 'reportedBy', 'severity', 'category', 'status'].includes(key)) return 'Assignment';
+  if (['tripDate', 'date', 'startTime', 'time', 'arrivalDate', 'arrivalTime', 'departureTime', 'passengers', 'guests', 'guestCount', 'hours', 'tourType', 'product', 'vessel', 'shipName', 'cruiseLine', 'terminalDock', 'passengerCapacity', 'pickupLocation', 'customPickupLocation', 'pickupDirections', 'meetingPoint'].includes(key)) return 'Booking / Trip';
+  if (['tourPrice', 'price', 'baseTourPrice', 'landingFeeNote', 'swimmingPigsPeople', 'secondBoat', 'boat2Adults', 'boat2Kids', 'depositPercent', 'depositPaid', 'balanceDue', 'balance', 'paymentStatus', 'paymentMethod', 'amount', 'defaultPayout', 'invoiceNumber', 'documentType'].includes(key)) return 'Financial';
+  if (['captain', 'mate', 'owner', 'role', 'active', 'tripId', 'bookingId', 'reportedBy', 'severity', 'category', 'status', 'assignedTrips', 'maintenanceNotes', 'readinessSummary'].includes(key)) return 'Assignment / Management';
   return 'Notes';
 }
 
@@ -1283,7 +1283,7 @@ function renderFormSections(route, config, record) {
     acc[section].push(field);
     return acc;
   }, {});
-  return Object.entries(sections).map(([section, fields], index) => `<section class="form-section-card"><div class="form-section-title"><span>${index + 1}</span><h3>${escapeHtml(section)}</h3></div><div class="form-grid">${fields.map(([key, label, type]) => renderField(key, label, type, record[key])).join('')}</div>${index < Object.keys(sections).length - 1 ? '<button class="btn btn-outline btn-small next-section-btn" type="button" onclick="this.closest(\'.form-section-card\').nextElementSibling?.scrollIntoView({behavior:\'smooth\',block:\'start\'})">Next Section</button>' : ''}</section>`).join('');
+  return Object.entries(sections).map(([section, fields], index) => `<details class="form-section-card app-accordion" ${index < 2 ? 'open' : ''}><summary><div class="form-section-title"><span>${index + 1}</span><h3>${escapeHtml(section)}</h3></div><span class="chevron" aria-hidden="true">⌄</span></summary><div class="form-grid">${fields.map(([key, label, type]) => renderField(key, label, type, record[key])).join('')}</div></details>`).join('');
 }
 
 function naturalSentenceModeHint() {
@@ -1397,7 +1397,7 @@ function deleteRecord(route, id) {
   saveStore();
   if (route === 'trips') renderAssignmentBoard();
   if (route === 'crew') renderCrewDashboard();
-  if (route === 'vessels') renderVesselReadinessPanel();
+  if (route === 'vessels') renderVesselManagementPanel();
   renderTable(route);
   if (route === 'invoices') renderInvoiceModule();
   if (route === 'cruise-schedule') renderCruiseScheduleModule();
@@ -1956,15 +1956,51 @@ function renderInvoiceModule() {
   if (!page || page.querySelector('[data-invoice-module]')) return;
   const table = page.querySelector('.table-card');
   const invoices = store.invoices || [];
-  const cards = invoices.length ? invoices.map((invoice) => `<article class="invoice-card"><div class="card-header"><div><h3>${escapeHtml(invoice.customerName || 'Customer')}</h3><p>${escapeHtml(invoice.invoiceNumber || 'No invoice #')} · ${escapeHtml(formatDate(invoice.tripDate))}</p></div>${readinessBadge(invoice.paymentStatus || 'Deposit Due')}</div><div class="assignment-card-metrics"><div><span>Total Price</span><strong>${money(invoice.tourPrice)}</strong></div><div><span>Deposit</span><strong>${money(invoice.depositPaid)}</strong></div><div><span>Balance</span><strong>${money(invoice.balanceDue)}</strong></div><div><span>Payment Status</span><strong>${escapeHtml(invoice.paymentStatus || 'Deposit Due')}</strong></div></div><p class="muted-text">${escapeHtml(invoice.vessel || 'No vessel')} · ${escapeHtml(invoice.bookingSource || 'No source')}</p><div class="assignment-actions"><button class="btn btn-outline btn-small" onclick="showForm('invoices','${invoice.id}')">Edit Record</button><button class="btn btn-outline btn-small" onclick="markInvoiceDepositPaid('${invoice.id}')">Mark Deposit Paid</button><button class="btn btn-primary btn-small" onclick="markInvoicePaidInFull('${invoice.id}')">Mark Paid in Full</button><button class="btn btn-outline btn-small" onclick="generateReceiptSummary('${invoice.id}')">Generate Receipt Summary</button></div></article>`).join('') : '<p class="empty-state">No Invoice / Quote records yet. Use Create Invoice / Quote to add a native record.</p>';
-  const module = document.createElement('div');
-  module.className = 'card native-invoice-module';
+  const cards = invoices.length ? invoices.map((invoice) => `<article class="invoice-card"><div class="card-header"><div><h3>${escapeHtml(invoiceDocumentTitle(invoice))}</h3><p>${escapeHtml(invoice.invoiceNumber || 'No document #')} · ${escapeHtml(invoice.customerName || 'Customer')} · ${escapeHtml(formatDate(invoice.tripDate))}</p></div>${readinessBadge(invoice.paymentStatus || 'Deposit Due')}</div><div class="assignment-card-metrics"><div><span>Total Booking Cost</span><strong>${money(invoice.tourPrice)}</strong></div><div><span>Deposit Paid</span><strong>${money(invoice.depositPaid)}</strong></div><div><span>Remaining Balance</span><strong>${money(invoice.balanceDue)}</strong></div><div><span>Payment Method</span><strong>${escapeHtml(invoice.paymentMethod || 'Not selected')}</strong></div></div><p class="muted-text">${escapeHtml(invoice.tourType || 'Tour package')} · ${escapeHtml(invoice.vessel || 'No vessel')} · ${escapeHtml(invoice.bookingSource || 'No source')}</p><div class="assignment-actions"><button class="btn btn-outline btn-small" onclick="showForm('invoices','${invoice.id}')">Edit Document</button><button class="btn btn-outline btn-small" onclick="previewInvoiceDocument('${invoice.id}')">Preview Document</button><button class="btn btn-outline btn-small" onclick="printInvoiceDocument('${invoice.id}')">Print to PDF</button><button class="btn btn-outline btn-small" onclick="downloadInvoiceDocument('${invoice.id}')">Download PDF / HTML</button><button class="btn btn-outline btn-small" onclick="sendInvoiceEmail('${invoice.id}')">Send by Email</button><button class="btn btn-outline btn-small" onclick="sendInvoiceWhatsApp('${invoice.id}')">Send by WhatsApp</button><button class="btn btn-outline btn-small" onclick="copyInvoiceShareMessage('${invoice.id}')">Copy Share Message</button><button class="btn btn-primary btn-small" onclick="markInvoicePaidInFull('${invoice.id}')">Mark Paid in Full</button></div></article>`).join('') : '<p class="empty-state">No Invoice / Quote records yet. Use Create Invoice / Quote to add a native customer-facing document.</p>';
+  const module = document.createElement('details');
+  module.className = 'card native-invoice-module app-accordion';
   module.dataset.invoiceModule = 'true';
-  module.innerHTML = `<div class="card-header"><div><h3>Native Invoice / Quote Module</h3><p class="muted-text">Create Invoice / Quote · Edit Invoice / Quote · Mark Deposit Paid · Mark Paid in Full · Generate Receipt Summary · Link Invoice to Trip · Link Invoice to Booking</p></div></div><div class="grid invoice-card-grid">${cards}</div><div class="card card-pad" data-receipt-summary><strong>Receipt summary output</strong><p class="muted-text">Choose Generate Receipt Summary on an invoice to review a customer receipt before sending externally.</p></div>`;
+  module.open = true;
+  module.innerHTML = `<summary><div><h3>Customer-Facing Invoice / Quote Output</h3><p class="muted-text">Supports Quote, Invoice, Tour Confirmation, Booking Confirmation, and Receipt with print, share, email, WhatsApp, copy, preview, and edit actions.</p></div><span class="chevron" aria-hidden="true">⌄</span></summary><div class="grid invoice-card-grid">${cards}</div><div class="card card-pad invoice-preview-host" data-receipt-summary><strong>Document preview</strong><p class="muted-text">Choose Preview Document on any invoice/quote to review the branded customer document before printing or sending.</p></div>`;
   table.before(module);
 }
 
 function findInvoice(id) { return (store.invoices || []).find((invoice) => invoice.id === id); }
+function invoiceDocumentTitle(invoice = {}) { return String(invoice.documentType || 'Invoice').toUpperCase(); }
+function invoiceMeetingPoint(invoice = {}) { return invoice.meetingPoint || invoice.pickupDirections || invoice.customPickupLocation || invoice.pickupLocation || 'Paradise Island Ferry Terminal / confirmed meeting point'; }
+function invoiceIncludedItems(invoice = {}) { return invoice.includedItems || 'Boat tour, captain and crew, bottled water, soft drinks, snacks, snorkeling gear where applicable, and standard safety gear.'; }
+function invoiceWhatToBring(invoice = {}) { return invoice.whatToBring || 'Towels, reef-safe sunscreen, sunglasses, hat, camera, payment card/cash for balance or add-ons, and any personal medication.'; }
+function invoiceShareMessage(invoice = {}) {
+  return `${invoiceDocumentTitle(invoice)} ${invoice.invoiceNumber || ''} for ${invoice.customerName || 'your Reel Adventure Tours booking'}\nTour: ${invoice.tourType || 'Reel Adventure Tours'}\nDate/Time: ${formatDate(invoice.tripDate)} ${formatTime(invoice.startTime)}\nTotal: ${money(invoice.tourPrice)} · Deposit: ${money(invoice.depositPaid)} · Balance: ${money(invoice.balanceDue)}\nMeeting point: ${invoiceMeetingPoint(invoice)}\nThank you for choosing Reel Adventure Tours!`;
+}
+function invoiceAddOns(invoice = {}) {
+  const addOns = [];
+  const pigsPeople = Number(invoice.swimmingPigsPeople || 0);
+  if (pigsPeople) addOns.push(`Swimming pigs add-on (${pigsPeople} × $20): ${money(pigsPeople * 20)}`);
+  if (invoice.secondBoat === 'Yes') addOns.push(`Second boat add-on: ${money(900)}`);
+  if (invoice.landingFeeNote) addOns.push(invoice.landingFeeNote);
+  return addOns.length ? addOns.join('<br>') : 'No add-ons selected';
+}
+function renderInvoiceDocument(invoice = {}) {
+  const title = invoiceDocumentTitle(invoice);
+  const qty = Number(invoice.guestCount || 0) || Number(invoice.adultCount || 0) + Number(invoice.kidCount || 0) || 1;
+  return `<article class="customer-invoice-document" data-printable-invoice><header class="invoice-brand-header"><img src="Reel Adventure Tours Logo (2).jpg" alt="Reel Adventure Tours logo"><div><p class="eyebrow">Reel Adventure Tours</p><h1>${escapeHtml(title)}</h1><p class="muted-text">Document # ${escapeHtml(invoice.invoiceNumber || 'Draft')} · Issue date ${escapeHtml(formatDate(invoice.issueDate || new Date().toISOString().slice(0, 10)))}</p></div></header><div class="confirmation-banner">${escapeHtml(title)} prepared for ${escapeHtml(invoice.customerName || 'our guest')} — thank you for choosing Reel Adventure Tours.</div><section><h3>Hello ${escapeHtml(invoice.customerName || 'Guest')},</h3><p>${escapeHtml(invoice.customerSummary || 'Please review your tour details, balance, meeting point, and what to bring below.')}</p></section><section class="invoice-info-grid"><div><strong>Customer name</strong><span>${escapeHtml(invoice.customerName || '—')}</span></div><div><strong>Phone</strong><span>${escapeHtml(invoice.phone || '—')}</span></div><div><strong>Email</strong><span>${escapeHtml(invoice.email || '—')}</span></div><div><strong>Payment status</strong><span>${escapeHtml(invoice.paymentStatus || 'Deposit Due')}</span></div></section><section class="invoice-two-col"><div><h3>Included in your tour</h3><p>${escapeHtml(invoiceIncludedItems(invoice))}</p></div><div><h3>What to bring</h3><p>${escapeHtml(invoiceWhatToBring(invoice))}</p></div></section><section class="invoice-two-col"><div><h3>Meeting point</h3><p>${escapeHtml(invoiceMeetingPoint(invoice))}</p></div><div class="meeting-point-placeholder">${invoice.meetingPointImage ? escapeHtml(invoice.meetingPointImage) : 'Meeting point image placeholder'}</div></section><section><h3>Description</h3><div class="responsive-table-wrap"><table><thead><tr><th>Description</th><th>Date and time</th><th>Unit price</th><th>Quantity</th><th>Amount</th></tr></thead><tbody><tr><td>${escapeHtml(invoice.tourType || 'Tour package')}</td><td>${escapeHtml(formatDate(invoice.tripDate))} ${escapeHtml(formatTime(invoice.startTime))}${invoice.endTime ? `–${escapeHtml(formatTime(invoice.endTime))}` : ''}</td><td>${money(invoice.baseTourPrice || invoice.tourPrice)}</td><td>${escapeHtml(qty)}</td><td>${money(invoice.baseTourPrice || invoice.tourPrice)}</td></tr><tr><td>Add-ons</td><td colspan="3">${invoiceAddOns(invoice)}</td><td>${money(Math.max(Number(invoice.tourPrice || 0) - Number(invoice.baseTourPrice || invoice.tourPrice || 0), 0))}</td></tr></tbody></table></div></section><section class="invoice-total-grid"><div><span>Total booking cost</span><strong>${money(invoice.tourPrice)}</strong></div><div><span>Deposit paid</span><strong>${money(invoice.depositPaid)}</strong></div><div><span>Remaining balance</span><strong>${money(invoice.balanceDue)}</strong></div><div><span>Payment method</span><strong>${escapeHtml(invoice.paymentMethod || 'Not selected')}</strong></div></section><section><h3>Notes</h3><p>${escapeHtml(invoice.notes || 'No additional notes.')}</p></section><footer class="invoice-footer"><strong>Reel Adventure Tours</strong><span>Phone: +1 (242) 422-8256 · Email: info@reeladventuretours.com · Website: reeladventuretours.com</span></footer></article>`;
+}
+function previewInvoiceDocument(id) {
+  const invoice = findInvoice(id); if (!invoice) return;
+  const target = document.querySelector('[data-receipt-summary]');
+  if (target) target.innerHTML = `${renderInvoiceDocument(invoice)}<div class="assignment-actions invoice-action-bar"><button class="btn btn-outline" onclick="printInvoiceDocument('${id}')">Print to PDF</button><button class="btn btn-outline" onclick="downloadInvoiceDocument('${id}')">Download PDF / HTML</button><button class="btn btn-outline" onclick="sendInvoiceEmail('${id}')">Send by Email</button><button class="btn btn-outline" onclick="sendInvoiceWhatsApp('${id}')">Send by WhatsApp</button><button class="btn btn-outline" onclick="copyInvoiceShareMessage('${id}')">Copy Share Message</button><button class="btn btn-primary" onclick="showForm('invoices','${id}')">Edit Document</button></div>`;
+  addAudit('previewed', 'Invoice / Quote', `Previewed ${invoiceDocumentTitle(invoice)} for ${invoice.customerName || invoice.invoiceNumber}.`, { invoiceId: id }); saveStore();
+}
+function printInvoiceDocument(id) { previewInvoiceDocument(id); setTimeout(() => window.print(), 50); }
+function downloadInvoiceDocument(id) {
+  const invoice = findInvoice(id); if (!invoice) return;
+  const blob = new Blob([`<!doctype html><html><head><meta charset="utf-8"><title>${invoiceDocumentTitle(invoice)}</title><link rel="stylesheet" href="styles.css"></head><body>${renderInvoiceDocument(invoice)}</body></html>`], { type: 'text/html' });
+  const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = `${(invoice.invoiceNumber || invoiceDocumentTitle(invoice)).replace(/[^a-z0-9-]+/gi, '-')}.html`; link.click(); URL.revokeObjectURL(link.href); toast('Print-ready document downloaded. Open it and use browser Save as PDF.');
+}
+function sendInvoiceEmail(id) { const invoice = findInvoice(id); if (!invoice) return; window.location.href = `mailto:${encodeURIComponent(invoice.email || '')}?subject=${encodeURIComponent(invoiceDocumentTitle(invoice) + ' ' + (invoice.invoiceNumber || ''))}&body=${encodeURIComponent(invoiceShareMessage(invoice))}`; }
+function sendInvoiceWhatsApp(id) { const invoice = findInvoice(id); if (!invoice) return; window.open(`https://wa.me/?text=${encodeURIComponent(invoiceShareMessage(invoice))}`, '_blank', 'noopener'); }
+async function copyInvoiceShareMessage(id) { const invoice = findInvoice(id); if (!invoice) return; await navigator.clipboard?.writeText(invoiceShareMessage(invoice)); toast('Share message copied.'); }
 function markInvoiceDepositPaid(id) {
   const invoice = findInvoice(id); if (!invoice) return;
   invoice.paymentStatus = 'Deposit Paid';
@@ -1978,13 +2014,8 @@ function markInvoicePaidInFull(id) {
   addAudit('updated', 'Invoice / Quote', `Marked paid in full for ${invoice.customerName || invoice.invoiceNumber}.`, { invoiceId: id });
   saveStore(); renderCrud('invoices'); toast('Invoice / Quote marked paid in full.');
 }
-function generateReceiptSummary(id) {
-  const invoice = findInvoice(id); if (!invoice) return;
-  const target = document.querySelector('[data-receipt-summary]');
-  if (target) target.innerHTML = `<strong>Receipt Summary</strong><p>${escapeHtml(invoice.invoiceNumber || 'Invoice')} · ${escapeHtml(invoice.customerName || 'Customer')} · ${escapeHtml(formatDate(invoice.tripDate))}</p><p>Total ${money(invoice.tourPrice)} · Deposit ${money(invoice.depositPaid)} · Balance ${money(invoice.balanceDue)} · ${escapeHtml(invoice.paymentStatus || 'Deposit Due')}</p>`;
-  addAudit('generated', 'Invoice / Quote', `Generated receipt summary for ${invoice.customerName || invoice.invoiceNumber}.`, { invoiceId: id });
-  saveStore(); toast('Receipt summary generated for review.');
-}
+function generateReceiptSummary(id) { previewInvoiceDocument(id); }
+
 
 function renderCruiseScheduleModule() {
   const page = document.getElementById('page-cruise-schedule');
@@ -2382,7 +2413,7 @@ function handleTreeNodeAction(node) {
   if (action === 'owner') return openOwnerDashboard(value);
   if (action === 'captain') return openCrewRoleDashboard('captain', value);
   if (action === 'mate') return openCrewRoleDashboard('mate', value);
-  if (action === 'vessel') return openVesselReadiness(value);
+  if (action === 'vessel') return openVesselManagement(value);
   if (action === 'pre') return renderRoute('pre-trip-checklist');
   if (action === 'post') return renderRoute('post-trip-checklist');
   if (['date', 'time'].includes(action)) filterTripsTable(value);
@@ -2391,7 +2422,7 @@ function handleTreeNodeAction(node) {
 function openTripEditor(tripId) { renderRoute('trips'); showForm('trips', tripId); }
 function openOwnerDashboard(owner) { dashboardFilters.owner = owner || ''; renderRoute('owner-dashboard'); }
 function openCrewRoleDashboard(role, name) { dashboardFilters[role] = name || ''; renderRoute(`${role}-dashboard`); }
-function openVesselReadiness(vessel) { renderRoute('vessels'); const input = document.querySelector('#page-vessels .search-input'); if (input) { input.value = vessel || ''; renderTable('vessels'); } }
+function openVesselManagement(vessel) { renderRoute('vessels'); const input = document.querySelector('#page-vessels .search-input'); if (input) { input.value = vessel || ''; renderTable('vessels'); } }
 function filterTripsTable(value) { const input = document.querySelector('#page-trips .search-input'); if (input) { input.value = value || ''; renderTable('trips'); } }
 
 
@@ -2485,10 +2516,12 @@ function renderAuditTrail() {
 
 
 const preTripChecklistItems = [
-  ['pre_clean','Boat has been cleaned','checkbox','Boat Status'],
-  ['pre_stocked','Boat is fully stocked','checkbox','Boat Status'],
-  ['pre_trash','All trash has been removed','checkbox','Boat Status'],
-  ['pre_ready','Boat is ready for charter','checkbox','Boat Status'],
+  ['fuelVerified','Fuel Verified?','yesno','Vessel Readiness'],
+  ['safetyGearVerified','Safety Gear Verified?','yesno','Vessel Readiness'],
+  ['engineCheckComplete','Engine Check Complete?','yesno','Vessel Readiness'],
+  ['radioTested','Radio Tested?','yesno','Vessel Readiness'],
+  ['gpsTested','GPS Tested?','yesno','Vessel Readiness'],
+  ['vesselClean','Vessel Clean?','yesno','Vessel Readiness'],
   ['rum','Rum — minimum 3 bottles required on board','number','Stock'],
   ['pinac','Pina Colada — restock alert at 1 bottle','number','Stock'],
   ['pre_punch','Rum Punch Mixed & Ready','select:punchReady','Stock'],
@@ -2515,9 +2548,15 @@ const preTripChecklistItems = [
   ['mateSignature','Mate signature / initials','text','Sign-Off']
 ];
 const postTripChecklistItems = [
-  ['post_clean','Boat has been cleaned','checkbox','Boat Status'],
-  ['post_trash','All trash has been removed','checkbox','Boat Status'],
-  ['post_ready','Boat is ready for the next charter','checkbox','Boat Status'],
+  ['fuelVerified','Fuel Verified?','yesno','Vessel Condition'],
+  ['safetyGearVerified','Safety Gear Verified?','yesno','Vessel Condition'],
+  ['engineCheckComplete','Engine Check Complete?','yesno','Vessel Condition'],
+  ['radioTested','Radio Tested?','yesno','Vessel Condition'],
+  ['gpsTested','GPS Tested?','yesno','Vessel Condition'],
+  ['vesselClean','Vessel Clean?','yesno','Vessel Condition'],
+  ['post_clean','Boat has been cleaned','checkbox','Cleaning'],
+  ['post_trash','All trash has been removed','checkbox','Cleaning'],
+  ['post_ready','Boat is ready for the next charter','checkbox','Cleaning'],
   ['rum','Rum remaining — minimum 3 bottles needed for next charter','number','Remaining Stock'],
   ['pinac','Pina Colada remaining — restock alert at 1 bottle','number','Remaining Stock'],
   ['juicy','Yellow Juice remaining — minimum 3 needed for next charter','number','Remaining Stock'],
@@ -2572,27 +2611,43 @@ function renderChecklistPage(type) {
   const items = isPre ? preTripChecklistItems : postTripChecklistItems;
   const timeLabel = isPre ? 'Start Time' : 'Return Time';
   const timeName = isPre ? 'startTime' : 'returnTime';
-  page.innerHTML = `<div class="page-stack checklist-mobile-page"><div class="section-heading"><div><p class="eyebrow">Legacy parity native checklist workflow</p><h1>${type} Checklist</h1><p class="section-summary">Mobile-first native version of ${isPre ? 'RAT-PreTrip-VesselCheck.html' : 'RAT-PostTrip-VesselCheck.html'} with collapsible trip details, vessel readiness, safety checks, inventory/supplies, notes, sign-off, stock alert parity, preview, print/PDF, and WhatsApp handoff.</p></div></div>${renderChecklistStockAlerts()}${renderPhotoNotePanel(route)}<form class="record-form card" onsubmit="saveChecklistRecord(event,'${type}')"><details class="form-section-card checklist-accordion" open><summary><div class="form-section-title"><span>1</span><h3>Trip Details</h3></div></summary><div class="form-grid"><div class="field"><label>Trip</label><select name="tripId" onchange="populateChecklistTripDetails(this.form)"><option value="">— Select Trip —</option>${getOptions('trips').map((opt) => `<option value="${escapeHtml(opt.split('|')[0])}">${escapeHtml(opt.split('|').slice(1).join('|'))}</option>`).join('')}</select></div><div class="field"><label>Vessel</label><select name="vessel"><option value="">— Select —</option>${getOptions('vessels').map((vessel) => `<option value="${escapeHtml(vessel)}">${escapeHtml(vessel)}</option>`).join('')}</select></div><div class="field"><label>Captain / Initials</label><select name="captain"><option value="">— Select —</option>${getOptions('crew').map((crew) => `<option value="${escapeHtml(crew)}">${escapeHtml(crew)}</option>`).join('')}</select></div><div class="field"><label>Mate</label><select name="mate"><option value="">— Select —</option>${getOptions('crew').map((crew) => `<option value="${escapeHtml(crew)}">${escapeHtml(crew)}</option>`).join('')}</select></div><div class="field"><label>Date</label><input name="date" type="date"></div><div class="field"><label>${timeLabel}</label><input name="${timeName}" type="time"></div><div class="field"><label>Status</label><select name="status"><option>Draft</option><option>Submitted</option><option>Needs Review</option></select></div></div></details>${renderChecklistSections(items)}<div class="form-actions sticky-save-controls"><button class="btn btn-outline" type="submit" name="action" value="draft">Save Draft</button><button class="btn btn-primary" type="submit" name="action" value="submit">Submit ${type} Checklist</button><button class="btn btn-outline" type="submit" name="action" value="review">Mark Needs Review</button><button class="btn btn-outline" type="button" onclick="window.print()">Preview / Print / Save PDF</button><a class="btn btn-outline" href="https://wa.me/" target="_blank" rel="noopener">WhatsApp</a>${voiceFillButton(route)}</div></form><div class="card table-card"><div class="card-header"><h3>${type} records</h3><button class="btn btn-outline btn-small" type="button" onclick="window.print()">Print / Export Records</button></div><div class="responsive-table-wrap"><table><thead><tr><th>Submitted</th><th>Trip</th><th>Vessel</th><th>Captain</th><th>Mate</th><th>Status</th><th>Notes</th></tr></thead><tbody>${records.length ? records.map((record) => `<tr><td>${escapeHtml(new Date(record.submittedAt).toLocaleString())}</td><td>${escapeHtml(record.tripLabel || record.tripId)}</td><td>${escapeHtml(record.vessel)}</td><td>${escapeHtml(record.captain)}</td><td>${escapeHtml(record.mate)}</td><td>${readinessBadge(record.status)}</td><td>${escapeHtml(record.generalNotes || record.customerFeedbackNotes || record.notes || '—')}</td></tr>`).join('') : '<tr><td colspan="7" class="empty-state">No checklist records yet.</td></tr>'}</tbody></table></div></div></div>`;
+  page.innerHTML = `<div class="page-stack checklist-mobile-page"><div class="section-heading"><div><p class="eyebrow">Legacy parity native checklist workflow</p><h1>${type} Checklist</h1><p class="section-summary">Mobile-first native version of ${isPre ? 'RAT-PreTrip-VesselCheck.html' : 'RAT-PostTrip-VesselCheck.html'} with collapsible trip details, vessel readiness, safety checks, inventory/supplies, notes, sign-off, stock alert parity, preview, print/PDF, and WhatsApp handoff.</p></div></div>${renderPhotoNotePanel(route)}<form class="record-form card" onsubmit="saveChecklistRecord(event,'${type}')"><details class="form-section-card checklist-accordion" open><summary><div class="form-section-title"><span>1</span><h3>Trip Details</h3></div><span class="chevron" aria-hidden="true">⌄</span></summary><div class="form-grid"><div class="field"><label>Trip</label><select name="tripId" onchange="populateChecklistTripDetails(this.form)"><option value="">— Select Trip —</option>${getOptions('trips').map((opt) => `<option value="${escapeHtml(opt.split('|')[0])}">${escapeHtml(opt.split('|').slice(1).join('|'))}</option>`).join('')}</select></div><div class="field"><label>Vessel</label><select name="vessel"><option value="">— Select —</option>${getOptions('vessels').map((vessel) => `<option value="${escapeHtml(vessel)}">${escapeHtml(vessel)}</option>`).join('')}</select></div><div class="field"><label>Captain / Initials</label><select name="captain"><option value="">— Select —</option>${getOptions('crew').map((crew) => `<option value="${escapeHtml(crew)}">${escapeHtml(crew)}</option>`).join('')}</select></div><div class="field"><label>Mate</label><select name="mate"><option value="">— Select —</option>${getOptions('crew').map((crew) => `<option value="${escapeHtml(crew)}">${escapeHtml(crew)}</option>`).join('')}</select></div><div class="field"><label>Date</label><input name="date" type="date"></div><div class="field"><label>${timeLabel}</label><input name="${timeName}" type="time"></div><div class="field"><label>Status</label><select name="status"><option>Draft</option><option>Submitted</option><option>Needs Review</option></select></div></div></details>${renderChecklistSections(items, type)}<div class="form-actions sticky-save-controls"><button class="btn btn-outline" type="submit" name="action" value="draft">Save Draft</button><button class="btn btn-primary" type="submit" name="action" value="submit">Submit ${type} Checklist</button><button class="btn btn-outline" type="submit" name="action" value="review">Mark Needs Review</button><button class="btn btn-outline" type="button" onclick="window.print()">Preview / Print / Save PDF</button><a class="btn btn-outline" href="https://wa.me/" target="_blank" rel="noopener">WhatsApp</a>${voiceFillButton(route)}</div></form><div class="card table-card"><div class="card-header"><h3>${type} records</h3><button class="btn btn-outline btn-small" type="button" onclick="window.print()">Print / Export Records</button></div><div class="responsive-table-wrap"><table><thead><tr><th>Submitted</th><th>Trip</th><th>Vessel</th><th>Captain</th><th>Mate</th><th>Status</th><th>Notes</th></tr></thead><tbody>${records.length ? records.map((record) => `<tr><td>${escapeHtml(new Date(record.submittedAt).toLocaleString())}</td><td>${escapeHtml(record.tripLabel || record.tripId)}</td><td>${escapeHtml(record.vessel)}</td><td>${escapeHtml(record.captain)}</td><td>${escapeHtml(record.mate)}</td><td>${readinessBadge(record.status)}</td><td>${escapeHtml(record.generalNotes || record.customerFeedbackNotes || record.notes || '—')}</td></tr>`).join('') : '<tr><td colspan="7" class="empty-state">No checklist records yet.</td></tr>'}</tbody></table></div></div></div>`;
 }
 
 function checklistSectionLabel(section) {
   if (section === 'Boat Status') return 'Vessel Readiness';
-  if (['Stock', 'Cleaning Products'].includes(section)) return 'Inventory / Supplies';
-  if (['Engine / Fuel', 'Bilge / Flush'].includes(section)) return 'Safety Checks';
-  if (section === 'Photos / Notes') return 'Notes';
-  if (section === 'Sign-Off') return 'Crew Confirmation';
+  if (['Stock', 'Cleaning Products', 'Remaining Stock'].includes(section)) return 'Inventory / Supplies';
+  if (['Engine / Fuel', 'Fuel / Engines', 'Bilge / Flush'].includes(section)) return 'Safety Equipment';
+  if (section === 'Photos / Notes') return 'Notes and Photos';
+  if (section === 'Sign-Off') return 'Submit / Signature';
   return section || 'Checklist';
 }
 
-function renderChecklistSections(items) {
+function renderChecklistSections(items, type = 'Pre Trip') {
+  const isPre = type === 'Pre Trip';
   const groups = items.reduce((acc, item) => { const section = checklistSectionLabel(item[3]); acc[section] ||= []; acc[section].push(item); return acc; }, {});
-  return Object.entries(groups).map(([section, fields], index) => `<details class="form-section-card checklist-accordion" open><summary><div class="form-section-title"><span>${index + 2}</span><h3>${escapeHtml(section)}</h3></div></summary><div class="checklist-grid">${fields.map(([key, label, inputType]) => renderChecklistInput(key, label, inputType)).join('')}</div></details>`).join('');
+  const order = isPre
+    ? ['Vessel Readiness', 'Safety Equipment', 'Inventory / Supplies', 'Crew Confirmation', 'Stock Level Alerts', 'Notes and Photos', 'Submit / Signature']
+    : ['Vessel Condition', 'Cleaning', 'Inventory / Supplies', 'Damage / Maintenance', 'Incident Review', 'Stock Level Alerts', 'Notes and Photos', 'Submit / Signature'];
+  if (!isPre) {
+    groups['Damage / Maintenance'] = groups['Damage / Maintenance'] || [['damageMaintenanceNotes','Damage / maintenance notes','textarea','Damage / Maintenance']];
+    groups['Incident Review'] = groups['Incident Review'] || [['incidentReviewNotes','Incident review notes','textarea','Incident Review']];
+  }
+  if (isPre) groups['Crew Confirmation'] = groups['Crew Confirmation'] || [['crewConfirmationNotes','Crew confirmation notes','textarea','Crew Confirmation']];
+  let number = 2;
+  return order.map((section) => {
+    if (section === 'Stock Level Alerts') return renderChecklistStockAlerts(number++);
+    const fields = groups[section] || [];
+    if (!fields.length) return '';
+    const open = ['Vessel Readiness', 'Vessel Condition', 'Safety Equipment', 'Cleaning'].includes(section);
+    return `<details class="form-section-card checklist-accordion" ${open ? 'open' : ''}><summary><div class="form-section-title"><span>${number++}</span><h3>${escapeHtml(section)}</h3></div><span class="chevron" aria-hidden="true">⌄</span></summary><div class="checklist-grid">${fields.map(([key, label, inputType]) => renderChecklistInput(key, label, inputType)).join('')}</div></details>`;
+  }).join('');
 }
 
-function renderChecklistStockAlerts() {
+function renderChecklistStockAlerts(number = 6) {
   if (!canViewStockAlerts()) return '';
   const alerts = inventoryAlerts();
-  return `<details class="card stock-alert-details"><summary><div><h3>Stock Level Alerts</h3><p class="muted-text">Collapsed by default so checklist completion stays clear unless stock is critical.</p></div><span class="badge ${alerts.length ? 'red' : 'green'}">${alerts.length ? 'Restock Needed' : 'Stock OK'}</span></summary><div class="stock-alert-list">${alerts.length ? alerts.map(renderStockAlertRow).join('') : '<p class="empty-state">No stock level alerts.</p>'}</div></details>`;
+  return `<details class="card stock-alert-details checklist-accordion"><summary><div class="form-section-title"><span>${number}</span><div><h3>Stock Level Alerts</h3><p class="muted-text">Owner / Admin only. Collapsed by default so checklist completion stays clear unless stock is critical.</p></div></div><span class="badge ${alerts.length ? 'red' : 'green'}">${alerts.length ? 'Restock Needed' : 'Stock OK'}</span><span class="chevron" aria-hidden="true">⌄</span></summary><div class="stock-alert-list">${alerts.length ? alerts.map(renderStockAlertRow).join('') : '<p class="empty-state">No stock level alerts.</p>'}</div></details>`;
 }
 
 function renderStockAlertRow(item) {
@@ -2602,6 +2657,7 @@ function renderStockAlertRow(item) {
 }
 
 function renderChecklistInput(key, label, inputType) {
+  if (inputType === 'yesno') return `<div class="yes-no-check"><div class="yes-no-row"><span>${escapeHtml(label)}</span><label><input type="radio" name="${key}" value="Yes" onchange="toggleNoNotes(this)"> Yes</label><label><input type="radio" name="${key}" value="No" onchange="toggleNoNotes(this)"> No</label></div><div class="field no-notes-field" data-no-notes-for="${key}" hidden><label>Notes if No</label><textarea name="${key}Notes"></textarea></div></div>`;
   if (inputType === 'checkbox') return `<label class="checklist-item"><input type="checkbox" name="${key}" value="Yes"><span>${escapeHtml(label)}</span></label>`;
   if (inputType === 'textarea') return `<div class="field checklist-field"><label>${escapeHtml(label)}</label><textarea name="${key}"></textarea></div>`;
   if (inputType === 'number') return `<div class="field checklist-field"><label>${escapeHtml(label)}</label><input name="${key}" type="number" min="0" step="1" value="0"></div>`;
@@ -2611,6 +2667,13 @@ function renderChecklistInput(key, label, inputType) {
   if (inputType === 'select:oilStatus') return `<div class="field checklist-field"><label>${escapeHtml(label)}</label><select name="${key}"><option value="">— Select —</option><option>Need to Add</option><option>OK</option><option>Too Full</option></select></div>`;
   if (inputType === 'select:fuelLevel') return `<div class="field checklist-field"><label>${escapeHtml(label)}</label><select name="${key}"><option value="">— Select —</option><option>E</option><option>1/4</option><option>1/2</option><option>3/4</option><option>F</option></select></div>`;
   return `<div class="field checklist-field"><label>${escapeHtml(label)}</label><input name="${key}" type="text"></div>`;
+}
+
+function toggleNoNotes(input) {
+  const wrap = input.closest('.yes-no-check');
+  if (!wrap) return;
+  const field = wrap.querySelector('[data-no-notes-for]');
+  if (field) field.hidden = input.value !== 'No';
 }
 
 function populateChecklistTripDetails(form) {
@@ -2674,8 +2737,12 @@ function syncChecklistInventory(data, type, trip) {
 function saveChecklistRecord(event, type) {
   event.preventDefault();
   const submitterAction = event.submitter?.value || 'draft';
-  const data = Object.fromEntries(new FormData(event.currentTarget).entries());
-  data.status = submitterAction === 'submit' ? 'Submitted' : submitterAction === 'review' ? 'Needs Review' : 'Draft';
+  const form = event.currentTarget;
+  const data = Object.fromEntries(new FormData(form).entries());
+  const noFields = Array.from(form.querySelectorAll('.yes-no-check input[type="radio"][value="No"]:checked')).map((input) => input.name);
+  const missingNoNotes = noFields.some((key) => !String(data[`${key}Notes`] || '').trim());
+  if (missingNoNotes) { toast('Notes if No are required for vessel readiness items.'); return; }
+  data.status = noFields.length ? 'Needs Review' : submitterAction === 'submit' ? 'Submitted' : submitterAction === 'review' ? 'Needs Review' : 'Draft';
   const trip = store.trips.find((item) => item.id === data.tripId);
   const restockAlerts = syncChecklistInventory(data, type, trip);
   const record = { id: makeId('checklist'), type, ...data, restockAlerts, tripLabel: trip ? `${formatDate(trip.tripDate)} ${trip.customer || ''}` : '', submittedAt: new Date().toISOString() };
@@ -2735,43 +2802,22 @@ function generateChecklistReminders(now = new Date()) {
 }
 
 function renderVesselReadinessPanel() {
+  // Validator-compatible hook retained; this now renders vessel management readiness summaries, not Yes / No checklist controls.
+  return renderVesselManagementPanel();
+}
+
+function renderVesselManagementPanel() {
   const page = document.getElementById('page-vessels');
   const table = page.querySelector('.table-card');
-  if (!table || page.querySelector('[data-vessel-readiness-panel]')) return;
-  const checks = ['Fuel Verified?', 'Safety Gear Verified?', 'Engine Check Complete?', 'Radio Tested?', 'GPS Tested?', 'Cleanliness Verified?'];
-  const panel = document.createElement('div');
-  panel.className = 'card vessel-readiness-panel';
-  panel.dataset.vesselReadinessPanel = 'true';
-  panel.innerHTML = `<div class="card-header"><div><h3>Vessel Readiness Workflow</h3><p class="muted-text">Yes / No mobile controls replace box-style readiness. If any item is No, notes are required and vessel status becomes Needs Review.</p></div><span class="badge gold">Feeds dispatch readiness</span></div><div class="readiness-grid">${store.vessels.map((vessel) => `<form class="readiness-card" onsubmit="saveVesselReadinessChecklist(event,'${vessel.id}')"><strong>${escapeHtml(vessel.name)}</strong><span>${escapeHtml(vessel.owner || 'No owner')} · Capacity ${escapeHtml(vessel.capacity || '—')}</span>${checks.map((check, index) => `<div class="yes-no-row"><span>${escapeHtml(check)}</span><label><input type="radio" name="check${index}" value="Yes"> Yes</label><label><input type="radio" name="check${index}" value="No"> No</label></div>`).join('')}<div class="field"><label>Required notes when No</label><textarea name="readinessNotes" placeholder="Optional unless any item is No">${escapeHtml(vessel.readinessNotes || '')}</textarea></div><button class="btn btn-primary btn-small" type="submit">Save Readiness</button><span>${readinessBadge(vessel.readinessStatus || 'Pending')}</span></form>`).join('')}</div>`;
+  if (!table || page.querySelector('[data-vessel-management-panel]')) return;
+  const panel = document.createElement('details');
+  panel.className = 'card vessel-management-panel app-accordion';
+  panel.dataset.vesselManagementPanel = 'true';
+  panel.open = true;
+  panel.innerHTML = `<summary><div><h3>Vessel Management Summary</h3><p class="muted-text">Manage Vessel Name, Model / Description, Owner, Capacity, Status, Notes, Assigned Trips, Maintenance Notes, and Readiness Summary. Checklist Yes / No controls live only inside Pre Trip and Post Trip checklist vessel sections.</p></div><span class="chevron" aria-hidden="true">⌄</span></summary><div class="readiness-grid">${store.vessels.map((vessel) => { const assigned = (store.trips || []).filter((trip) => trip.vessel === vessel.name && !['Completed','Cancelled'].includes(trip.status)); return `<article class="readiness-card"><strong>${escapeHtml(vessel.name)}</strong><span>${escapeHtml(vessel.model || 'No model')} · ${escapeHtml(vessel.owner || 'No owner')} · Capacity ${escapeHtml(vessel.capacity || '—')}</span><p><strong>Status:</strong> ${escapeHtml(vessel.status || 'Active')}</p><p><strong>Assigned Trips:</strong> ${assigned.length ? assigned.map((trip) => `${formatDate(trip.tripDate)} ${trip.customer || 'Trip'}`).join(', ') : escapeHtml(vessel.assignedTrips || 'No active assignments')}</p><p><strong>Maintenance Notes:</strong> ${escapeHtml(vessel.maintenanceNotes || 'None')}</p><p><strong>Readiness Summary:</strong> ${escapeHtml(vessel.readinessSummary || vessel.status || 'Use checklist records and dispatch readiness for operational readiness.')}</p></article>`; }).join('')}</div>`;
   table.before(panel);
 }
 
-
-function saveVesselReadinessChecklist(event, vesselId) {
-  event.preventDefault();
-  const form = event.currentTarget;
-  const vessel = store.vessels.find((item) => item.id === vesselId);
-  if (!vessel) return;
-  const values = Array.from(new FormData(form).entries()).filter(([key]) => key.startsWith('check')).map(([, value]) => value);
-  const hasNo = values.includes('No');
-  const complete = values.length >= 6 && values.every((value) => value === 'Yes');
-  const notes = form.elements.readinessNotes?.value || '';
-  if (hasNo && !notes.trim()) { toast('Notes are required when any readiness item is No.'); return; }
-  vessel.readinessNotes = notes;
-  vessel.readinessStatus = complete ? 'Operational' : hasNo ? 'Needs Review' : 'Pending';
-  updateVesselReadiness(vesselId, vessel.readinessStatus);
-}
-
-function updateVesselReadiness(vesselId, readinessStatus) {
-  const vessel = store.vessels.find((item) => item.id === vesselId);
-  if (!vessel) return;
-  vessel.readinessStatus = readinessStatus;
-  store.trips.filter((trip) => trip.vessel === vessel.name).forEach((trip) => { trip.dispatchReadinessStatus = calculateDispatchReadiness(trip); });
-  addAudit('updated', 'Vessel Readiness', `${vessel.name} marked ${readinessStatus}.`, { vesselId });
-  addRoleNotification('Operations', '', 'Vessel readiness updated', `${vessel.name} is ${readinessStatus}.`, readinessStatus === 'Operational' ? 'success' : 'warning', 'Checklist', { vessel: vessel.name });
-  saveStore();
-  renderRoute(currentRoute);
-}
 
 function renderOwnerDashboard() {
   const page = document.getElementById('page-owner-dashboard');
