@@ -111,16 +111,79 @@ def validate_html() -> tuple[bool, str]:
 
 def validate_legacy_preserved() -> tuple[bool, str]:
     app_js = (ROOT / "app.js").read_text()
+    index_html = (ROOT / "index.html").read_text()
     missing = [name for name in sorted(LEGACY_FILES) if not (ROOT / name).exists()]
     unlinked = [name for name in sorted(LEGACY_FILES) if name not in app_js]
-    if missing or unlinked:
+    required_features = {
+        "dispatch board": "renderAssignmentBoard",
+        "payroll": "renderPayroll",
+        "audit trail": "renderAuditTrail",
+        "notifications": "renderNotifications",
+        "voice fill": "startVoiceFill",
+        "field command mode": "Field Command Mode",
+        "natural sentence mode": "Natural Sentence Mode",
+        "dispatch tree": "renderDispatchTree",
+        "readiness color logic": "statusClass",
+        "export": "exportStoreData",
+        "import": "importStoreData",
+        "notifications page": "page-notifications",
+        "audit page": "page-audit",
+    }
+    missing_features = [label for label, token in required_features.items() if token not in app_js and token not in index_html]
+    if missing or unlinked or missing_features:
         parts = []
         if missing:
             parts.append(f"missing files: {', '.join(missing)}")
         if unlinked:
             parts.append(f"not referenced in app.js: {', '.join(unlinked)}")
+        if missing_features:
+            parts.append(f"missing feature hooks: {', '.join(missing_features)}")
         return False, "FAIL — " + "; ".join(parts)
-    return True, "PASS — all legacy HTML tools exist and remain linked from app.js"
+    return True, "PASS — legacy links plus dispatch board, payroll, audit trail, notifications, voice fill, dispatch tree, and export/import hooks are present"
+
+
+def validate_phase4b_smoke() -> tuple[bool, str]:
+    script = r'''
+const fs = require('fs');
+const vm = require('vm');
+const assert = require('assert');
+const document = {
+  getElementById(id){ return { id, textContent: 'Owner / Admin', classList: { add(){}, remove(){}, toggle(){} }, setAttribute(){}, addEventListener(){}, hidden: false }; },
+  addEventListener(){},
+  querySelectorAll(){ return []; },
+  body: { addEventListener(){} }
+};
+const localStorage = { data:{}, getItem(k){ return this.data[k] ?? null; }, setItem(k,v){ this.data[k]=String(v); }, removeItem(k){ delete this.data[k]; } };
+const context = { document, localStorage, navigator: {}, window: { addEventListener(){} }, console, structuredClone: global.structuredClone, Date, Number, String, Math, JSON, Blob, URL, setTimeout, clearTimeout, Event };
+context.globalThis = context;
+vm.runInNewContext(fs.readFileSync('app.js','utf8'), context, { filename: 'app.js' });
+assert.strictEqual(context.formatPhoneVoiceValue('242 434 1208'), '242-434-1208', 'numeric phone parsing');
+assert.strictEqual(context.formatPhoneVoiceValue('two four two four three four one two zero eight'), '242-434-1208', 'spoken phone parsing');
+assert(context.fieldAliasesFor('customer', 'Customer Name').includes('guest name'), 'customer alias');
+assert(context.fieldAliasesFor('phone', 'Phone Number').includes('contact number'), 'phone alias');
+const fakeElements = ['customer','phone','passengers','captain','mate','vessel','depositPaid','balanceDue','tourType','departureTime','notes'].map((name) => ({
+  name,
+  value: '',
+  dataset: { voiceLabel: name, voiceAliases: context.fieldAliasesFor(name, name).join('|') },
+  focus(){ this.focused = true; },
+  dispatchEvent(){}
+}));
+const fakeForm = { dataset: { voiceRoute: 'trips' }, querySelectorAll(){ return fakeElements; }, querySelector(){ return null; }, elements: Object.fromEntries(fakeElements.map((el) => [el.name, el])) };
+assert.strictEqual(context.findVoiceField(fakeForm, 'contact number').key, 'phone', 'field command alias lookup');
+assert.strictEqual(context.findVoiceField(fakeForm, 'assigned boat').key, 'vessel', 'vessel alias lookup');
+const sentence = 'Customer name is Crystal Belle, phone number is 242 434 1208, six guests, captain Phillip, mate DJ.';
+assert.strictEqual(context.extractNaturalFieldValue(sentence, context.findVoiceField(fakeForm, 'customer name')), 'Crystal Belle', 'natural customer parsing');
+assert.strictEqual(context.extractNaturalFieldValue(sentence, context.findVoiceField(fakeForm, 'phone number')), '242-434-1208', 'natural phone parsing');
+assert.strictEqual(context.extractNaturalFieldValue(sentence, context.findVoiceField(fakeForm, 'guest count')), '6', 'natural guest parsing');
+const trip = { id: 'trip-smoke', customer: 'Crystal Belle', passengers: 6, tourType: 'Swimming Pigs', bookingSource: 'Website', tripDate: '2026-06-17', startTime: '09:00', departureTime: '09:00', vessel: 'Reel Adventure Tours I', captain: 'Phillip', mate: 'DJ', depositPaid: 100, balanceDue: 200, status: 'Scheduled', hours: 4 };
+const tree = context.renderDispatchTree([trip]);
+assert(tree.includes('dispatch-tree') && tree.includes('Wednesday, June 17, 2026') && tree.includes('Crystal Belle') && tree.includes('assignment-strip'), 'dispatch tree rendering');
+assert(context.statusClass('ready').includes('green') && context.statusClass('pending').includes('yellow') && context.statusClass('missing').includes('red') && context.statusClass('complete').includes('blue'), 'readiness color logic');
+assert(context.dispatchReadiness(trip).label === 'Needs Attention' || context.dispatchReadiness(trip).label === 'Fully Ready', 'assignment status rendering');
+assert(fs.readFileSync('styles.css','utf8').includes('@media (max-width: 640px)'), 'mobile layout hooks');
+console.log('PASS — field command mode, natural sentence mode, aliases, phone parsing, trip/booking/expense/incident voice hooks, dispatch tree rendering, mobile hooks, assignment status rendering, and readiness color logic verified');
+'''
+    return run(["node"], input_text=script)
 
 
 def validate_app_bootstrap() -> tuple[bool, str]:
@@ -142,7 +205,7 @@ class Element {
   querySelector(){ return null; }
   querySelectorAll(){ return []; }
 }
-const ids = ['toast','loginScreen','appShell','roleSelect','enterAppBtn','activeRole','menuBtn','sidebar','sidebarOverlay','primaryNav','installBtn','pageTitle','page-dashboard','page-bookings','page-invoices','page-trips','page-vessels','page-crew','page-payroll','page-expenses','page-inventory','page-pre-trip-checklist','page-post-trip-checklist','page-cruise-schedule','page-reports','page-settings','page-legacy'];
+const ids = ['toast','loginScreen','appShell','roleSelect','enterAppBtn','activeRole','menuBtn','sidebar','sidebarOverlay','primaryNav','installBtn','pageTitle','page-dashboard','page-bookings','page-invoices','page-trips','page-vessels','page-crew','page-payroll','page-expenses','page-inventory','page-pre-trip-checklist','page-post-trip-checklist','page-cruise-schedule','page-reports','page-notifications','page-audit','page-settings','page-legacy'];
 const elements = Object.fromEntries(ids.map(id => [id, new Element(id)]));
 for (const id of ids.filter(id => id.startsWith('page-'))) elements[id].classList.add('page');
 const listeners = {};
@@ -183,6 +246,7 @@ def main() -> int:
         ("JSON validation", validate_json),
         ("HTML validation", validate_html),
         ("Legacy functionality preserved", validate_legacy_preserved),
+        ("Phase 4B voice and dispatch smoke checks", validate_phase4b_smoke),
         ("App load console errors", validate_app_bootstrap),
     ]
     all_passed = True
