@@ -1081,3 +1081,35 @@ body { background: radial-gradient(circle at 100% 0, rgba(82,210,211,.12), trans
   visibility: visible;
   opacity: 1;
 }
+
+/* Phase 6A: automated assignment recommendations */
+.assignment-recommendation { margin-top: 16px; overflow: hidden; border: 2px solid rgba(15,95,143,.18); }
+.assignment-recommendation > summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px; cursor: pointer; list-style: none; background: linear-gradient(135deg, #f0fbfa, #f5f9ff); }
+.assignment-recommendation > summary::-webkit-details-marker { display: none; }
+.assignment-recommendation h3, .assignment-recommendation p { margin: 0; }
+.assignment-recommendation summary > div:last-child { display: flex; align-items: center; gap: 8px; }
+.recommendation-body { display: grid; gap: 14px; padding: 16px; }
+.recommendation-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.recommendation-card { min-width: 0; border: 1px solid var(--line); border-radius: 16px; padding: 13px; background: white; box-shadow: 0 6px 18px rgba(10,61,98,.06); }
+.recommendation-card-title { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: start; gap: 9px; }
+.recommendation-card-title > span:first-child { font-size: 1.4rem; }
+.recommendation-card small, .recommendation-card strong { display: block; }
+.recommendation-card small { color: var(--muted); font-size: .68rem; font-weight: 950; letter-spacing: .07em; text-transform: uppercase; }
+.recommendation-card strong { margin-top: 3px; overflow-wrap: anywhere; }
+.recommendation-card p { margin-top: 10px; color: var(--muted); font-size: .8rem; line-height: 1.45; }
+.recommendation-conflicts { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; border-radius: 13px; padding: 10px 12px; background: #fff4f3; }
+.recommendation-conflicts.clear { background: #effaf3; }
+.recommendation-conflicts > div { display: flex; gap: 6px; flex-wrap: wrap; }
+.apply-suggestion-btn { min-height: 48px; justify-self: start; }
+.assignment-recommendation-compact { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; width: 100%; border: 1px dashed rgba(15,95,143,.3); border-radius: 13px; padding: 10px; background: #f0fbfa; }
+.assignment-recommendation-compact .recommendation-conflicts { width: 100%; padding: 7px; }
+.dispatch-recommendation-node { width: 100%; }
+.calendar-recommendation { color: var(--ocean) !important; font-weight: 850; }
+@media (max-width: 760px) {
+  .recommendation-grid { grid-template-columns: 1fr; }
+  .assignment-recommendation > summary { align-items: flex-start; }
+  .recommendation-card-title { grid-template-columns: auto minmax(0, 1fr); }
+  .recommendation-card-title .badge { grid-column: 2; justify-self: start; }
+  .apply-suggestion-btn { width: 100%; min-height: 56px; font-size: 1rem; }
+  .recommendation-conflicts { align-items: flex-start; }
+}
