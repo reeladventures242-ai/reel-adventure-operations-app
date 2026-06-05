@@ -197,9 +197,20 @@ const context = {
 };
 context.globalThis = context;
 vm.runInNewContext(fs.readFileSync('app.js','utf8'), context, { filename: 'app.js' });
+const ocr = vm.runInNewContext(`parseQuoteInvoiceText(\`Customer Name: Keith Wilkes
+Ultimate 6 Hour Private Island Experience
+Tour Date: June 15, 2026
+10:00 AM Start
+5 guests
+Payment Type: Deposit
+Full Price: $1,750.00
+Deposit Paid: $175.00
+Remaining Balance: $1,575.00
+Payment method: Cash N' Go\`, 'tour-confirmation-template-01.png')`, context);
+if (ocr.customerName !== 'Keith Wilkes' || ocr.tripDate !== '2026-06-15' || ocr.startTime !== '10:00' || ocr.duration !== '6 Hours' || ocr.endTime !== '16:00' || ocr.guestCount !== '5' || ocr.depositPaid !== '175.00' || ocr.balanceDue !== '1575.00') throw new Error(`OCR extraction mismatch: ${JSON.stringify(ocr)}`);
 listeners.DOMContentLoaded();
 if (errors.length) throw new Error(errors.join('\n'));
-console.log('PASS — app bootstrap completed without console errors');
+console.log('PASS — app bootstrap and tour-confirmation OCR duration/end-time extraction completed without errors');
 '''
     return run(["node"], input_text=script)
 
@@ -427,6 +438,31 @@ def validate_phase_4g_upload_calendar() -> tuple[bool, str]:
         return False, "FAIL — " + "; ".join(f"missing {label}" for label in failures)
     return True, "PASS — Phase 4G upload intake, editable review, duplicate handling, upload-created records, role-filtered calendar views, mobile upload controls, statuses, notifications, audit entries, and voice-fill hooks are present"
 
+def validate_phase_5_completion() -> tuple[bool, str]:
+    app_js = (ROOT / "app.js").read_text()
+    styles_css = (ROOT / "styles.css").read_text()
+    combined = app_js + styles_css
+    required_tokens = {
+        "OCR duration extraction": "const duration = pick(",
+        "OCR calculated end time": "function calculateEndTime",
+        "OCR end time review field": "['endTime', 'End Time']",
+        "OCR confidence review": "extractionConfidence",
+        "Booking confirmation classifier": "'Booking Confirmation': scoreText",
+        "Captain payment receipt": "Captain Payment Receipt",
+        "Mate payment receipt": "Mate Payment Receipt",
+        "Owner payout statement": "Owner Payout Statement",
+        "Payment due notice": "Payment Due Notice",
+        "Payroll print PDF": "Print / Save PDF",
+        "Reference invoice styling": "Phase 5 reference-document",
+        "Mobile safe document header": ".invoice-brand-header",
+        "Collapsible arrows": ".app-accordion[open] > summary .chevron",
+    }
+    failures = [label for label, token in required_tokens.items() if token not in combined]
+    if failures:
+        return False, "FAIL — " + "; ".join(f"missing {label}" for label in failures)
+    return True, "PASS — Phase 5 OCR duration/end-time calculation, review confidence, payroll documents, reference styling, mobile layout, and collapsible arrows are present"
+
+
 def main() -> int:
     checks = [
         ("JavaScript syntax", validate_javascript),
@@ -439,6 +475,7 @@ def main() -> int:
         ("Phase 4D voice examples", validate_phase_4d_voice_examples),
         ("Phase 4F legacy parity correction", validate_phase_4f_legacy_parity),
         ("Phase 4G upload and calendar checks", validate_phase_4g_upload_calendar),
+        ("Phase 5 completion checks", validate_phase_5_completion),
     ]
     all_passed = True
     for label, check in checks:
