@@ -1,9 +1,9 @@
 const STORE_KEY = 'rat_ops_v1_store';
-const STORE_VERSION = 13;
+const STORE_VERSION = 14;
 
 const navItems = [
   ['dashboard', '🏠', 'Dashboard'], ['bookings', '📘', 'Bookings'], ['invoices', '🧾', 'Invoice / Quote'],
-  ['trips', '🧭', 'Trips'], ['calendar', '📅', 'Calendar'], ['captain-dashboard', '🧢', 'Captain Dashboard'], ['mate-dashboard', '⚓', 'Mate Dashboard'], ['owner-dashboard', '👑', 'Owner Dashboard'], ['vessels', '⛵', 'Vessels'], ['crew', '👥', 'Crew'],
+  ['trips', '🧭', 'Trips'], ['calendar', '📅', 'Calendar'], ['chat', '💬', 'Chat'], ['captain-dashboard', '🧢', 'Captain Dashboard'], ['mate-dashboard', '⚓', 'Mate Dashboard'], ['owner-dashboard', '👑', 'Owner Dashboard'], ['vessels', '⛵', 'Vessels'], ['crew', '👥', 'Crew'],
   ['payroll', '💸', 'Payroll'], ['expenses', '💳', 'Expenses'], ['inventory', '📦', 'Inventory'], ['incident-reports', '🚨', 'Incident Reports'],
   ['pre-trip-checklist', '✅', 'Pre Trip Checklist'], ['post-trip-checklist', '🧽', 'Post Trip Checklist'],
   ['cruise-schedule', '🚢', 'Cruise Schedule'], ['reports', '📊', 'Reports'],
@@ -14,6 +14,7 @@ const mobilePrimaryNav = [
   ['dashboard', '🏠', 'Dashboard'],
   ['trips', '🧭', 'Dispatch'],
   ['calendar', '📅', 'Calendar'],
+  ['chat', '💬', 'Chat'],
   ['bookings', '📘', 'Bookings'],
   ['crew', '👥', 'Crew'],
   ['more', '☰', 'More']
@@ -105,7 +106,13 @@ const seedData = {
   inventory: [],
   dashboardPreferences: null,
   reminderHistory: [],
-  photoNotes: []
+  photoNotes: [],
+  users: [],
+  chatConversations: [],
+  chatMessages: [],
+  chatReadReceipts: [],
+  chatPreferences: { generalEnabled: true, directEnabled: true, showUnreadBadges: true },
+  activeUserId: ''
 };
 
 const crudConfig = {
@@ -181,7 +188,7 @@ const voiceSupportedRoutes = new Set(['dashboard', 'bookings', 'trips', 'invoice
 const dashboardCardCatalog = [
   ['todayTrips', "Today's Trips"], ['readyTrips', 'Ready Trips'], ['needsAttention', 'Trips Needing Attention'], ['outstandingBalances', 'Outstanding Balances'],
   ['unreadAlerts', 'Unread Alerts'], ['crewAssignments', 'Crew Assignments'], ['preTripMissing', 'Checklist Reminders'], ['postTripMissing', 'Post Trip Missing'],
-  ['stockAlerts', 'Stock Alerts'], ['payrollOwed', 'Payroll Owed'], ['expenses', 'Expenses'], ['calendarSummary', 'Calendar Summary'],
+  ['unreadChat', 'Unread Chat Messages'], ['stockAlerts', 'Stock Alerts'], ['payrollOwed', 'Payroll Owed'], ['expenses', 'Expenses'], ['calendarSummary', 'Calendar Summary'],
   ['revenueSummary', 'Revenue Summary'], ['incidentAlerts', 'Incident Alerts'], ['upcomingTours', 'Upcoming Tours'], ['upcomingCruiseArrivals', 'Upcoming Cruise Arrivals']
 ];
 const defaultDashboardPreferences = {
@@ -200,6 +207,9 @@ let assignmentViewMode = 'tree';
 let voiceCommand = { state: 'IDLE', route: '', field: null, form: null, lastValue: '', message: 'Command Voice Fill idle.', suggestions: [] };
 let voiceAssistantOpen = false;
 let dashboardFilters = { captain: '', mate: '', owner: '' };
+let activeChatConversationId = 'chat-general';
+let chatMobileThreadOpen = false;
+let chatFilters = { search: '', person: '', role: '' };
 
 function loadStore() {
   const raw = localStorage.getItem(STORE_KEY);
@@ -236,6 +246,13 @@ function migrateStore(existing = {}) {
   next.dashboardPreferences = normalizeDashboardPreferences(next.dashboardPreferences);
   next.reminderHistory = Array.isArray(next.reminderHistory) ? next.reminderHistory : [];
   next.photoNotes = Array.isArray(next.photoNotes) ? next.photoNotes : [];
+  next.users = migrateUsers(Array.isArray(next.users) ? next.users : [], next.crew, next.vessels);
+  next.chatPreferences = { generalEnabled: true, directEnabled: true, showUnreadBadges: true, ...(next.chatPreferences || {}) };
+  next.chatConversations = Array.isArray(next.chatConversations) ? next.chatConversations : [];
+  if (!next.chatConversations.some((conversation) => conversation.id === 'chat-general')) next.chatConversations.unshift({ id: 'chat-general', type: 'general', title: 'General Chat', participantUserIds: next.users.filter((user) => user.active !== false).map((user) => user.id), createdAt: new Date().toISOString(), metadata: { scope: 'company' } });
+  next.chatMessages = Array.isArray(next.chatMessages) ? next.chatMessages : [];
+  next.chatReadReceipts = Array.isArray(next.chatReadReceipts) ? next.chatReadReceipts : [];
+  next.activeUserId = next.users.some((user) => user.id === next.activeUserId && user.active !== false) ? next.activeUserId : (next.users.find((user) => user.role === 'Admin' && user.active !== false)?.id || next.users.find((user) => user.active !== false)?.id || '');
   next.vessels = (Array.isArray(next.vessels) ? next.vessels : []).map((vessel) => ({ ...vessel, readinessStatus: vessel.readinessStatus || vessel.status || 'Operational' }));
   next.trips = (Array.isArray(next.trips) ? next.trips : []).map((trip) => normalizeTrip(trip));
   localStorage.setItem(STORE_KEY, JSON.stringify(next));
@@ -243,6 +260,24 @@ function migrateStore(existing = {}) {
 }
 
 
+
+function migrateUsers(existingUsers = [], crew = [], vessels = []) {
+  const byLink = new Map(existingUsers.map((user) => [user.linkedCrewProfileId || `owner:${user.linkedVesselOwnerProfileId || ''}`, user]));
+  const users = existingUsers.map((user) => ({ phone: '', email: '', active: true, linkedCrewProfileId: '', linkedVesselOwnerProfileId: '', demoPin: '', lastLoginAt: '', metadata: {}, ...user }));
+  if (!users.some((user) => user.role === 'Admin')) users.unshift({ id: 'user-admin', name: 'Operations Admin', role: 'Admin', phone: '', email: 'admin@reeladventure.demo', active: true, linkedCrewProfileId: '', linkedVesselOwnerProfileId: '', demoPin: '0000', lastLoginAt: '', metadata: { source: 'seed' } });
+  if (!users.some((user) => user.role === 'Mate')) users.push({ id: 'user-mate-demo', name: 'Demo Mate', role: 'Mate', phone: '', email: 'mate@reeladventure.demo', active: true, linkedCrewProfileId: '', linkedVesselOwnerProfileId: '', demoPin: '0000', lastLoginAt: '', metadata: { source: 'seed' } });
+  if (!users.some((user) => user.role === 'Bookkeeper')) users.push({ id: 'user-bookkeeper', name: 'Demo Bookkeeper', role: 'Bookkeeper', phone: '', email: 'bookkeeper@reeladventure.demo', active: true, linkedCrewProfileId: '', linkedVesselOwnerProfileId: '', demoPin: '0000', lastLoginAt: '', metadata: { source: 'seed' } });
+  crew.forEach((person) => {
+    if (byLink.has(person.id) || users.some((user) => user.linkedCrewProfileId === person.id)) return;
+    const role = ['Captain', 'Mate'].includes(person.role) ? person.role : 'Captain';
+    users.push({ id: `user-${person.id}`, name: person.name, role, phone: person.phone || '', email: person.email || '', active: person.active !== 'No', linkedCrewProfileId: person.id, linkedVesselOwnerProfileId: '', demoPin: '0000', lastLoginAt: '', metadata: { source: 'crew' } });
+  });
+  [...new Set(vessels.map((vessel) => vessel.owner).filter(Boolean))].forEach((owner) => {
+    if (users.some((user) => user.role === 'Owner' && user.name === owner)) return;
+    users.push({ id: `user-owner-${owner.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`, name: owner, role: 'Owner', phone: '', email: '', active: true, linkedCrewProfileId: '', linkedVesselOwnerProfileId: owner, demoPin: '0000', lastLoginAt: '', metadata: { source: 'vesselOwner' } });
+  });
+  return users;
+}
 
 function normalizeDashboardPreferences(prefs = defaultDashboardPreferences) {
   prefs = prefs || defaultDashboardPreferences;
@@ -302,9 +337,9 @@ function saveStore() {
   localStorage.setItem(STORE_KEY, JSON.stringify(store));
 }
 
-function currentUserLabel() {
-  return document.getElementById('activeRole')?.textContent || document.getElementById('roleSelect')?.value || 'Demo user';
-}
+function currentUser() { return store.users?.find((user) => user.id === store.activeUserId) || store.users?.[0] || { id: '', name: 'Demo user', role: 'Admin' }; }
+function currentUserLabel() { const user = currentUser(); return `${user.name} · ${user.role}`; }
+
 
 function summarizeRecord(record = {}) {
   return record.customer || record.name || record.order || record.id || 'record';
@@ -377,6 +412,7 @@ function getOptions(kind) {
 }
 
 function init() {
+  renderLoginUsers();
   renderNav();
   wireEvents();
   generateChecklistReminders();
@@ -384,10 +420,16 @@ function init() {
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('service-worker.js').catch(console.warn);
 }
 
+function renderLoginUsers() {
+  const select = document.getElementById('userSelect');
+  if (!select) return;
+  select.innerHTML = store.users.filter((user) => user.active !== false).map((user) => `<option value="${user.id}" ${user.id === store.activeUserId ? 'selected' : ''}>${escapeHtml(user.name)} — ${escapeHtml(user.role)}</option>`).join('');
+}
+
 function renderNav() {
-  document.getElementById('primaryNav').innerHTML = navItems.map(([route, icon, label]) => `
-    <button class="nav-link" data-route="${route}"><span class="nav-icon">${icon}</span><span>${label}</span></button>
-  `).join('');
+  document.getElementById('primaryNav').innerHTML = navItems.map(([route, icon, label]) => { const badge = route === 'chat' ? chatBadgeMarkup('nav-badge') : ''; return `
+    <button class="nav-link" data-route="${route}"><span class="nav-icon">${icon}</span><span>${label}</span>${badge}</button>
+  `; }).join('');
   renderMobileNav();
 }
 
@@ -398,7 +440,7 @@ function renderMobileNav() {
   const unread = unreadNotificationCount();
   const items = [...mobilePrimaryNav.filter(([route]) => route !== 'more'), ...mobileMoreNav.filter(([route]) => route !== 'calendar')];
   bottom.innerHTML = `<div class="mobile-nav-scroll">${items.map(([route, icon, label]) => {
-    const badge = route === 'notifications' && unread ? `<span class="mobile-nav-badge" aria-label="${unread} unread notifications">${unread}</span>` : '';
+    const badge = route === 'notifications' && unread ? `<span class="mobile-nav-badge" aria-label="${unread} unread notifications">${unread}</span>` : route === 'chat' ? chatBadgeMarkup('mobile-nav-badge') : '';
     return `<button class="mobile-nav-link ${currentRoute === route ? 'active' : ''}" data-route="${route}"><span class="mobile-nav-icon">${icon}${badge}</span><span>${label}</span></button>`;
   }).join('')}</div>`;
   if (more) more.hidden = true;
@@ -419,9 +461,13 @@ function wireEvents() {
   document.getElementById('enterAppBtn').addEventListener('click', () => {
     document.getElementById('loginScreen').hidden = true;
     document.getElementById('appShell').hidden = false;
-    document.getElementById('activeRole').textContent = document.getElementById('roleSelect').value;
-    renderRoute(currentRoute);
-    toast('Demo role selected. Real authentication is intentionally not enabled yet.');
+    const selected = document.getElementById('userSelect')?.value;
+    const user = store.users.find((item) => item.id === selected && item.active !== false) || currentUser();
+    store.activeUserId = user.id; user.lastLoginAt = new Date().toISOString(); saveStore();
+    document.getElementById('roleSelect').value = user.role;
+    document.getElementById('activeRole').textContent = `${user.name} · ${user.role}`;
+    renderNav(); renderRoute(currentRoute);
+    toast(`Signed in as ${user.name}. Demo authentication only.`);
   });
   document.getElementById('menuBtn').addEventListener('click', toggleSidebar);
   document.getElementById('sidebarOverlay').addEventListener('click', closeSidebar);
@@ -466,6 +512,15 @@ function wireEvents() {
     if (dashToggle) toggleDashboardCard(dashToggle.dataset.dashboardCardToggle);
     const dashMove = event.target.closest('[data-dashboard-card-move]');
     if (dashMove) moveDashboardCard(dashMove.dataset.dashboardCardMove, dashMove.dataset.direction);
+    const chatOpen = event.target.closest('[data-chat-conversation]');
+    if (chatOpen) openChatConversation(chatOpen.dataset.chatConversation);
+    const chatDirect = event.target.closest('[data-chat-direct-user]');
+    if (chatDirect) openDirectChat(chatDirect.dataset.chatDirectUser);
+    if (event.target.closest('[data-chat-back]')) { chatMobileThreadOpen = false; renderChat(); }
+    if (event.target.closest('[data-chat-mark-read]')) markConversationRead(activeChatConversationId);
+    const userToggle = event.target.closest('[data-user-active-toggle]');
+    if (userToggle) toggleUserActive(userToggle.dataset.userActiveToggle);
+    if (event.target.closest('[data-create-linked-users]')) createLinkedUsers();
   });
   document.body.addEventListener('change', (event) => {
     if (event.target.matches('[data-import-store]')) importStoreData(event.target.files[0]);
@@ -474,6 +529,11 @@ function wireEvents() {
     if (event.target.matches('[data-calendar-month]')) updateCalendarDate('month', event.target.value);
     if (event.target.matches('[data-calendar-year]')) updateCalendarDate('year', event.target.value);
     if (event.target.matches('[data-photo-note-file]')) savePhotoNoteFile(event.target.dataset.photoNoteRoute, event.target.files[0]);
+    if (event.target.matches('[data-chat-filter]')) { chatFilters[event.target.dataset.chatFilter] = event.target.value; renderChat(); }
+    if (event.target.matches('[data-user-role]')) updateUserField(event.target.dataset.userRole, 'role', event.target.value);
+    if (event.target.matches('[data-user-link-crew]')) updateUserField(event.target.dataset.userLinkCrew, 'linkedCrewProfileId', event.target.value);
+    if (event.target.matches('[data-user-link-owner]')) updateUserField(event.target.dataset.userLinkOwner, 'linkedVesselOwnerProfileId', event.target.value);
+    if (event.target.matches('[data-chat-preference]')) updateChatPreference(event.target.dataset.chatPreference, event.target.checked);
   });
   document.body.addEventListener('dragover', (event) => {
     const zone = event.target.closest('[data-upload-zone]');
@@ -489,6 +549,8 @@ function wireEvents() {
     zone.classList.remove('drag-over');
     handleUploadFiles(event.dataTransfer.files, zone.dataset.uploadRoute);
   });
+  document.body.addEventListener('submit', (event) => { if (event.target.matches('[data-chat-form]')) sendChatMessage(event); if (event.target.matches('[data-demo-pin-form]')) saveDemoPin(event); });
+  document.body.addEventListener('input', (event) => { if (event.target.matches('[data-chat-search]')) { chatFilters.search = event.target.value; renderChat(); } });
   window.addEventListener('online', updateMobileChrome);
   window.addEventListener('offline', updateMobileChrome);
   window.addEventListener('beforeinstallprompt', (event) => {
@@ -521,10 +583,11 @@ function renderRoute(route) {
   if (!page) return;
   page.classList.add('active');
   const nav = navItems.find(([key]) => key === route);
-  document.getElementById('pageTitle').textContent = nav ? nav[2] : 'Legacy Tools';
+  document.getElementById('pageTitle').textContent = nav ? `${nav[1]} ${nav[2]}` : 'Legacy Tools';
   if (crudConfig[route]) renderCrud(route);
   else if (route === 'dashboard') renderDashboard();
   else if (route === 'calendar') renderCalendar();
+  else if (route === 'chat') renderChat();
   else if (route === 'payroll') renderPayroll();
   else if (route === 'inventory') renderInventory();
   else if (route === 'captain-dashboard') renderCrewRoleDashboard('captain');
@@ -912,6 +975,7 @@ function createTripFromUpload(data, scheduleOnly = false) {
 }
 
 function activeRoleName() {
+  if (currentUser().role) return currentUser().role;
   const label = currentUserLabel().toLowerCase();
   if (label.includes('bookkeeper')) return 'Bookkeeper';
   if (label.includes('captain')) return 'Captain';
@@ -920,9 +984,9 @@ function activeRoleName() {
   return 'Admin';
 }
 function activeRolePerson(role = activeRoleName()) {
-  if (role === 'Captain') return dashboardFilters.captain || getOptions('crew')[0] || '';
-  if (role === 'Mate') return dashboardFilters.mate || getOptions('crew')[0] || '';
-  if (role === 'Owner') return dashboardFilters.owner || getOptions('owners')[0] || '';
+  if (role === 'Captain') return currentUser().name || dashboardFilters.captain || getOptions('crew')[0] || '';
+  if (role === 'Mate') return currentUser().name || dashboardFilters.mate || getOptions('crew')[0] || '';
+  if (role === 'Owner') return currentUser().name || dashboardFilters.owner || getOptions('owners')[0] || '';
   return '';
 }
 function visibleCalendarTrips() {
@@ -971,7 +1035,7 @@ function renderCalendar() {
   const role = activeRoleName();
   const trips = visibleCalendarTrips();
   const financial = role === 'Admin' || role === 'Bookkeeper';
-  page.innerHTML = `<div class="page-stack calendar-page"><div class="section-heading"><div><p class="eyebrow">Schedule</p><h1>Calendar</h1></div><div class="calendar-view-tabs"><button class="btn ${state.view === 'month' ? 'btn-primary' : 'btn-outline'} btn-small" data-calendar-view="month">Month View</button><button class="btn ${state.view === 'week' ? 'btn-primary' : 'btn-outline'} btn-small" data-calendar-view="week">Week View</button><button class="btn ${state.view === 'day' ? 'btn-primary' : 'btn-outline'} btn-small" data-calendar-view="day">Day View</button><button class="btn ${state.view === 'agenda' ? 'btn-primary' : 'btn-outline'} btn-small" data-calendar-view="agenda">Agenda View</button></div></div>${renderCalendarDateControls(selected)}${renderUploadZone('calendar')}<div class="calendar-role-note card card-pad"><strong>${escapeHtml(role)} permissions</strong><p>${calendarPermissionCopy(role)}</p>${financial ? `<p><strong>Bookkeeper financial calendar view:</strong> ${money(trips.reduce((sum, trip) => sum + Number(trip.balanceDue || 0), 0))} outstanding across visible trips.</p>` : ''}<p><strong>Unassigned Trips:</strong> ${trips.filter((trip) => calendarTripStatus(trip) === 'Unassigned').length} schedule entries need vessel, captain, or mate assignment.</p></div>${renderCalendarFilters()}${state.view === 'month' ? renderMonthView(selected, trips) : state.view === 'week' ? renderWeekView(selected, trips) : state.view === 'day' ? renderDaySchedule(selected, trips) : renderAgendaView(trips)}</div>`;
+  page.innerHTML = `<div class="page-stack calendar-page"><div class="section-heading"><div><h1>Calendar</h1></div><div class="calendar-view-tabs"><button class="btn ${state.view === 'month' ? 'btn-primary' : 'btn-outline'} btn-small" data-calendar-view="month">Month View</button><button class="btn ${state.view === 'week' ? 'btn-primary' : 'btn-outline'} btn-small" data-calendar-view="week">Week View</button><button class="btn ${state.view === 'day' ? 'btn-primary' : 'btn-outline'} btn-small" data-calendar-view="day">Day View</button><button class="btn ${state.view === 'agenda' ? 'btn-primary' : 'btn-outline'} btn-small" data-calendar-view="agenda">Agenda View</button></div></div>${renderCalendarDateControls(selected)}${renderUploadZone('calendar')}<div class="calendar-role-note card card-pad"><strong>${escapeHtml(role)} permissions</strong><p>${calendarPermissionCopy(role)}</p>${financial ? `<p><strong>Bookkeeper financial calendar view:</strong> ${money(trips.reduce((sum, trip) => sum + Number(trip.balanceDue || 0), 0))} outstanding across visible trips.</p>` : ''}<p><strong>Unassigned Trips:</strong> ${trips.filter((trip) => calendarTripStatus(trip) === 'Unassigned').length} schedule entries need vessel, captain, or mate assignment.</p></div>${renderCalendarFilters()}${state.view === 'month' ? renderMonthView(selected, trips) : state.view === 'week' ? renderWeekView(selected, trips) : state.view === 'day' ? renderDaySchedule(selected, trips) : renderAgendaView(trips)}</div>`;
   renderVoiceCommandPanel('calendar');
 }
 function calendarPermissionCopy(role) {
@@ -1072,6 +1136,7 @@ function renderDashboardCustomCard(key, m) {
     needsAttention: m.urgentItems.map((item) => `${item.type}: ${item.title}`),
     outstandingBalances: [`${money(m.totalBalance)} unpaid`],
     unreadAlerts: [`${unreadNotificationCount()} unread notifications`],
+    unreadChat: [`${unreadChatCount()} unread chat messages`],
     crewAssignments: m.scheduledTrips.slice(0, 5).map((trip) => `${trip.captain || 'No captain'} / ${trip.mate || 'No mate'} · ${trip.customer || 'Trip'}`),
     preTripMissing: m.scheduledTrips.filter((trip) => latestChecklistStatus(trip, 'Pre Trip') !== 'Completed').map((trip) => trip.customer || 'Trip'),
     postTripMissing: m.scheduledTrips.filter((trip) => latestChecklistStatus(trip, 'Post Trip') !== 'Completed').map((trip) => trip.customer || 'Trip'),
@@ -1202,7 +1267,7 @@ function renderCrewRoleDashboard(role) {
   const assigned = store.trips.filter((trip) => trip[role] === selected && trip.status !== 'Cancelled').sort((a, b) => tripSortValue(a).localeCompare(tripSortValue(b)));
   const upcoming = assigned.filter((trip) => !isCompletedTrip(trip));
   const completed = assigned.filter(isCompletedTrip);
-  page.innerHTML = `<div class="page-stack"><div class="section-heading"><div><p class="eyebrow">Crew Operations</p><h1>${roleLabel} Dashboard</h1><p class="section-summary">Assigned trips appear immediately, upcoming work stays visible until completed, and completed trips move into the archive below.</p></div><select data-role-person onchange="renderCrewRoleDashboard('${role}')">${getOptions('crew').map((name) => `<option value="${escapeHtml(name)}" ${name === selected ? 'selected' : ''}>${escapeHtml(name)}</option>`).join('')}</select></div><div class="grid kpi-grid dashboard-kpis">${kpi('Assigned', assigned.length, `${roleLabel} trip cards`)}${kpi('Upcoming', upcoming.length, 'Not completed or cancelled')}${kpi('Accepted', assigned.filter((trip) => normalizeAssignmentStatus(trip)[role] === 'Accepted').length, 'Accepted status')}${kpi('Completed archive', completed.length, 'Archived completed trips')}</div><div class="role-trip-list">${upcoming.length ? upcoming.map((trip) => renderRoleTripCard(trip, role)).join('') : '<div class="card card-pad empty-state">No upcoming assignments for this crew member.</div>'}</div><div class="card"><div class="card-header"><h3>Completed Trip Archive</h3><span class="badge green">${completed.length} completed</span></div><div class="role-archive-list">${completed.length ? completed.map((trip) => renderRoleArchiveTrip(trip, role)).join('') : '<p class="empty-state">Completed trips will archive here.</p>'}</div></div>${renderPhotoNotePanel(route)}</div>`;
+  page.innerHTML = `<div class="page-stack"><div class="section-heading"><div><h1>${roleLabel} Dashboard</h1></div><select data-role-person onchange="renderCrewRoleDashboard('${role}')">${getOptions('crew').map((name) => `<option value="${escapeHtml(name)}" ${name === selected ? 'selected' : ''}>${escapeHtml(name)}</option>`).join('')}</select></div><div class="grid kpi-grid dashboard-kpis">${kpi('Assigned', assigned.length, `${roleLabel} trip cards`)}${kpi('Upcoming', upcoming.length, 'Not completed or cancelled')}${kpi('Accepted', assigned.filter((trip) => normalizeAssignmentStatus(trip)[role] === 'Accepted').length, 'Accepted status')}${kpi('Completed archive', completed.length, 'Archived completed trips')}</div><div class="role-trip-list">${upcoming.length ? upcoming.map((trip) => renderRoleTripCard(trip, role)).join('') : '<div class="card card-pad empty-state">No upcoming assignments for this crew member.</div>'}</div><div class="card"><div class="card-header"><h3>Completed Trip Archive</h3><span class="badge green">${completed.length} completed</span></div><div class="role-archive-list">${completed.length ? completed.map((trip) => renderRoleArchiveTrip(trip, role)).join('') : '<p class="empty-state">Completed trips will archive here.</p>'}</div></div>${renderPhotoNotePanel(route)}</div>`;
 }
 
 function renderRoleArchiveTrip(trip, role) {
@@ -1256,9 +1321,9 @@ function renderCrud(route) {
   const config = crudConfig[route];
   const page = document.getElementById(`page-${route}`);
   const template = document.getElementById('crudPageTemplate').content.cloneNode(true);
-  template.querySelector('.eyebrow').textContent = config.eyebrow;
+  template.querySelector('.eyebrow').textContent = '';
+  template.querySelector('.eyebrow').hidden = true;
   template.querySelector('h1').textContent = config.title;
-  template.querySelector('.section-summary').textContent = config.summary;
   template.querySelector('.add-record-btn').textContent = config.addLabel;
   template.querySelector('.add-record-btn').onclick = () => showForm(route);
   template.querySelector('.card-header h3').textContent = `${config.title} records`;
@@ -1891,7 +1956,7 @@ function renderInventory() {
   const alerts = inventoryAlerts();
   const alertCard = canViewStockAlerts() ? `<div class="card urgent-card"><div class="card-header"><h3>Low Stock Alerts</h3><span class="badge ${alerts.length ? 'red' : 'green'}">${alerts.length ? 'Restock Needed' : 'Stock OK'}</span></div><div class="stat-list">${alerts.length ? alerts.map((item) => `<div class="stat-row"><span>${escapeHtml(item.name)}</span><strong>${statusBadge(item.status)} ${escapeHtml(item.currentStock)} / min ${escapeHtml(item.minimumRequiredStock)}</strong></div>`).join('') : '<p class="empty-state">No low stock warnings.</p>'}</div></div>` : '';
   const rows = store.inventory.map((item) => `<tr><td><strong>${escapeHtml(item.name)}</strong><br><small>${escapeHtml(item.category)} · ${escapeHtml(item.unit)}</small></td><td>${escapeHtml(item.currentStock)}</td><td>${escapeHtml(item.minimumRequiredStock)}</td><td>${escapeHtml(item.recommendedStock)}</td><td>${statusBadge(item.status)}</td><td>${escapeHtml(item.restockNeeded)}</td><td>${escapeHtml(item.linkedVessel || 'All vessels')}</td><td>${escapeHtml(item.linkedTrip || '—')}</td><td>${escapeHtml(item.updatedBy || '—')}<br><small>${escapeHtml(new Date(item.lastUpdated).toLocaleString())}</small></td></tr>`).join('');
-  document.getElementById('page-inventory').innerHTML = `<div class="page-stack"><div class="section-heading"><div><p class="eyebrow">Native stock levels and alerts</p><h1>Inventory</h1><p class="section-summary">Track current stock, minimum required stock, recommended stock, stock status, low stock alerts, restock needed, last updated, updated by, linked vessel, and linked trip.</p></div></div><form class="record-form card" onsubmit="saveInventoryItem(event)"><div class="form-section-stack" data-mobile-form-sections><section class="form-section-card"><div class="form-section-title"><span>1</span><h3>Stock Update</h3></div><div class="form-grid"><div class="field"><label>Inventory Item</label><select name="id">${store.inventory.map((item) => `<option value="${escapeHtml(item.id)}">${escapeHtml(item.name)}</option>`).join('')}</select></div><div class="field"><label>Current Stock</label><input name="currentStock" type="number" step="0.01"></div><div class="field"><label>Minimum Required Stock</label><input name="minimumRequiredStock" type="number" step="0.01"></div><div class="field"><label>Recommended Stock</label><input name="recommendedStock" type="number" step="0.01"></div><div class="field"><label>Linked Vessel</label><select name="linkedVessel"><option value="">All vessels</option>${getOptions('vessels').map((vessel) => `<option value="${escapeHtml(vessel)}">${escapeHtml(vessel)}</option>`).join('')}</select></div><div class="field"><label>Linked Trip</label><select name="linkedTrip"><option value="">— None —</option>${getOptions('trips').map((opt) => `<option value="${escapeHtml(opt.split('|')[0])}">${escapeHtml(opt.split('|').slice(1).join('|'))}</option>`).join('')}</select></div><div class="field"><label>Updated By</label><input name="updatedBy" type="text" value="${escapeHtml(currentUserLabel())}"></div><div class="field"><label>Notes</label><textarea name="notes"></textarea></div></div></section></div><div class="form-actions sticky-save-controls"><button class="btn btn-primary" type="submit">Save Stock Update</button>${voiceFillButton('inventory')}<button class="btn btn-outline" type="button" onclick="window.print()">Print / Export</button></div></form>${alertCard}<div class="card table-card"><div class="card-header"><h3>Inventory records</h3><button class="btn btn-outline btn-small" type="button" onclick="window.print()">Print / Export Inventory</button></div><div class="responsive-table-wrap"><table><thead><tr><th>Item</th><th>Current Stock</th><th>Minimum Required Stock</th><th>Recommended Stock</th><th>Stock Status</th><th>Restock Needed</th><th>Linked Vessel</th><th>Linked Trip</th><th>Last Updated / By</th></tr></thead><tbody>${rows}</tbody></table></div></div></div>`;
+  document.getElementById('page-inventory').innerHTML = `<div class="page-stack"><div class="section-heading"><div><h1>Inventory</h1></div></div><form class="record-form card" onsubmit="saveInventoryItem(event)"><div class="form-section-stack" data-mobile-form-sections><section class="form-section-card"><div class="form-section-title"><span>1</span><h3>Stock Update</h3></div><div class="form-grid"><div class="field"><label>Inventory Item</label><select name="id">${store.inventory.map((item) => `<option value="${escapeHtml(item.id)}">${escapeHtml(item.name)}</option>`).join('')}</select></div><div class="field"><label>Current Stock</label><input name="currentStock" type="number" step="0.01"></div><div class="field"><label>Minimum Required Stock</label><input name="minimumRequiredStock" type="number" step="0.01"></div><div class="field"><label>Recommended Stock</label><input name="recommendedStock" type="number" step="0.01"></div><div class="field"><label>Linked Vessel</label><select name="linkedVessel"><option value="">All vessels</option>${getOptions('vessels').map((vessel) => `<option value="${escapeHtml(vessel)}">${escapeHtml(vessel)}</option>`).join('')}</select></div><div class="field"><label>Linked Trip</label><select name="linkedTrip"><option value="">— None —</option>${getOptions('trips').map((opt) => `<option value="${escapeHtml(opt.split('|')[0])}">${escapeHtml(opt.split('|').slice(1).join('|'))}</option>`).join('')}</select></div><div class="field"><label>Updated By</label><input name="updatedBy" type="text" value="${escapeHtml(currentUserLabel())}"></div><div class="field"><label>Notes</label><textarea name="notes"></textarea></div></div></section></div><div class="form-actions sticky-save-controls"><button class="btn btn-primary" type="submit">Save Stock Update</button>${voiceFillButton('inventory')}<button class="btn btn-outline" type="button" onclick="window.print()">Print / Export</button></div></form>${alertCard}<div class="card table-card"><div class="card-header"><h3>Inventory records</h3><button class="btn btn-outline btn-small" type="button" onclick="window.print()">Print / Export Inventory</button></div><div class="responsive-table-wrap"><table><thead><tr><th>Item</th><th>Current Stock</th><th>Minimum Required Stock</th><th>Recommended Stock</th><th>Stock Status</th><th>Restock Needed</th><th>Linked Vessel</th><th>Linked Trip</th><th>Last Updated / By</th></tr></thead><tbody>${rows}</tbody></table></div></div></div>`;
 }
 
 function saveInventoryItem(event) {
@@ -1931,7 +1996,7 @@ function renderPayroll() {
   const totalOwed = entries.reduce((sum, entry) => sum + entry.amountOwed, 0);
   const totalPaid = entries.reduce((sum, entry) => sum + entry.amountPaid, 0);
   document.getElementById('page-payroll').innerHTML = `<div class="page-stack">
-    <div class="section-heading"><div><p class="eyebrow">Sunday–Saturday payroll and person statements</p><h1>Weekly payroll engine</h1><p class="section-summary">Owner payouts, captain payouts, mate payouts, reimbursements, person statements, receipts, weekly summaries, and export/print workflows are calculated as separate role lines so the same person can be paid independently for multiple roles on one trip.</p></div><div class="legacy-actions"><button class="btn btn-primary" data-route="trips">Create trip</button><button class="btn btn-outline" type="button" onclick="window.print()">Print / Export Statements</button></div></div>
+    <div class="section-heading"><div><h1>Weekly payroll engine</h1></div><div class="legacy-actions"><button class="btn btn-primary" data-route="trips">Create trip</button><button class="btn btn-outline" type="button" onclick="window.print()">Print / Export Statements</button></div></div>
     <div class="grid kpi-grid">${kpi('Amount owed', money(totalOwed), 'All active trips')}${kpi('Amount paid', money(totalPaid), 'Recorded payments')}${kpi('Outstanding', money(totalOwed - totalPaid), 'Still due')}${kpi('Payment records', store.payrollPayments.length, 'Local history')}${kpi('Owner Statements', entries.filter((entry) => entry.role === 'Owner').length, 'Owner payout lines')}${kpi('Captain Statements', entries.filter((entry) => entry.role === 'Captain').length, 'Captain payout lines')}${kpi('Mate Statements', entries.filter((entry) => entry.role === 'Mate').length, 'Mate payout lines')}</div><details class="card app-accordion" open><summary><div><h3>Person Statement Summary</h3><p class="muted-text">Generate Captain Payment Receipt, Mate Payment Receipt, Owner Payout Statement, or Payment Due Notice.</p></div><span class="chevron" aria-hidden="true">⌄</span></summary><div class="payroll-document-actions">${renderPersonStatementSummary(entries)}</div></details><div data-payroll-document-host></div>
     ${Object.keys(grouped).length ? Object.entries(grouped).map(([week, weekEntries]) => renderPayrollWeek(week, weekEntries)).join('') : '<div class="card card-pad empty-state">No payroll yet. Create assigned trips to calculate weekly payouts.</div>'}
   </div>`;
@@ -2530,7 +2595,7 @@ function renderNotifications() {
   const options = ['All', 'Unread', 'Owner', 'Captain', 'Mate', 'Operations', 'Assignment', 'Checklist', 'Expense', 'Incident', 'Payroll'];
   const grouped = groupNotificationsByAge(filtered);
   const groupMarkup = ['Today', 'This Week', 'Older'].map((group) => `<section class="notification-group"><h3>${group}</h3>${grouped[group].length ? grouped[group].map(renderNoticeItem).join('') : '<p class="empty-state">No notifications in this group.</p>'}</section>`).join('');
-  page.innerHTML = `<div class="page-stack"><div class="section-heading"><div><p class="eyebrow">Modern mobile inbox</p><h1>Notifications</h1><p class="section-summary">Grouped by Today, This Week, and Older with unread, assignment, checklist, incident, payroll, and expense badges.</p></div><div class="notification-tools"><select data-notice-filter onchange="renderNotifications()">${options.map((option) => `<option value="${option}" ${option === selected ? 'selected' : ''}>${option}</option>`).join('')}</select><button class="btn btn-outline" data-mark-notices-read>Mark all read</button></div></div><div class="grid kpi-grid dashboard-kpis">${kpi('Owner alerts', unreadByRole('Owner'), 'Unread')}${kpi('Captain alerts', unreadByRole('Captain'), 'Unread')}${kpi('Mate alerts', unreadByRole('Mate'), 'Unread')}${kpi('Operations alerts', unreadByRole('Operations'), 'Unread')}</div><div class="card notification-inbox">${groupMarkup}</div></div>`;
+  page.innerHTML = `<div class="page-stack"><div class="section-heading"><div><h1>Notifications</h1></div><div class="notification-tools"><select data-notice-filter onchange="renderNotifications()">${options.map((option) => `<option value="${option}" ${option === selected ? 'selected' : ''}>${option}</option>`).join('')}</select><button class="btn btn-outline" data-mark-notices-read>Mark all read</button></div></div><div class="grid kpi-grid dashboard-kpis">${kpi('Owner alerts', unreadByRole('Owner'), 'Unread')}${kpi('Captain alerts', unreadByRole('Captain'), 'Unread')}${kpi('Mate alerts', unreadByRole('Mate'), 'Unread')}${kpi('Operations alerts', unreadByRole('Operations'), 'Unread')}</div><div class="card notification-inbox">${groupMarkup}</div></div>`;
 }
 
 function groupNotificationsByAge(notices) {
@@ -2571,7 +2636,7 @@ function markNotificationsRead() {
 
 function renderAuditTrail() {
   const entries = store.auditTrail || [];
-  document.getElementById('page-audit').innerHTML = `<div class="page-stack"><div class="section-heading"><div><p class="eyebrow">Change history</p><h1>Audit trail</h1><p class="section-summary">A local append-only history records creates, updates, deletes, payroll payments, conflict blocks, voice fill, and data transfers.</p></div></div><div class="card table-card"><div class="responsive-table-wrap"><table><thead><tr><th>Time</th><th>User</th><th>Area</th><th>Action</th><th>Detail</th></tr></thead><tbody>${entries.length ? entries.map((entry) => `<tr><td>${escapeHtml(new Date(entry.at).toLocaleString())}</td><td>${escapeHtml(entry.user)}</td><td>${escapeHtml(entry.area)}</td><td><span class="badge blue">${escapeHtml(entry.action)}</span></td><td>${escapeHtml(entry.detail)}</td></tr>`).join('') : '<tr><td colspan="5" class="empty-state">No audit events yet.</td></tr>'}</tbody></table></div></div></div>`;
+  document.getElementById('page-audit').innerHTML = `<div class="page-stack"><div class="section-heading"><div><h1>Audit trail</h1></div></div><div class="card table-card"><div class="responsive-table-wrap"><table><thead><tr><th>Time</th><th>User</th><th>Area</th><th>Action</th><th>Detail</th></tr></thead><tbody>${entries.length ? entries.map((entry) => `<tr><td>${escapeHtml(new Date(entry.at).toLocaleString())}</td><td>${escapeHtml(entry.user)}</td><td>${escapeHtml(entry.area)}</td><td><span class="badge blue">${escapeHtml(entry.action)}</span></td><td>${escapeHtml(entry.detail)}</td></tr>`).join('') : '<tr><td colspan="5" class="empty-state">No audit events yet.</td></tr>'}</tbody></table></div></div></div>`;
 }
 
 
@@ -2672,7 +2737,7 @@ function renderChecklistPage(type) {
   const items = isPre ? preTripChecklistItems : postTripChecklistItems;
   const timeLabel = isPre ? 'Start Time' : 'Return Time';
   const timeName = isPre ? 'startTime' : 'returnTime';
-  page.innerHTML = `<div class="page-stack checklist-mobile-page"><div class="section-heading"><div><p class="eyebrow">Vessel Operations</p><h1>${type} Checklist</h1></div></div><form class="record-form card" onsubmit="saveChecklistRecord(event,'${type}')"><details class="form-section-card checklist-accordion" open><summary><div class="form-section-title"><span>1</span><h3>Trip Details</h3></div><span class="chevron" aria-hidden="true">⌄</span></summary><div class="form-grid"><div class="field"><label>Trip</label><select name="tripId" onchange="populateChecklistTripDetails(this.form)"><option value="">— Select Trip —</option>${getOptions('trips').map((opt) => `<option value="${escapeHtml(opt.split('|')[0])}">${escapeHtml(opt.split('|').slice(1).join('|'))}</option>`).join('')}</select></div><div class="field"><label>Vessel</label><select name="vessel"><option value="">— Select —</option>${getOptions('vessels').map((vessel) => `<option value="${escapeHtml(vessel)}">${escapeHtml(vessel)}</option>`).join('')}</select></div><div class="field"><label>Captain / Initials</label><select name="captain"><option value="">— Select —</option>${getOptions('crew').map((crew) => `<option value="${escapeHtml(crew)}">${escapeHtml(crew)}</option>`).join('')}</select></div><div class="field"><label>Mate</label><select name="mate"><option value="">— Select —</option>${getOptions('crew').map((crew) => `<option value="${escapeHtml(crew)}">${escapeHtml(crew)}</option>`).join('')}</select></div><div class="field"><label>Date</label><input name="date" type="date"></div><div class="field"><label>${timeLabel}</label><input name="${timeName}" type="time"></div><div class="field"><label>Status</label><select name="status"><option>Draft</option><option>Submitted</option><option>Needs Review</option></select></div></div></details>${renderChecklistSections(items, type)}<div class="form-actions sticky-save-controls"><button class="btn btn-outline" type="submit" name="action" value="draft">Save Draft</button><button class="btn btn-primary" type="submit" name="action" value="submit">Submit ${type} Checklist</button><button class="btn btn-outline" type="submit" name="action" value="review">Mark Needs Review</button><button class="btn btn-outline" type="button" onclick="window.print()">Preview / Print / Save PDF</button><a class="btn btn-outline" href="https://wa.me/" target="_blank" rel="noopener">WhatsApp</a>${voiceFillButton(route)}</div></form><div class="card table-card"><div class="card-header"><h3>${type} records</h3><button class="btn btn-outline btn-small" type="button" onclick="window.print()">Print / Export Records</button></div><div class="responsive-table-wrap"><table><thead><tr><th>Submitted</th><th>Trip</th><th>Vessel</th><th>Captain</th><th>Mate</th><th>Status</th><th>Notes</th></tr></thead><tbody>${records.length ? records.map((record) => `<tr><td>${escapeHtml(new Date(record.submittedAt).toLocaleString())}</td><td>${escapeHtml(record.tripLabel || record.tripId)}</td><td>${escapeHtml(record.vessel)}</td><td>${escapeHtml(record.captain)}</td><td>${escapeHtml(record.mate)}</td><td>${readinessBadge(record.status)}</td><td>${escapeHtml(record.generalNotes || record.customerFeedbackNotes || record.notes || '—')}</td></tr>`).join('') : '<tr><td colspan="7" class="empty-state">No checklist records yet.</td></tr>'}</tbody></table></div></div>${renderUploadZone(route)}${renderPhotoNotePanel(route)}</div>`;
+  page.innerHTML = `<div class="page-stack checklist-mobile-page"><div class="section-heading"><div><h1>${type} Checklist</h1></div></div><form class="record-form card" onsubmit="saveChecklistRecord(event,'${type}')"><details class="form-section-card checklist-accordion" open><summary><div class="form-section-title"><span>1</span><h3>Trip Details</h3></div><span class="chevron" aria-hidden="true">⌄</span></summary><div class="form-grid"><div class="field"><label>Trip</label><select name="tripId" onchange="populateChecklistTripDetails(this.form)"><option value="">— Select Trip —</option>${getOptions('trips').map((opt) => `<option value="${escapeHtml(opt.split('|')[0])}">${escapeHtml(opt.split('|').slice(1).join('|'))}</option>`).join('')}</select></div><div class="field"><label>Vessel</label><select name="vessel"><option value="">— Select —</option>${getOptions('vessels').map((vessel) => `<option value="${escapeHtml(vessel)}">${escapeHtml(vessel)}</option>`).join('')}</select></div><div class="field"><label>Captain / Initials</label><select name="captain"><option value="">— Select —</option>${getOptions('crew').map((crew) => `<option value="${escapeHtml(crew)}">${escapeHtml(crew)}</option>`).join('')}</select></div><div class="field"><label>Mate</label><select name="mate"><option value="">— Select —</option>${getOptions('crew').map((crew) => `<option value="${escapeHtml(crew)}">${escapeHtml(crew)}</option>`).join('')}</select></div><div class="field"><label>Date</label><input name="date" type="date"></div><div class="field"><label>${timeLabel}</label><input name="${timeName}" type="time"></div><div class="field"><label>Status</label><select name="status"><option>Draft</option><option>Submitted</option><option>Needs Review</option></select></div></div></details>${renderChecklistSections(items, type)}<div class="form-actions sticky-save-controls"><button class="btn btn-outline" type="submit" name="action" value="draft">Save Draft</button><button class="btn btn-primary" type="submit" name="action" value="submit">Submit ${type} Checklist</button><button class="btn btn-outline" type="submit" name="action" value="review">Mark Needs Review</button><button class="btn btn-outline" type="button" onclick="window.print()">Preview / Print / Save PDF</button><a class="btn btn-outline" href="https://wa.me/" target="_blank" rel="noopener">WhatsApp</a>${voiceFillButton(route)}</div></form><div class="card table-card"><div class="card-header"><h3>${type} records</h3><button class="btn btn-outline btn-small" type="button" onclick="window.print()">Print / Export Records</button></div><div class="responsive-table-wrap"><table><thead><tr><th>Submitted</th><th>Trip</th><th>Vessel</th><th>Captain</th><th>Mate</th><th>Status</th><th>Notes</th></tr></thead><tbody>${records.length ? records.map((record) => `<tr><td>${escapeHtml(new Date(record.submittedAt).toLocaleString())}</td><td>${escapeHtml(record.tripLabel || record.tripId)}</td><td>${escapeHtml(record.vessel)}</td><td>${escapeHtml(record.captain)}</td><td>${escapeHtml(record.mate)}</td><td>${readinessBadge(record.status)}</td><td>${escapeHtml(record.generalNotes || record.customerFeedbackNotes || record.notes || '—')}</td></tr>`).join('') : '<tr><td colspan="7" class="empty-state">No checklist records yet.</td></tr>'}</tbody></table></div></div>${renderUploadZone(route)}${renderPhotoNotePanel(route)}</div>`;
 }
 
 function checklistSectionLabel(section) {
@@ -2892,10 +2957,11 @@ function renderOwnerDashboard() {
   const checklistDone = trips.filter((trip) => latestChecklistStatus(trip, 'Pre Trip') === 'Completed').length;
   const incidentAlerts = (store.incidentReports || []).filter((incident) => ownerVessels.includes(incident.vessel) && incident.status !== 'Resolved');
   const expenseAlerts = (store.expenses || []).filter((expense) => ownerVessels.includes(expense.vessel) && expense.status !== 'Paid');
-  page.innerHTML = `<div class="page-stack owner-command-center"><div class="section-heading"><div><p class="eyebrow">Owner mobile command</p><h1>Owner Dashboard</h1><p class="section-summary">Assigned vessels, upcoming trips, owner payouts, checklist completion, incidents, expenses, and payroll alerts at a glance.</p></div><select data-owner-select onchange="renderOwnerDashboard()">${getOptions('owners').map((owner) => `<option value="${escapeHtml(owner)}" ${owner === selected ? 'selected' : ''}>${escapeHtml(owner)}</option>`).join('')}</select></div><div class="grid kpi-grid dashboard-kpis">${kpi('Assigned vessels', ownerVessels.length, ownerVessels.join(', ') || 'None')}${kpi('Upcoming trips', trips.length, 'Owner vessel assignments')}${kpi('Outstanding owner payouts', money(outstanding), 'Unpaid owner payroll')}${kpi('Checklist completion', `${checklistDone}/${trips.length}`, 'Pre trip complete')}${kpi('Incident alerts', incidentAlerts.length, 'Open owner vessel incidents')}${kpi('Expense alerts', expenseAlerts.length, 'Submitted or review needed')}${kpi('Payroll alerts', ownerPayroll.filter((entry) => entry.outstanding > 0).length, 'Outstanding payout lines')}</div><div class="grid dashboard-grid"><div class="card"><div class="card-header"><h3>Upcoming trips</h3>${statusBadge(trips.length ? 'Pending' : 'Ready')}</div><div class="stat-list">${trips.length ? trips.map((trip) => `<div class="stat-row"><span>${escapeHtml(formatDate(trip.tripDate))} · ${escapeHtml(trip.vessel)}</span><strong>${escapeHtml(trip.customer || 'Trip')}<br><small>Captain ${escapeHtml(trip.captain || 'Missing')} · Mate ${escapeHtml(trip.mate || 'Missing')} · ${escapeHtml(calculateDispatchReadiness(trip))}</small></strong></div>`).join('') : '<p class="empty-state">No owner vessel assignments.</p>'}</div></div><div class="card"><div class="card-header"><h3>Owner alerts</h3>${statusBadge(incidentAlerts.length ? 'Incident' : expenseAlerts.length ? 'Needs Review' : 'Ready')}</div><div class="notice-list card-pad">${notices.length ? notices.slice(0, 8).map((notice) => `<div class="notice-item ${notice.read ? '' : 'unread'}"><span class="badge ${statusColor(notice.category)}">${escapeHtml(notice.category)}</span><div><strong>${escapeHtml(notice.title)}</strong><p>${escapeHtml(notice.message)}</p></div></div>`).join('') : '<p class="empty-state">No owner alerts.</p>'}</div></div></div>${renderPhotoNotePanel('owner-dashboard')}</div>`;
+  page.innerHTML = `<div class="page-stack owner-command-center"><div class="section-heading"><div><h1>Owner Dashboard</h1></div><select data-owner-select onchange="renderOwnerDashboard()">${getOptions('owners').map((owner) => `<option value="${escapeHtml(owner)}" ${owner === selected ? 'selected' : ''}>${escapeHtml(owner)}</option>`).join('')}</select></div><div class="grid kpi-grid dashboard-kpis">${kpi('Assigned vessels', ownerVessels.length, ownerVessels.join(', ') || 'None')}${kpi('Upcoming trips', trips.length, 'Owner vessel assignments')}${kpi('Outstanding owner payouts', money(outstanding), 'Unpaid owner payroll')}${kpi('Checklist completion', `${checklistDone}/${trips.length}`, 'Pre trip complete')}${kpi('Incident alerts', incidentAlerts.length, 'Open owner vessel incidents')}${kpi('Expense alerts', expenseAlerts.length, 'Submitted or review needed')}${kpi('Payroll alerts', ownerPayroll.filter((entry) => entry.outstanding > 0).length, 'Outstanding payout lines')}</div><div class="grid dashboard-grid"><div class="card"><div class="card-header"><h3>Upcoming trips</h3>${statusBadge(trips.length ? 'Pending' : 'Ready')}</div><div class="stat-list">${trips.length ? trips.map((trip) => `<div class="stat-row"><span>${escapeHtml(formatDate(trip.tripDate))} · ${escapeHtml(trip.vessel)}</span><strong>${escapeHtml(trip.customer || 'Trip')}<br><small>Captain ${escapeHtml(trip.captain || 'Missing')} · Mate ${escapeHtml(trip.mate || 'Missing')} · ${escapeHtml(calculateDispatchReadiness(trip))}</small></strong></div>`).join('') : '<p class="empty-state">No owner vessel assignments.</p>'}</div></div><div class="card"><div class="card-header"><h3>Owner alerts</h3>${statusBadge(incidentAlerts.length ? 'Incident' : expenseAlerts.length ? 'Needs Review' : 'Ready')}</div><div class="notice-list card-pad">${notices.length ? notices.slice(0, 8).map((notice) => `<div class="notice-item ${notice.read ? '' : 'unread'}"><span class="badge ${statusColor(notice.category)}">${escapeHtml(notice.category)}</span><div><strong>${escapeHtml(notice.title)}</strong><p>${escapeHtml(notice.message)}</p></div></div>`).join('') : '<p class="empty-state">No owner alerts.</p>'}</div></div></div>${renderPhotoNotePanel('owner-dashboard')}</div>`;
 }
 
 
+// Native reports dashboard uses current local app data.
 function renderReports() {
   const trips = store.trips || [];
   const stockAlerts = canViewStockAlerts() ? inventoryAlerts() : [];
@@ -2907,8 +2973,123 @@ function renderReports() {
   const notReadyTrips = trips.filter((trip) => calculateDispatchReadiness(trip) === 'Not Ready').length;
   const by = (key) => Object.entries(trips.reduce((acc, trip) => { const label = trip[key] || 'Unassigned'; acc[label] = (acc[label] || 0) + 1; return acc; }, {})).sort((a, b) => b[1] - a[1]);
   const listRows = (items) => items.length ? items.map(([label, count]) => `<div class="stat-row"><span>${escapeHtml(label)}</span><strong>${count}</strong></div>`).join('') : '<p class="empty-state">No trip data yet.</p>';
-  document.getElementById('page-reports').innerHTML = `<div class="page-stack"><div class="section-heading"><div><p class="eyebrow">Native reports dashboard</p><h1>Reports</h1><p class="section-summary">Revenue, balances, payroll, expenses, trip readiness, and operational summaries generated from current local app data.</p></div></div><div class="grid kpi-grid">${kpi('Revenue Summary', money(revenue), 'Trips + Invoice / Quote')}${kpi('Outstanding Balances', money(outstandingBalances), 'Unpaid customer balances')}${kpi('Payroll Owed', money(payrollOwed), 'Outstanding crew/owner pay')}${kpi('Expenses', money(expenseTotal), 'Local expense records')}${kpi('Trip Count', trips.length, 'All local trips')}${kpi('Ready vs Not Ready Trips', `${readyTrips} / ${notReadyTrips}`, 'Dispatch readiness')}${canViewStockAlerts() ? kpi('Stock Level Alerts', stockAlerts.length, 'Owner/Admin inventory visibility') : ''}</div><div class="grid dashboard-grid"><div class="card card-pad"><h3>Trips by Vessel</h3>${listRows(by('vessel'))}</div><div class="card card-pad"><h3>Trips by Captain</h3>${listRows(by('captain'))}</div><div class="card card-pad"><h3>Trips by Booking Source</h3>${listRows(by('bookingSource'))}</div><div class="card card-pad"><h3>Trip Status</h3><div class="stat-row"><span>Completed Trips</span><strong>${trips.filter((trip) => trip.status === 'Completed').length}</strong></div><div class="stat-row"><span>Cancelled Trips</span><strong>${trips.filter((trip) => trip.status === 'Cancelled').length}</strong></div><div class="stat-row"><span>Ready Trips</span><strong>${readyTrips}</strong></div><div class="stat-row"><span>Not Ready Trips</span><strong>${notReadyTrips}</strong></div></div></div>${renderUploadZone('reports')}</div>`;
+  document.getElementById('page-reports').innerHTML = `<div class="page-stack"><div class="section-heading"><div><h1>Reports</h1></div></div><div class="grid kpi-grid">${kpi('Revenue Summary', money(revenue), 'Trips + Invoice / Quote')}${kpi('Outstanding Balances', money(outstandingBalances), 'Unpaid customer balances')}${kpi('Payroll Owed', money(payrollOwed), 'Outstanding crew/owner pay')}${kpi('Expenses', money(expenseTotal), 'Local expense records')}${kpi('Trip Count', trips.length, 'All local trips')}${kpi('Ready vs Not Ready Trips', `${readyTrips} / ${notReadyTrips}`, 'Dispatch readiness')}${canViewStockAlerts() ? kpi('Stock Level Alerts', stockAlerts.length, 'Owner/Admin inventory visibility') : ''}</div><div class="grid dashboard-grid"><div class="card card-pad"><h3>Trips by Vessel</h3>${listRows(by('vessel'))}</div><div class="card card-pad"><h3>Trips by Captain</h3>${listRows(by('captain'))}</div><div class="card card-pad"><h3>Trips by Booking Source</h3>${listRows(by('bookingSource'))}</div><div class="card card-pad"><h3>Trip Status</h3><div class="stat-row"><span>Completed Trips</span><strong>${trips.filter((trip) => trip.status === 'Completed').length}</strong></div><div class="stat-row"><span>Cancelled Trips</span><strong>${trips.filter((trip) => trip.status === 'Cancelled').length}</strong></div><div class="stat-row"><span>Ready Trips</span><strong>${readyTrips}</strong></div><div class="stat-row"><span>Not Ready Trips</span><strong>${notReadyTrips}</strong></div></div></div>${renderUploadZone('reports')}</div>`;
 }
+
+function chatBadgeMarkup(className = 'nav-badge') {
+  if (!store.chatPreferences?.showUnreadBadges) return '';
+  const count = unreadChatCount();
+  return count ? `<span class="${className}" aria-label="${count} unread chat messages">${count}</span>` : '';
+}
+
+function visibleChatUsers() {
+  return store.users.filter((user) => user.active !== false && user.id !== currentUser().id && canDirectChatWith(user));
+}
+
+function canDirectChatWith(other) {
+  const me = currentUser();
+  if (!me.id || !other?.id || me.id === other.id || !store.chatPreferences?.directEnabled) return false;
+  if (me.role === 'Admin' || other.role === 'Admin') return true;
+  if (me.role === 'Bookkeeper' || other.role === 'Bookkeeper') return false;
+  const trips = store.trips || [];
+  const assignedTogether = trips.some((trip) => [trip.captain, trip.mate].includes(me.name) && [trip.captain, trip.mate].includes(other.name));
+  const ownerCrewLink = trips.some((trip) => {
+    const vesselOwner = store.vessels.find((vessel) => vessel.name === trip.vessel)?.owner;
+    return (me.role === 'Owner' && vesselOwner === me.name && [trip.captain, trip.mate].includes(other.name)) || (other.role === 'Owner' && vesselOwner === other.name && [trip.captain, trip.mate].includes(me.name));
+  });
+  return assignedTogether || ownerCrewLink;
+}
+
+function visibleChatConversations() {
+  const user = currentUser();
+  return store.chatConversations.filter((conversation) => {
+    if (conversation.type === 'general') return store.chatPreferences.generalEnabled;
+    return conversation.participantUserIds?.includes(user.id) && store.chatPreferences.directEnabled;
+  });
+}
+
+function conversationMessages(conversationId) {
+  return store.chatMessages.filter((message) => message.conversationId === conversationId).sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
+}
+
+function unreadConversationCount(conversationId) {
+  const userId = currentUser().id;
+  return conversationMessages(conversationId).filter((message) => message.senderUserId !== userId && !(message.readBy || []).includes(userId)).length;
+}
+
+function unreadChatCount() { return visibleChatConversations().reduce((sum, conversation) => sum + unreadConversationCount(conversation.id), 0); }
+
+function directConversationFor(userId) {
+  return store.chatConversations.find((conversation) => conversation.type === 'direct' && conversation.participantUserIds?.includes(currentUser().id) && conversation.participantUserIds?.includes(userId));
+}
+
+function openDirectChat(userId) {
+  const other = store.users.find((user) => user.id === userId);
+  if (!canDirectChatWith(other)) return toast('This direct conversation is not available for your role or assignments.');
+  let conversation = directConversationFor(userId);
+  if (!conversation) {
+    conversation = { id: makeId('chat-direct'), type: 'direct', title: '', participantUserIds: [currentUser().id, userId], createdAt: new Date().toISOString(), metadata: { scope: 'participants' } };
+    store.chatConversations.push(conversation); saveStore();
+  }
+  openChatConversation(conversation.id);
+}
+
+function openChatConversation(conversationId) {
+  if (!visibleChatConversations().some((conversation) => conversation.id === conversationId)) return;
+  activeChatConversationId = conversationId; chatMobileThreadOpen = true; markConversationRead(conversationId, false); renderChat();
+}
+
+function markConversationRead(conversationId, rerender = true) {
+  const userId = currentUser().id; const readAt = new Date().toISOString();
+  conversationMessages(conversationId).forEach((message) => { message.readBy = [...new Set([...(message.readBy || []), userId])]; });
+  const existing = store.chatReadReceipts.find((receipt) => receipt.conversationId === conversationId && receipt.userId === userId);
+  if (existing) existing.readAt = readAt; else store.chatReadReceipts.push({ id: makeId('chat-read'), conversationId, userId, readAt });
+  saveStore(); renderNav(); if (rerender) renderChat();
+}
+
+function sendChatMessage(event) {
+  event.preventDefault(); const form = event.target; const text = String(new FormData(form).get('messageText') || '').trim();
+  const conversation = visibleChatConversations().find((item) => item.id === activeChatConversationId);
+  if (!text || !conversation) return;
+  const user = currentUser();
+  store.chatMessages.push({ id: makeId('chat-message'), conversationId: conversation.id, senderUserId: user.id, senderName: user.name, senderRole: user.role, messageText: text, createdAt: new Date().toISOString(), readBy: [user.id], attachments: [], metadata: { source: 'local-demo' } });
+  addAudit('sent', 'Chat', `Sent a message in ${conversationLabel(conversation)}.`, { conversationId: conversation.id }); saveStore(); renderNav(); renderChat();
+}
+
+function conversationLabel(conversation) {
+  if (conversation.type === 'general') return 'General Chat';
+  return store.users.find((user) => conversation.participantUserIds?.includes(user.id) && user.id !== currentUser().id)?.name || 'Direct Message';
+}
+
+function renderChatConversationItem(conversation) {
+  const unread = unreadConversationCount(conversation.id); const messages = conversationMessages(conversation.id); const last = messages.at(-1);
+  return `<button class="chat-conversation-item ${activeChatConversationId === conversation.id ? 'active' : ''}" data-chat-conversation="${conversation.id}"><span class="chat-avatar">${conversation.type === 'general' ? '🌊' : escapeHtml(conversationLabel(conversation).slice(0, 1))}</span><span class="chat-conversation-copy"><strong>${escapeHtml(conversationLabel(conversation))}</strong><small>${escapeHtml(last?.messageText || (conversation.type === 'general' ? 'Company-wide messages' : 'Start a conversation'))}</small></span>${unread ? `<span class="chat-unread">${unread}</span>` : ''}</button>`;
+}
+
+function renderChat() {
+  const page = document.getElementById('page-chat'); if (!page) return;
+  const conversations = visibleChatConversations();
+  if (!conversations.some((conversation) => conversation.id === activeChatConversationId)) activeChatConversationId = conversations[0]?.id || '';
+  const active = conversations.find((conversation) => conversation.id === activeChatConversationId);
+  const available = visibleChatUsers().filter((user) => (!chatFilters.person || user.id === chatFilters.person) && (!chatFilters.role || user.role === chatFilters.role));
+  const search = chatFilters.search.toLowerCase();
+  const messages = active ? conversationMessages(active.id).filter((message) => !search || `${message.senderName} ${message.senderRole} ${message.messageText}`.toLowerCase().includes(search)) : [];
+  page.innerHTML = `<div class="page-stack"><div class="section-heading"><div><h1>💬 Chat</h1></div></div><div class="chat-layout ${chatMobileThreadOpen ? 'thread-open' : ''}"><aside class="chat-sidebar card"><div class="chat-tools"><input data-chat-search type="search" placeholder="Search messages" value="${escapeHtml(chatFilters.search)}"><select data-chat-filter="role"><option value="">All roles</option>${['Admin','Owner','Captain','Mate','Bookkeeper'].map((role) => `<option ${chatFilters.role === role ? 'selected' : ''}>${role}</option>`).join('')}</select><select data-chat-filter="person"><option value="">All people</option>${visibleChatUsers().map((user) => `<option value="${user.id}" ${chatFilters.person === user.id ? 'selected' : ''}>${escapeHtml(user.name)}</option>`).join('')}</select></div><div class="chat-section-label">Conversations</div><div class="chat-conversation-list">${conversations.map(renderChatConversationItem).join('') || '<p class="empty-state">Chat is disabled in Settings.</p>'}</div><div class="chat-section-label">New direct message</div><div class="chat-contact-list">${available.map((user) => `<button class="chat-contact" data-chat-direct-user="${user.id}"><span class="chat-avatar">${escapeHtml(user.name.slice(0, 1))}</span><span><strong>${escapeHtml(user.name)}</strong><small>${escapeHtml(user.role)}</small></span></button>`).join('') || '<p class="empty-state">No permitted contacts match.</p>'}</div></aside><section class="chat-thread card">${active ? `<header class="chat-thread-header"><button class="btn btn-outline btn-small chat-back" data-chat-back>← Back</button><div><h3>${escapeHtml(conversationLabel(active))}</h3><span>${active.type === 'general' ? 'All active users' : 'Private direct message'}</span></div><button class="btn btn-outline btn-small" data-chat-mark-read>Mark as read</button></header><div class="chat-message-list">${messages.map((message) => `<article class="chat-message ${message.senderUserId === currentUser().id ? 'sent' : 'received'}"><div class="chat-bubble"><div class="chat-message-meta"><strong>${escapeHtml(message.senderName)}</strong><span class="badge blue">${escapeHtml(message.senderRole)}</span></div><p>${escapeHtml(message.messageText)}</p><time>${new Date(message.createdAt).toLocaleString()}</time></div></article>`).join('') || '<p class="empty-state">No messages yet. Start the conversation.</p>'}</div><form class="chat-composer" data-chat-form><button class="btn btn-outline" type="button" title="Attachment placeholder">＋ Photo / File</button><input name="messageText" autocomplete="off" placeholder="Write a message…" required><button class="btn btn-primary" type="submit">Send</button></form>` : '<div class="empty-state">Choose a conversation.</div>'}</section></div></div>`;
+}
+
+function updateUserField(userId, field, value) { const user = store.users.find((item) => item.id === userId); if (!user) return; user[field] = value; saveStore(); renderLoginUsers(); toast('User updated.'); }
+function toggleUserActive(userId) { const user = store.users.find((item) => item.id === userId); if (!user || user.id === currentUser().id) return toast('The signed-in user cannot be deactivated.'); user.active = user.active === false; saveStore(); renderLoginUsers(); renderRoute('settings'); }
+function saveDemoPin(event) { event.preventDefault(); const form = event.target; updateUserField(form.dataset.demoPinForm, 'demoPin', String(new FormData(form).get('demoPin') || '')); }
+function createLinkedUsers() { store.users = migrateUsers(store.users, store.crew, store.vessels); saveStore(); renderLoginUsers(); renderRoute('settings'); toast('Crew and owner user links are up to date.'); }
+function updateChatPreference(key, value) { store.chatPreferences[key] = value; saveStore(); renderNav(); renderRoute('settings'); }
+
+function renderUserSettings() {
+  const owners = [...new Set(store.vessels.map((vessel) => vessel.owner).filter(Boolean))];
+  return `<div class="legacy-tool settings-span"><div class="card-header"><h3>Users</h3><button class="btn btn-outline btn-small" data-create-linked-users>Sync Crew & Owners</button></div><div class="responsive-table-wrap"><table><thead><tr><th>User</th><th>Role</th><th>Active</th><th>Linked crew</th><th>Linked owner</th><th>Demo PIN</th><th>Last login</th></tr></thead><tbody>${store.users.map((user) => `<tr><td><strong>${escapeHtml(user.name)}</strong><br><small>${escapeHtml(user.email || user.phone || user.id)}</small></td><td><select data-user-role="${user.id}">${['Admin','Owner','Captain','Mate','Bookkeeper'].map((role) => `<option ${user.role === role ? 'selected' : ''}>${role}</option>`).join('')}</select></td><td><button class="btn btn-small ${user.active === false ? 'btn-danger' : 'btn-outline'}" data-user-active-toggle="${user.id}">${user.active === false ? 'Inactive' : 'Active'}</button></td><td><select data-user-link-crew="${user.id}"><option value="">Not linked</option>${store.crew.map((crew) => `<option value="${crew.id}" ${user.linkedCrewProfileId === crew.id ? 'selected' : ''}>${escapeHtml(crew.name)}</option>`).join('')}</select></td><td><select data-user-link-owner="${user.id}"><option value="">Not linked</option>${owners.map((owner) => `<option ${user.linkedVesselOwnerProfileId === owner ? 'selected' : ''}>${escapeHtml(owner)}</option>`).join('')}</select></td><td><form data-demo-pin-form="${user.id}"><input name="demoPin" value="${escapeHtml(user.demoPin || '')}" placeholder="Demo PIN"><button class="btn btn-outline btn-small">Save</button></form></td><td>${user.lastLoginAt ? new Date(user.lastLoginAt).toLocaleString() : 'Never'}</td></tr>`).join('')}</tbody></table></div></div>`;
+}
+
+function renderRoleSettings() { return `<div class="legacy-tool"><h3>Roles</h3><div class="stat-list">${['Admin — all users and participating chats','Owner — admin and assigned vessel crews','Captain — admin, assigned mates, permitted owners','Mate — admin and assigned captains','Bookkeeper — general chat and admin direct messages'].map((text) => `<div class="stat-row"><span>${escapeHtml(text)}</span></div>`).join('')}</div></div>`; }
+function renderChatPreferences() { const p = store.chatPreferences; return `<div class="legacy-tool"><h3>Chat Preferences</h3><div class="settings-toggle-list">${[['generalEnabled','Enable general chat'],['directEnabled','Enable direct messages'],['showUnreadBadges','Show unread chat badges']].map(([key,label]) => `<label><input type="checkbox" data-chat-preference="${key}" ${p[key] ? 'checked' : ''}> ${label}</label>`).join('')}</div></div>`; }
 
 function renderLegacy() { renderRoute('settings'); }
 
@@ -2927,7 +3108,7 @@ function renderPlaceholder(route) {
   };
   const lines = map[route] || ['Operational module ready.'];
   const extra = route === 'settings' ? settingsMarkup() : '';
-  document.getElementById(`page-${route}`).innerHTML = `<div class="page-stack"><div class="section-heading"><div><p class="eyebrow">Operations</p><h1>${label}</h1><p class="section-summary">Manage current operational records and preferences.</p></div></div><div class="card card-pad"><ul class="placeholder-list">${lines.map((line) => `<li>${line}</li>`).join('')}</ul>${legacyShortcut(route)}${extra}</div></div>`;
+  document.getElementById(`page-${route}`).innerHTML = `<div class="page-stack"><div class="section-heading"><div><h1>${label}</h1></div></div>${extra || `<div class="card card-pad"><ul class="placeholder-list">${lines.map((line) => `<li>${line}</li>`).join('')}</ul>${legacyShortcut(route)}</div>`}</div>`;
 }
 function legacyShortcut(route) {
   return '';
@@ -2939,8 +3120,9 @@ function renderLegacyAuditSummary() {
 }
 
 function settingsMarkup() {
-  return `<div class="grid settings-grid" style="margin-top:18px"><div class="legacy-tool dashboard-preferences-settings"><h3>Dashboard Preferences</h3><p>Owner/Admin can show, hide, and reorder operational cards.</p>${renderDashboardCustomizer()}</div><div class="legacy-tool"><h3>Seed data</h3><p>${store.vessels.length} vessels, ${store.crew.length} crew members, ${store.roles.length} roles, ${store.bookingSources.length} booking sources, ${store.standardPayoutRates.length} standard crew payout rates, and ${store.vesselOwnerPayoutRates.length} documented owner payout rules loaded.</p></div><div class="legacy-tool"><h3>Local data layer</h3><p>Storage key: ${STORE_KEY}. Last updated: ${new Date(store.updatedAt).toLocaleString()}.</p><div class="legacy-actions"><button class="btn btn-outline" data-export-store>Export JSON</button><label class="btn btn-outline" for="importStoreFile">Import JSON<input id="importStoreFile" data-import-store type="file" accept="application/json" hidden></label><button class="btn btn-danger" data-reset-store>Reset seed data</button></div></div><div class="legacy-tool"><h3>Operational safeguards</h3><p>Dispatch board, true tree view, assignment lifecycle, crew dashboards, checklist readiness, vessel readiness, passenger manifests, payroll, audit trail, notifications, voice-assisted entry, export/import, and the static validator are all active.</p></div><div class="legacy-tool archived-legacy-tools"><h3>Legacy Parity Audit</h3><p>These audited legacy sections, fields, calculations, alerts, exports, and workflows drove the native migration correction.</p><div class="legacy-list">${renderLegacyAuditSummary()}</div></div><div class="legacy-tool archived-legacy-tools"><h3>Archived Legacy Tools</h3><p>Legacy tools are retained for reference only. Active operations should be completed through the main application tabs.</p><div class="legacy-list">${legacyTools.map((tool) => `<div class="legacy-tool"><h3>${tool.title}</h3><p>${tool.desc}</p><div class="legacy-actions"><a class="btn btn-outline btn-small" href="${tool.file}" target="_blank" rel="noopener">Open reference</a></div></div>`).join('')}</div></div></div>`;
+  return `<div class="grid settings-grid" style="margin-top:18px">${renderUserSettings()}${renderRoleSettings()}${renderChatPreferences()}<div class="legacy-tool dashboard-preferences-settings"><h3>Dashboard Preferences</h3>${renderDashboardCustomizer()}</div><div class="legacy-tool"><h3>Seed data</h3><p>${store.vessels.length} vessels, ${store.crew.length} crew members, and ${store.users.length} users loaded.</p></div><div class="legacy-tool"><h3>Local data</h3><div class="legacy-actions"><button class="btn btn-outline" data-export-store>Export JSON</button><label class="btn btn-outline" for="importStoreFile">Import JSON<input id="importStoreFile" data-import-store type="file" accept="application/json" hidden></label><button class="btn btn-danger" data-reset-store>Reset seed data</button></div></div><div class="legacy-tool archived-legacy-tools"><h3>Archived Legacy Tools</h3><p>Legacy tools are retained for reference only. Active operations should be completed through the main application tabs.</p><div class="legacy-list">${legacyTools.map((tool) => `<div class="legacy-tool"><h3>${tool.title}</h3><p>${tool.desc}</p><div class="legacy-actions"><a class="btn btn-outline btn-small" href="${tool.file}" target="_blank" rel="noopener">Open reference</a></div></div>`).join('')}</div></div></div>`;
 }
+
 function toast(message) {
   const el = document.getElementById('toast');
   el.textContent = message;

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'rat-ops-shell-v8-phase4e-20260604';
+const CACHE_NAME = 'rat-ops-shell-v9-phase5c-20260605';
 const APP_ASSETS = [
   './',
   './index.html',

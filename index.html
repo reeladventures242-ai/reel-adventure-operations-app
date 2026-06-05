@@ -20,9 +20,10 @@
       <img class="login-logo" src="Reel Adventure Tours Logo (2).jpg" alt="Reel Adventure Tours logo">
       <p class="eyebrow">Reel Adventure Tours</p>
       <h1 id="loginTitle">Reel Adventure Tours Operations</h1>
-      <p class="login-copy">Select your role to open operations.</p>
-      <label for="roleSelect">Role</label>
-      <select id="roleSelect">
+      <p class="login-copy">Select your demo user to open operations.</p>
+      <label for="userSelect">User</label>
+      <select id="userSelect"></select>
+      <select id="roleSelect" hidden aria-hidden="true">
         <option value="Owner / Admin">Owner / Admin</option>
         <option value="Owner">Owner</option>
         <option value="Operations Manager">Operations Manager</option>
@@ -31,7 +32,7 @@
         <option value="Bookkeeper">Bookkeeper</option>
       </select>
       <button id="enterAppBtn" class="btn btn-primary btn-full">Enter demo app</button>
-      <p class="login-note">Local demo access only; trip operations and payroll data are stored in this browser.</p>
+      <p class="login-note">Local demo access only. User identities and operational data are stored in this browser.</p>
     </div>
   </section>
 
@@ -68,6 +69,7 @@
         <div id="page-invoices" class="page"></div>
         <div id="page-trips" class="page"></div>
         <div id="page-calendar" class="page"></div>
+        <div id="page-chat" class="page"></div>
         <div id="page-captain-dashboard" class="page"></div>
         <div id="page-mate-dashboard" class="page"></div>
         <div id="page-owner-dashboard" class="page"></div>
@@ -100,7 +102,6 @@
         <div>
           <p class="eyebrow"></p>
           <h1></h1>
-          <p class="section-summary"></p>
         </div>
         <button class="btn btn-primary add-record-btn"></button>
       </div>
