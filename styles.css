@@ -1039,3 +1039,45 @@ body { background: radial-gradient(circle at 100% 0, rgba(82,210,211,.12), trans
   .chat-composer .btn-outline { grid-column: 1 / -1; justify-self: start; width: auto; }
   .chat-bubble { max-width: 88%; }
 }
+
+/* Phase 5D: one shared page title and persistent mobile navigation labels */
+.module-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.mobile-bottom-nav {
+  overflow: hidden;
+}
+.mobile-nav-scroll {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 3px;
+  min-width: 0;
+  width: 100%;
+  padding: 0;
+}
+.mobile-nav-link {
+  min-width: 0;
+  width: 100%;
+  padding: 7px 2px;
+}
+.mobile-nav-icon,
+.mobile-nav-label {
+  display: block;
+  visibility: visible;
+  opacity: 1;
+}
+.mobile-nav-label {
+  max-width: 100%;
+  font-size: clamp(.58rem, 2.7vw, .68rem);
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+.mobile-more-item .mobile-nav-icon,
+.nav-link .nav-icon {
+  visibility: visible;
+  opacity: 1;
+}
