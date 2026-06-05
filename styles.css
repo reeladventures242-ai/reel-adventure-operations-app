@@ -1285,3 +1285,50 @@ body { background: radial-gradient(circle at 100% 0, rgba(82,210,211,.12), trans
 /* Phase 6K: local Operations Assistant */
 .assistant-page{max-width:1100px}.assistant-hero{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:22px;border-left:6px solid var(--aqua);background:linear-gradient(135deg,#eefaff,#fff)}.assistant-hero h2,.assistant-hero p{margin:5px 0}.assistant-search{padding:18px}.assistant-search label{display:block;margin-bottom:9px;font-weight:900}.assistant-search>div{display:grid;grid-template-columns:1fr auto;gap:10px}.assistant-search input{min-width:0}.assistant-prompts{display:flex;flex-wrap:wrap;gap:8px}.assistant-chip{padding:9px 13px;border:1px solid #b7d9e1;border-radius:999px;background:#f2fbfd;color:#0a5265;font-weight:850;cursor:pointer}.assistant-chip:hover{background:#dff5f8}.assistant-results>summary,.assistant-readiness>summary{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:18px;cursor:pointer}.assistant-results>summary h3,.assistant-results>summary p,.assistant-readiness>summary h3,.assistant-readiness>summary p{margin:4px 0}.assistant-result-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;padding:0 18px 18px}.assistant-result-card{display:flex;align-items:flex-end;justify-content:space-between;gap:14px;padding:15px;border:1px solid var(--line);border-radius:15px;background:#fff}.assistant-result-card h4{margin:0 0 10px}.assistant-result-card dl,.assistant-readiness dl{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:0}.assistant-result-card dl div,.assistant-readiness dl div{padding:8px;border-radius:9px;background:#f3f8fa}.assistant-result-card dt,.assistant-readiness dt{font-size:.7rem;color:var(--muted);font-weight:900;text-transform:uppercase}.assistant-result-card dd,.assistant-readiness dd{margin:3px 0 0;font-weight:850}.assistant-readiness dl{padding:0 18px 18px;grid-template-columns:repeat(5,minmax(0,1fr))}
 @media(max-width:700px){.assistant-hero,.assistant-result-card{align-items:stretch;flex-direction:column}.assistant-search>div,.assistant-result-list,.assistant-result-card dl,.assistant-readiness dl{grid-template-columns:1fr}.assistant-search .btn,.assistant-result-card .btn{width:100%;justify-content:center}.assistant-prompts{flex-wrap:nowrap;overflow-x:auto;padding-bottom:5px}.assistant-chip{flex:0 0 auto}.assistant-results>summary{align-items:flex-start}.assistant-result-list{padding:0 12px 12px}}
+
+/* Phase 7B production-audit corrections */
+.mobile-bottom-nav {
+  background: #f8fcfd;
+  border-top-color: #a9c8d3;
+  scrollbar-color: #6f9daf #eef6f8;
+}
+.mobile-nav-link,
+.mobile-nav-link:not(.active) {
+  color: #173f56;
+  -webkit-text-fill-color: #173f56;
+  opacity: 1;
+}
+.mobile-nav-link:not(.active) .mobile-nav-icon { color: #075f7d; opacity: 1; }
+.mobile-nav-link.active {
+  color: #062f46;
+  -webkit-text-fill-color: #062f46;
+  background: #d9f2f1;
+  outline: 1px solid #8bc9c5;
+}
+.mobile-nav-label { font-weight: 900; text-shadow: none; }
+.invoice-create-actions { padding: 14px 14px 0; }
+
+@media (max-width: 700px) {
+  .content { overflow-x: clip; }
+  .mobile-nav-link { flex-basis: 118px; min-width: 118px; min-height: 64px; }
+  .mobile-nav-label { font-size: .7rem; line-height: 1.2; }
+  .module-actions > .btn, .invoice-create-actions > .btn { flex: 1 1 140px; }
+  .calendar-page .calendar-role-note { display: none; }
+  .calendar-grid.month-view { min-width: 0; width: 100%; }
+  .calendar-day-cell { min-width: 0; overflow: hidden; }
+  .calendar-day-cell strong, .calendar-day-cell span:first-of-type { overflow-wrap: anywhere; }
+  .calendar-date-controls { grid-template-columns: 1fr; }
+}
+
+@page { size: Letter portrait; margin: .2in; }
+@media print {
+  [data-printable-invoice] {
+    width: 7.9in !important;
+    break-after: auto;
+    page-break-after: auto;
+  }
+  [data-printable-invoice][data-page-estimate="1"] { break-after: avoid-page; page-break-after: avoid; }
+  [data-printable-invoice] table { font-size: 7.5pt; }
+  [data-printable-invoice] td, [data-printable-invoice] th { padding: 3px 5px; }
+  [data-printable-invoice] .document-page-estimate { display: none !important; }
+}
