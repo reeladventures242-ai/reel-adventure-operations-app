@@ -1197,3 +1197,32 @@ body { background: radial-gradient(circle at 100% 0, rgba(82,210,211,.12), trans
   .maintenance-form, .service-record-card form { padding: 12px; }
   .status-badge-large { font-size: .82rem; }
 }
+
+/* Phase 6G: fuel tracking and trip profitability */
+.fuel-overview > summary, .fuel-receipt-card > summary, .profitability-card > summary, .crew-fuel-summary > summary { cursor: pointer; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.fuel-trip-card-grid { display: grid; gap: 12px; padding: 16px; }
+.fuel-trip-card { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(280px, 2fr) auto auto; align-items: center; gap: 12px; padding: 14px; border: 1px solid var(--line); border-radius: 14px; background: #f8fcfd; }
+.fuel-trip-card p { margin: 4px 0 0; color: var(--muted); }
+.fuel-mini-grid, .profitability-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.fuel-mini-grid span, .profitability-grid > div { display: grid; gap: 3px; padding: 9px; border-radius: 10px; background: #eef6f8; color: var(--muted); font-size: .78rem; }
+.fuel-mini-grid strong, .profitability-grid strong { color: var(--ink); font-size: .95rem; }
+.profitability-card, .fuel-receipt-card { padding: 14px; }
+.profitability-grid { margin-top: 14px; }
+.profitability-grid .profit-total { grid-column: 1 / -1; background: #e8f8ef; }
+.profit-positive { color: var(--green); font-weight: 900; }
+.profit-negative { color: var(--red); font-weight: 900; }
+.profit-chip { white-space: nowrap; }
+.fuel-receipt-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0; }
+.fuel-receipt-preview { display: flex; align-items: center; gap: 12px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; }
+.fuel-receipt-preview img { width: 110px; height: 90px; border-radius: 8px; object-fit: cover; }
+.receipt-file-icon { font-size: 3rem; }
+.crew-fuel-summary { margin: 12px 0; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: #f8fcfd; }
+.crew-fuel-summary .fuel-mini-grid { margin: 10px 0; }
+@media (max-width: 760px) {
+  .fuel-trip-card { grid-template-columns: 1fr; }
+  .fuel-mini-grid, .profitability-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .fuel-receipt-actions .btn { width: 100%; justify-content: center; }
+  .fuel-receipt-preview { align-items: flex-start; }
+  .fuel-receipt-preview img { width: 88px; height: 88px; }
+  input[name="fuelStartLevel"], input[name="fuelEndLevel"], input[name="gallonsUsed"], input[name="fuelPricePerGallon"], input[name="totalFuelCost"] { min-height: 54px; font-size: 1.2rem; font-weight: 850; }
+}
