@@ -1,8 +1,8 @@
 const STORE_KEY = 'rat_ops_v1_store';
-const STORE_VERSION = 15;
+const STORE_VERSION = 16;
 
 const navItems = [
-  ['dashboard', '🏠', 'Dashboard'], ['dispatch', '📍', 'Dispatch'], ['calendar', '📅', 'Calendar'],
+  ['dashboard', '🏠', 'Dashboard'], ['dispatch', '📍', 'Dispatch'], ['calendar', '📅', 'Calendar'], ['weather', '🌦️', 'Weather / Conditions'],
   ['bookings', '📘', 'Bookings'], ['chat', '💬', 'Chat'], ['customers', '🪪', 'Customers'],
   ['invoices', '🧾', 'Invoice / Quote'], ['trips', '🧭', 'Trips'], ['vessels', '⛵', 'Vessels'], ['crew', '👥', 'Crew'],
   ['captain-dashboard', '🧢', 'Captain Dashboard'], ['mate-dashboard', '⚓', 'Mate Dashboard'], ['owner-dashboard', '👑', 'Owner Dashboard'],
@@ -83,6 +83,7 @@ const seedData = {
   ],
   bookings: [],
   trips: [],
+  weatherRecords: [],
   payrollPayments: [],
   notifications: [],
   auditTrail: [],
@@ -221,6 +222,7 @@ function seedStore(existing = {}) {
 
 function migrateStore(existing = {}) {
   const next = { ...structuredClone(seedData), ...existing, version: STORE_VERSION, updatedAt: existing.updatedAt || new Date().toISOString() };
+  next.weatherRecords = (Array.isArray(next.weatherRecords) ? next.weatherRecords : []).map(normalizeWeatherRecord);
   next.payrollPayments = Array.isArray(next.payrollPayments) ? next.payrollPayments : [];
   next.notifications = (Array.isArray(next.notifications) ? next.notifications : []).map(normalizeNotification);
   next.auditTrail = Array.isArray(next.auditTrail) ? next.auditTrail : [];
@@ -322,6 +324,70 @@ function normalizeAssignmentStatus(trip = {}) {
   };
 }
 
+function normalizeWeatherRecord(record = {}) {
+  return {
+    id: record.id || makeId('weather'), date: record.date || '', time: record.time || '', location: record.location || 'Nassau / Paradise Island',
+    windSpeed: Number(record.windSpeed || 0), windGusts: Number(record.windGusts || 0), rainChance: Number(record.rainChance || 0),
+    stormRisk: record.stormRisk || 'Low', seaConditions: record.seaConditions || 'Calm', visibility: record.visibility || 'Good',
+    notes: record.notes || '', weatherSource: record.weatherSource || 'Local Manual', lastUpdated: record.lastUpdated || new Date().toISOString(),
+    apiProvider: record.apiProvider || '', forecastId: record.forecastId || ''
+  };
+}
+
+function weatherConditionRisk(condition = {}) {
+  const wind = Number(condition.windSpeed || 0), gusts = Number(condition.windGusts || 0), rain = Number(condition.rainChance || 0);
+  const storm = String(condition.stormRisk || '').toLowerCase(), sea = String(condition.seaConditions || '').toLowerCase(), visibility = String(condition.visibility || '').toLowerCase();
+  if (wind >= 25 || gusts >= 35 || rain >= 80 || ['high', 'severe'].includes(storm) || /rough|dangerous|very rough/.test(sea) || /poor|low/.test(visibility)) return 'Red';
+  if (wind >= 15 || gusts >= 22 || rain >= 40 || ['medium', 'moderate'].includes(storm) || /moderate|choppy|swells/.test(sea) || /fair|reduced/.test(visibility)) return 'Yellow';
+  return 'Green';
+}
+function weatherRiskLabel(level) { return level === 'Red' ? 'High Risk' : level === 'Yellow' ? 'Monitor' : 'Safe'; }
+function weatherRiskClass(level) { return level === 'Red' ? 'red' : level === 'Yellow' ? 'gold' : 'green'; }
+function minutesFromTime(value = '') { const [h, m] = String(value).split(':').map(Number); return Number.isFinite(h) ? h * 60 + (m || 0) : 0; }
+function weatherConditionsForTrip(trip = {}) {
+  const start = minutesFromTime(trip.startTime), end = start + Number(trip.hours || 4) * 60;
+  const sameDay = (store.weatherRecords || []).filter((record) => record.date === trip.tripDate && (!record.location || !trip.location || record.location === trip.location));
+  const duringTrip = sameDay.filter((record) => { const at = minutesFromTime(record.time); return at >= start && at <= end; });
+  return (duringTrip.length ? duringTrip : sameDay).sort((a, b) => Math.abs(minutesFromTime(a.time) - start) - Math.abs(minutesFromTime(b.time) - start));
+}
+function weatherForTrip(trip = {}) { return weatherConditionsForTrip(trip).sort((a, b) => ['Green','Yellow','Red'].indexOf(weatherConditionRisk(b)) - ['Green','Yellow','Red'].indexOf(weatherConditionRisk(a)))[0] || null; }
+function tripWeatherRisk(trip = {}) { const condition = weatherForTrip(trip); return condition ? weatherConditionRisk(condition) : 'Yellow'; }
+function weatherRiskBadge(trip) { const level = tripWeatherRisk(trip); return `<span class="badge weather-risk-badge ${weatherRiskClass(level)}" title="Trip weather risk">🌦️ ${weatherRiskLabel(level)}</span>`; }
+function weatherDetailsCard(trip, compact = false) {
+  const condition = weatherForTrip(trip), level = tripWeatherRisk(trip);
+  if (!condition) return `<details class="weather-details-card" ${compact ? '' : 'open'}><summary>${weatherRiskBadge(trip)}<span>No local forecast entered</span></summary><p class="muted-text">Owner/Admin can add conditions in Weather / Conditions.</p></details>`;
+  return `<details class="weather-details-card ${weatherRiskClass(level)}" ${compact ? '' : 'open'}><summary>${weatherRiskBadge(trip)}<span>${escapeHtml(condition.location)} · ${escapeHtml(formatTime(condition.time) || 'All day')}</span></summary><div class="weather-detail-grid"><span><small>Wind</small><strong>${condition.windSpeed} kt / ${condition.windGusts} gust</strong></span><span><small>Rain</small><strong>${condition.rainChance}%</strong></span><span><small>Sea</small><strong>${escapeHtml(condition.seaConditions)}</strong></span><span><small>Visibility</small><strong>${escapeHtml(condition.visibility)}</strong></span></div><p><strong>Notes:</strong> ${escapeHtml(condition.notes || 'No weather notes')}</p><small>${escapeHtml(condition.weatherSource)} · Updated ${escapeHtml(new Date(condition.lastUpdated).toLocaleString())}</small></details>`;
+}
+function weatherSummaryCards(trips = store.trips || []) {
+  const counts = { Green: 0, Yellow: 0, Red: 0 }; trips.filter((trip) => trip.status !== 'Cancelled').forEach((trip) => counts[tripWeatherRisk(trip)]++);
+  return `<div class="grid kpi-grid weather-summary-cards">${kpi('Trips Safe', counts.Green, 'Green weather risk')}${kpi('Trips To Monitor', counts.Yellow, 'Yellow weather risk')}${kpi('High Risk Trips', counts.Red, 'Red weather risk')}</div>`;
+}
+function renderWeatherAlertPanel(trips = store.trips || []) {
+  const risks = trips.filter((trip) => ['Yellow','Red'].includes(tripWeatherRisk(trip)));
+  return `<details class="card weather-alert-panel app-accordion" open><summary><h3>Weather Alerts</h3><span class="badge ${risks.some((trip) => tripWeatherRisk(trip) === 'Red') ? 'red' : risks.length ? 'gold' : 'green'}">${risks.length} review</span></summary><div class="stat-list">${risks.length ? risks.slice(0, 8).map((trip) => `<div class="stat-row"><span>${escapeHtml(formatDate(trip.tripDate))} · ${escapeHtml(trip.customer || 'Trip')}</span><strong>${weatherRiskBadge(trip)}</strong></div>`).join('') : '<p class="empty-state">No Yellow or Red trip weather risks.</p>'}</div></details>`;
+}
+function generateWeatherAlerts() {
+  (store.trips || []).filter((trip) => ['Yellow','Red'].includes(tripWeatherRisk(trip))).forEach((trip) => {
+    const level = tripWeatherRisk(trip), key = `weather-${trip.id}-${level}`;
+    if ((store.notifications || []).some((notice) => notice.metadata?.weatherAlertKey === key)) return;
+    addNotification(`Weather ${weatherRiskLabel(level)}: ${trip.customer || 'Trip'}`, `${formatDate(trip.tripDate)} ${formatTime(trip.startTime)} · ${weatherForTrip(trip)?.notes || 'Review conditions before departure.'}`, level === 'Red' ? 'critical' : 'warning', { category: 'Weather', tripId: trip.id, weatherAlertKey: key, vessel: trip.vessel });
+  });
+}
+function saveWeatherRecord(event) {
+  event.preventDefault(); if (!['Admin','Owner'].includes(activeRoleName())) { toast('Only Owner/Admin can update weather conditions.'); return; }
+  const data = Object.fromEntries(new FormData(event.target).entries()); const existing = store.weatherRecords.find((record) => record.id === data.id);
+  const record = normalizeWeatherRecord({ ...(existing || {}), ...data, lastUpdated: new Date().toISOString() });
+  if (existing) Object.assign(existing, record); else store.weatherRecords.unshift(record);
+  addAudit(existing ? 'updated' : 'created', 'Weather Intelligence', `${record.date} ${record.time} conditions saved.`, { weatherId: record.id });
+  generateWeatherAlerts(); saveStore(); renderWeather(); toast('Weather conditions saved and trip risks recalculated.');
+}
+function editWeatherRecord(id) { const record = store.weatherRecords.find((item) => item.id === id); renderWeather(record); }
+function renderWeather(editingRecord = {}) {
+  const page = document.getElementById('page-weather'), canEdit = ['Admin','Owner'].includes(activeRoleName());
+  const rows = (store.weatherRecords || []).sort((a,b) => `${b.date}${b.time}`.localeCompare(`${a.date}${a.time}`)).map((record) => { const level = weatherConditionRisk(record); return `<tr><td>${escapeHtml(formatDate(record.date))}<br><small>${escapeHtml(formatTime(record.time))}</small></td><td>${escapeHtml(record.location)}</td><td>${record.windSpeed} / ${record.windGusts} kt</td><td>${record.rainChance}%</td><td>${escapeHtml(record.stormRisk)}</td><td>${escapeHtml(record.seaConditions)}</td><td>${escapeHtml(record.visibility)}</td><td><span class="badge ${weatherRiskClass(level)}">${weatherRiskLabel(level)}</span></td><td>${escapeHtml(record.notes || '—')}</td><td>${canEdit ? `<button class="btn btn-outline btn-small" onclick="editWeatherRecord('${record.id}')">Edit</button>` : ''}</td></tr>`; }).join('');
+  page.innerHTML = `<div class="page-stack weather-page"><div class="card card-pad"><p class="eyebrow">Local / simulated framework</p><h2>Weather Intelligence</h2><p>Evaluate departure risk now with manual conditions. Provider-neutral fields are ready for a future live forecast integration.</p></div>${weatherSummaryCards(visibleCalendarTrips())}${canEdit ? `<form class="record-form card" onsubmit="saveWeatherRecord(event)"><input type="hidden" name="id" value="${escapeHtml(editingRecord.id || '')}"><div class="form-grid">${[['date','Date','date'],['time','Time','time'],['location','Location','text'],['windSpeed','Wind Speed (knots)','number'],['windGusts','Wind Gusts (knots)','number'],['rainChance','Rain Chance (%)','number']].map(([key,label,type]) => `<div class="field"><label>${label}</label><input name="${key}" type="${type}" value="${escapeHtml(editingRecord[key] ?? '')}" ${key === 'date' ? 'required' : ''}></div>`).join('')}<div class="field"><label>Storm Risk</label><select name="stormRisk">${['Low','Moderate','High','Severe'].map(v => `<option ${editingRecord.stormRisk === v ? 'selected' : ''}>${v}</option>`).join('')}</select></div><div class="field"><label>Sea Conditions</label><select name="seaConditions">${['Calm','Moderate','Choppy','Rough','Dangerous'].map(v => `<option ${editingRecord.seaConditions === v ? 'selected' : ''}>${v}</option>`).join('')}</select></div><div class="field"><label>Visibility</label><select name="visibility">${['Good','Fair','Reduced','Poor'].map(v => `<option ${editingRecord.visibility === v ? 'selected' : ''}>${v}</option>`).join('')}</select></div><div class="field field-wide"><label>Weather Notes</label><textarea name="notes">${escapeHtml(editingRecord.notes || '')}</textarea></div></div><div class="future-api-fields"><span>weatherSource: ${escapeHtml(editingRecord.weatherSource || 'Local Manual')}</span><span>lastUpdated: ${escapeHtml(editingRecord.lastUpdated || 'On save')}</span><span>apiProvider: ${escapeHtml(editingRecord.apiProvider || 'Not connected')}</span><span>forecastId: ${escapeHtml(editingRecord.forecastId || 'Pending')}</span></div><div class="form-actions"><button class="btn btn-primary">Save Conditions</button></div></form>` : '<div class="card card-pad"><strong>Read-only weather view</strong><p>Only Owner/Admin can manually update conditions.</p></div>'}<div class="card table-card"><div class="card-header"><h3>Condition records</h3><span class="badge blue">${store.weatherRecords.length} local forecasts</span></div><div class="responsive-table-wrap"><table><thead><tr><th>Date / Time</th><th>Location</th><th>Wind / Gusts</th><th>Rain</th><th>Storm</th><th>Sea</th><th>Visibility</th><th>Risk Level</th><th>Notes</th><th></th></tr></thead><tbody>${rows || '<tr><td colspan="10" class="empty-state">No weather conditions entered yet.</td></tr>'}</tbody></table></div></div></div>`;
+}
+
 function saveStore() {
   store.updatedAt = new Date().toISOString();
   localStorage.setItem(STORE_KEY, JSON.stringify(store));
@@ -407,6 +473,8 @@ function init() {
   renderNav();
   wireEvents();
   generateChecklistReminders();
+  generateWeatherAlerts();
+  saveStore();
   renderRoute('dashboard');
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('service-worker.js').catch(console.warn);
 }
@@ -588,6 +656,7 @@ function renderRoute(route) {
   else if (route === 'dispatch') renderDispatch();
   else if (route === 'customers') renderCustomers();
   else if (route === 'calendar') renderCalendar();
+  else if (route === 'weather') renderWeather();
   else if (route === 'chat') renderChat();
   else if (route === 'payroll') renderPayroll();
   else if (route === 'inventory') renderInventory();
@@ -1073,7 +1142,7 @@ function renderMonthView(selected, trips) {
 }
 function renderCalendarDayCell(date, trips) {
   const summary = calendarDaySummary(date, trips); const label = new Date(`${date}T00:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  return `<button class="calendar-day-cell" data-calendar-day="${date}"><strong>${label}</strong><span>${summary.dayTrips.length} Tours</span><span class="badge green">${summary.ready} Ready</span><span class="badge ${summary.notReady ? 'gold' : 'green'}">${summary.notReady} Needs Attention</span><span>${money(summary.balance)} Balance Due</span>${summary.crewConflicts ? '<span class="badge red">Crew Conflicts</span>' : ''}${summary.vesselConflicts ? '<span class="badge red">Vessel Conflicts</span>' : ''}</button>`;
+  return `<button class="calendar-day-cell" data-calendar-day="${date}"><strong>${label}</strong><span>${summary.dayTrips.length} Tours</span><span class="badge green">${summary.ready} Ready</span><span class="badge ${summary.notReady ? 'gold' : 'green'}">${summary.notReady} Needs Attention</span><span>${money(summary.balance)} Balance Due</span>${summary.crewConflicts ? '<span class="badge red">Crew Conflicts</span>' : ''}${summary.vesselConflicts ? '<span class="badge red">Vessel Conflicts</span>' : ''}${summary.dayTrips.some((trip) => tripWeatherRisk(trip) === 'Red') ? '<span class="badge red">🌦️ High Risk</span>' : summary.dayTrips.some((trip) => tripWeatherRisk(trip) === 'Yellow') ? '<span class="badge gold">🌦️ Monitor</span>' : ''}</button>`;
 }
 function renderWeekView(selected, trips) {
   const base = new Date(`${selected}T00:00:00`); const start = new Date(base); start.setDate(base.getDate() - base.getDay()); const dates = Array.from({length:7},(_,i)=>{const d=new Date(start);d.setDate(start.getDate()+i);return d.toISOString().slice(0,10)});
@@ -1094,7 +1163,7 @@ function renderAgendaView(trips) {
 function renderCalendarTripCard(trip) {
   const status = calendarTripStatus(trip); const assignment = `${trip.vessel || 'Unassigned'} · Captain ${trip.captain || 'Unassigned'} · Mate ${trip.mate || 'Unassigned'}`;
   const warnings = assignmentConflictWarnings(trip, trip.id); const recommendation = buildAssignmentRecommendation(trip, trip.id);
-  return `<button class="calendar-trip-card ${calendarStatusClass(status)}" data-calendar-trip="${trip.id}"><div><strong>${escapeHtml(formatTime(trip.startTime) || 'No time')} · ${escapeHtml(trip.customer || 'No customer')}</strong><p>${escapeHtml(trip.tourType || 'Tour')} · ${Number(trip.passengers || 0)} guests · ${escapeHtml(assignment)}</p><p>${escapeHtml(trip.notes || 'No notes')}</p><p class="calendar-recommendation">Suggested: ${escapeHtml(recommendation.vessel?.value || 'No vessel')} · ${escapeHtml(recommendation.captain?.value || 'No captain')} · ${escapeHtml(recommendation.mate?.value || 'No mate')}</p></div><div><span class="badge ${calendarStatusClass(status)}">${escapeHtml(status)}</span><span class="badge ${Number(trip.balanceDue || 0) > 0 ? 'gold' : 'green'}">${money(trip.balanceDue)} balance</span><span class="badge ${calendarStatusClass(calculateDispatchReadiness(trip))}">${escapeHtml(calculateDispatchReadiness(trip))}</span>${warnings.map((warning) => `<span class="badge red">${escapeHtml(warning.type)}</span>`).join('')}</div></button>`;
+  return `<button class="calendar-trip-card ${calendarStatusClass(status)}" data-calendar-trip="${trip.id}"><div><strong>${escapeHtml(formatTime(trip.startTime) || 'No time')} · ${escapeHtml(trip.customer || 'No customer')}</strong><p>${escapeHtml(trip.tourType || 'Tour')} · ${Number(trip.passengers || 0)} guests · ${escapeHtml(assignment)}</p><p>${escapeHtml(trip.notes || 'No notes')}</p><p class="calendar-recommendation">Suggested: ${escapeHtml(recommendation.vessel?.value || 'No vessel')} · ${escapeHtml(recommendation.captain?.value || 'No captain')} · ${escapeHtml(recommendation.mate?.value || 'No mate')}</p></div><div><span class="badge ${calendarStatusClass(status)}">${escapeHtml(status)}</span><span class="badge ${Number(trip.balanceDue || 0) > 0 ? 'gold' : 'green'}">${money(trip.balanceDue)} balance</span><span class="badge ${calendarStatusClass(calculateDispatchReadiness(trip))}">${escapeHtml(calculateDispatchReadiness(trip))}</span>${weatherRiskBadge(trip)}${warnings.map((warning) => `<span class="badge red">${escapeHtml(warning.type)}</span>`).join('')}</div></button>`;
 }
 function setCalendarView(view) { store.calendarState = { ...(store.calendarState || {}), view }; saveStore(); renderCalendar(); }
 function openCalendarDay(date) { store.calendarState = { ...(store.calendarState || {}), selectedDate: date, view: 'day' }; saveStore(); renderCalendar(); }
@@ -1110,7 +1179,7 @@ function renderDashboard() {
   document.getElementById('page-dashboard').innerHTML = `
     <div class="page-stack dashboard-command-center" data-mobile-command-center>
       <div class="hero-command-card"><img class="dashboard-logo" src="Reel Adventure Tours Logo (2).jpg" alt="Reel Adventure Tours logo"><div><p class="eyebrow">Reel Adventure Tours</p><h1>Today’s Operations</h1></div></div>
-      <div class="grid dashboard-custom-grid">${cardMarkup}</div>${renderUploadZone('dashboard')}
+      ${weatherSummaryCards(metrics.scheduledTrips)}${renderWeatherAlertPanel(metrics.scheduledTrips)}<div class="grid dashboard-custom-grid">${cardMarkup}</div>${renderUploadZone('dashboard')}
     </div>`;
 }
 
@@ -1289,7 +1358,7 @@ function renderRoleTripCard(trip, role) {
   const notesKey = role === 'captain' ? 'captainNotes' : 'mateNotes';
   const status = normalizeAssignmentStatus(trip)[role];
   const readiness = calculateDispatchReadiness(trip);
-  return `<div class="card role-trip-card ${readinessColorClass(readiness)}"><div class="card-header"><div class="role-card-title">${crewAvatar(trip[role], roleLabel)}<div><h3>${escapeHtml(formatTime(trip.startTime))} · ${escapeHtml(trip.customer || 'Trip')}</h3><p>${escapeHtml(formatDate(trip.tripDate))} · ${Number(trip.passengers || 0)} guests · ${escapeHtml(trip.vessel || 'No vessel')}</p></div></div><div>${assignmentStatusBadge(status)} ${readinessBadge(readiness)}</div></div>${tripReminderBadges(trip, role)}<div class="role-trip-details"><div><span>Pickup / Departure</span><strong>${escapeHtml(formatTime(trip.startTime))}</strong></div><div><span>${roleLabel} role</span><strong>${escapeHtml(trip[role] || 'Unassigned')}</strong></div><div><span>Pre Trip Status</span><strong>${escapeHtml(latestChecklistStatus(trip, 'Pre Trip'))}</strong></div><div><span>Post Trip Status</span><strong>${escapeHtml(latestChecklistStatus(trip, 'Post Trip'))}</strong></div></div>${readinessChecklistHtml(trip)}<div class="assignment-actions"><button class="btn btn-primary" onclick="acceptAssignment('${trip.id}','${role}')">Accept</button><button class="btn btn-danger" onclick="declineAssignment('${trip.id}','${role}')">Decline</button><button class="btn btn-outline" onclick="completeAssignment('${trip.id}','${role}')">Complete</button><button class="btn btn-outline" onclick="document.querySelector('[data-trip-notes=\'${trip.id}\'][data-note-role=\'${role}\']')?.focus()">Add Notes</button><button class="btn btn-outline" data-command-voice-start>🎙️ Voice Fill Notes</button></div><div class="field"><label>${roleLabel} notes</label><textarea data-trip-notes="${trip.id}" data-note-role="${role}">${escapeHtml(trip[notesKey] || '')}</textarea></div><div class="form-actions"><button class="btn btn-outline btn-small" onclick="saveCrewTripNotes('${trip.id}','${role}')">Submit Notes</button>${role === 'captain' ? `<label class="btn btn-outline btn-small">Upload Photos<input type="file" accept="image/*" multiple hidden onchange="saveCaptainPhotos('${trip.id}', this.files)"></label>` : ''}</div>${role === 'captain' ? renderPhotoList(trip.captainPhotos) : ''}</div>`;
+  return `<div class="card role-trip-card ${readinessColorClass(readiness)}"><div class="card-header"><div class="role-card-title">${crewAvatar(trip[role], roleLabel)}<div><h3>${escapeHtml(formatTime(trip.startTime))} · ${escapeHtml(trip.customer || 'Trip')}</h3><p>${escapeHtml(formatDate(trip.tripDate))} · ${Number(trip.passengers || 0)} guests · ${escapeHtml(trip.vessel || 'No vessel')}</p></div></div><div>${assignmentStatusBadge(status)} ${readinessBadge(readiness)}</div></div>${tripReminderBadges(trip, role)}${weatherDetailsCard(trip, true)}<div class="role-trip-details"><div><span>Pickup / Departure</span><strong>${escapeHtml(formatTime(trip.startTime))}</strong></div><div><span>${roleLabel} role</span><strong>${escapeHtml(trip[role] || 'Unassigned')}</strong></div><div><span>Pre Trip Status</span><strong>${escapeHtml(latestChecklistStatus(trip, 'Pre Trip'))}</strong></div><div><span>Post Trip Status</span><strong>${escapeHtml(latestChecklistStatus(trip, 'Post Trip'))}</strong></div></div>${readinessChecklistHtml(trip)}<div class="assignment-actions"><button class="btn btn-primary" onclick="acceptAssignment('${trip.id}','${role}')">Accept</button><button class="btn btn-danger" onclick="declineAssignment('${trip.id}','${role}')">Decline</button><button class="btn btn-outline" onclick="completeAssignment('${trip.id}','${role}')">Complete</button><button class="btn btn-outline" onclick="document.querySelector('[data-trip-notes=\'${trip.id}\'][data-note-role=\'${role}\']')?.focus()">Add Notes</button><button class="btn btn-outline" data-command-voice-start>🎙️ Voice Fill Notes</button></div><div class="field"><label>${roleLabel} notes</label><textarea data-trip-notes="${trip.id}" data-note-role="${role}">${escapeHtml(trip[notesKey] || '')}</textarea></div><div class="form-actions"><button class="btn btn-outline btn-small" onclick="saveCrewTripNotes('${trip.id}','${role}')">Submit Notes</button>${role === 'captain' ? `<label class="btn btn-outline btn-small">Upload Photos<input type="file" accept="image/*" multiple hidden onchange="saveCaptainPhotos('${trip.id}', this.files)"></label>` : ''}</div>${role === 'captain' ? renderPhotoList(trip.captainPhotos) : ''}</div>`;
 }
 
 function saveCrewTripNotes(tripId, role) {
@@ -1335,7 +1404,7 @@ function renderCrud(route) {
 
   page.querySelector('.search-input').addEventListener('input', () => renderTable(route));
   renderForm(route);
-  if (route === 'trips') renderAssignmentBoard();
+  if (route === 'trips') { renderAssignmentBoard(); page.querySelector('.page-stack')?.insertAdjacentHTML('beforeend', `<div class="card card-pad trip-weather-overview"><div class="card-header"><h3>Trip Weather Risk</h3><button class="btn btn-outline btn-small" data-route="weather">Manage Conditions</button></div>${weatherSummaryCards(store.trips)}${store.trips.map((trip) => `<div class="weather-trip-row"><strong>${escapeHtml(formatDate(trip.tripDate))} · ${escapeHtml(trip.customer || 'Trip')}</strong>${weatherRiskBadge(trip)}</div>`).join('') || '<p class="empty-state">No scheduled trips.</p>'}</div>`); }
   if (route === 'crew') renderCrewDashboard();
   if (route === 'vessels') renderVesselManagementPanel();
   renderTable(route);
@@ -1347,7 +1416,7 @@ function renderCrud(route) {
 function renderForm(route, record = {}) {
   const config = crudConfig[route];
   const form = document.querySelector(`#page-${route} .record-form`);
-  form.innerHTML = `${route === 'trips' ? naturalSentenceModeHint() : ''}<div class="form-section-stack" data-mobile-form-sections>${renderFormSections(route, config, record)}</div>${route === 'trips' ? '<div data-assignment-recommendation></div><div class="conflict-panel" data-conflict-panel hidden></div>' : ''}<div class="form-actions sticky-save-controls" data-sticky-save-controls><button class="btn btn-primary" type="submit">Save ${config.title.slice(0, -1)}</button>${voiceFillButton(route)}<button class="btn btn-outline" type="button" data-cancel>Cancel</button></div>`;
+  form.innerHTML = `${route === 'trips' ? naturalSentenceModeHint() : ''}<div class="form-section-stack" data-mobile-form-sections>${renderFormSections(route, config, record)}</div>${route === 'trips' ? `<div data-assignment-recommendation></div><div class="conflict-panel" data-conflict-panel hidden></div>${record.id ? weatherDetailsCard(record) : ''}` : ''}<div class="form-actions sticky-save-controls" data-sticky-save-controls><button class="btn btn-primary" type="submit">Save ${config.title.slice(0, -1)}</button>${voiceFillButton(route)}<button class="btn btn-outline" type="button" data-cancel>Cancel</button></div>`;
   if (route === 'invoices') {
     form.addEventListener('input', () => updateInvoiceBalanceDue(form));
     form.addEventListener('change', () => updateInvoiceBalanceDue(form));
@@ -1489,7 +1558,7 @@ function deleteRecord(route, id) {
   addAudit('deleted', config.title, `${config.title.slice(0, -1)} ${summarizeRecord(record)} deleted.`, { route });
   addNotification(`${config.title.slice(0, -1)} deleted`, `${summarizeRecord(record)} was removed from ${config.title}.`, 'warning', { route });
   saveStore();
-  if (route === 'trips') renderAssignmentBoard();
+  if (route === 'trips') renderCrud(route);
   if (route === 'crew') renderCrewDashboard();
   if (route === 'vessels') renderVesselManagementPanel();
   renderTable(route);
@@ -1930,6 +1999,7 @@ function renderDispatchTripNode(trip) {
     ${tripReminderBadges(trip)}
     ${renderDispatchLeaf('Pre Trip Status', preStatus, 'Checklist', 'pre', trip.id, checklistColor(preStatus))}
     ${renderDispatchLeaf('Post Trip Status', postStatus, 'Checklist', 'post', trip.id, checklistColor(postStatus))}
+    ${renderDispatchLeaf('Weather', `${weatherRiskLabel(tripWeatherRisk(trip))} · Wind ${weatherForTrip(trip)?.windSpeed || 0} knots · Rain ${weatherForTrip(trip)?.rainChance || 0}% · Sea ${weatherForTrip(trip)?.seaConditions || 'No forecast'}`, 'Weather risk', 'trip', trip.id, weatherRiskClass(tripWeatherRisk(trip)))}
     ${renderDispatchLeaf('Countdown', departureCountdown(trip), 'Departure timer', 'trip', trip.id, 'blue')}
     <div class="dispatch-recommendation-node">${renderAssignmentRecommendation(trip, trip.id, true)}</div>
   </div></details>`;
@@ -2765,7 +2835,7 @@ function renderNotifications() {
   const selected = page.querySelector('[data-notice-filter]')?.value || 'All';
   const notices = visibleNotifications(store.notifications || []);
   const filtered = notices.filter((notice) => selected === 'All' || (selected === 'Unread' ? !notice.read : notice.recipientRole === selected || notice.category === selected));
-  const options = ['All', 'Unread', 'Owner', 'Captain', 'Mate', 'Operations', 'Assignment', 'Checklist', 'Expense', 'Incident', 'Payroll'];
+  const options = ['All', 'Unread', 'Weather', 'Owner', 'Captain', 'Mate', 'Operations', 'Assignment', 'Checklist', 'Expense', 'Incident', 'Payroll'];
   const grouped = groupNotificationsByAge(filtered);
   const groupMarkup = ['Today', 'This Week', 'Older'].map((group) => `<section class="notification-group"><h3>${group}</h3>${grouped[group].length ? grouped[group].map(renderNoticeItem).join('') : '<p class="empty-state">No notifications in this group.</p>'}</section>`).join('');
   page.innerHTML = `<div class="page-stack"><div class="module-actions"><div class="notification-tools"><select data-notice-filter onchange="renderNotifications()">${options.map((option) => `<option value="${option}" ${option === selected ? 'selected' : ''}>${option}</option>`).join('')}</select><button class="btn btn-outline" data-mark-notices-read>Mark all read</button></div></div><div class="grid kpi-grid dashboard-kpis">${kpi('Owner alerts', unreadByRole('Owner'), 'Unread')}${kpi('Captain alerts', unreadByRole('Captain'), 'Unread')}${kpi('Mate alerts', unreadByRole('Mate'), 'Unread')}${kpi('Operations alerts', unreadByRole('Operations'), 'Unread')}</div><div class="card notification-inbox">${groupMarkup}</div></div>`;
@@ -3130,7 +3200,7 @@ function renderOwnerDashboard() {
   const checklistDone = trips.filter((trip) => latestChecklistStatus(trip, 'Pre Trip') === 'Completed').length;
   const incidentAlerts = (store.incidentReports || []).filter((incident) => ownerVessels.includes(incident.vessel) && incident.status !== 'Resolved');
   const expenseAlerts = (store.expenses || []).filter((expense) => ownerVessels.includes(expense.vessel) && expense.status !== 'Paid');
-  page.innerHTML = `<div class="page-stack owner-command-center"><div class="module-actions"><select data-owner-select onchange="renderOwnerDashboard()">${getOptions('owners').map((owner) => `<option value="${escapeHtml(owner)}" ${owner === selected ? 'selected' : ''}>${escapeHtml(owner)}</option>`).join('')}</select></div><div class="grid kpi-grid dashboard-kpis">${kpi('Assigned vessels', ownerVessels.length, ownerVessels.join(', ') || 'None')}${kpi('Upcoming trips', trips.length, 'Owner vessel assignments')}${kpi('Outstanding owner payouts', money(outstanding), 'Unpaid owner payroll')}${kpi('Checklist completion', `${checklistDone}/${trips.length}`, 'Pre trip complete')}${kpi('Incident alerts', incidentAlerts.length, 'Open owner vessel incidents')}${kpi('Expense alerts', expenseAlerts.length, 'Submitted or review needed')}${kpi('Payroll alerts', ownerPayroll.filter((entry) => entry.outstanding > 0).length, 'Outstanding payout lines')}</div><div class="grid dashboard-grid"><div class="card"><div class="card-header"><h3>Upcoming trips</h3>${statusBadge(trips.length ? 'Pending' : 'Ready')}</div><div class="stat-list">${trips.length ? trips.map((trip) => `<div class="stat-row"><span>${escapeHtml(formatDate(trip.tripDate))} · ${escapeHtml(trip.vessel)}</span><strong>${escapeHtml(trip.customer || 'Trip')}<br><small>Captain ${escapeHtml(trip.captain || 'Missing')} · Mate ${escapeHtml(trip.mate || 'Missing')} · ${escapeHtml(calculateDispatchReadiness(trip))}</small></strong></div>`).join('') : '<p class="empty-state">No owner vessel assignments.</p>'}</div></div><div class="card"><div class="card-header"><h3>Owner alerts</h3>${statusBadge(incidentAlerts.length ? 'Incident' : expenseAlerts.length ? 'Needs Review' : 'Ready')}</div><div class="notice-list card-pad">${notices.length ? notices.slice(0, 8).map((notice) => `<div class="notice-item ${notice.read ? '' : 'unread'}"><span class="badge ${statusColor(notice.category)}">${escapeHtml(notice.category)}</span><div><strong>${escapeHtml(notice.title)}</strong><p>${escapeHtml(notice.message)}</p></div></div>`).join('') : '<p class="empty-state">No owner alerts.</p>'}</div></div></div>${renderPhotoNotePanel('owner-dashboard')}</div>`;
+  page.innerHTML = `<div class="page-stack owner-command-center"><div class="module-actions"><select data-owner-select onchange="renderOwnerDashboard()">${getOptions('owners').map((owner) => `<option value="${escapeHtml(owner)}" ${owner === selected ? 'selected' : ''}>${escapeHtml(owner)}</option>`).join('')}</select></div><div class="grid kpi-grid dashboard-kpis">${kpi('Assigned vessels', ownerVessels.length, ownerVessels.join(', ') || 'None')}${kpi('Upcoming trips', trips.length, 'Owner vessel assignments')}${kpi('Outstanding owner payouts', money(outstanding), 'Unpaid owner payroll')}${kpi('Checklist completion', `${checklistDone}/${trips.length}`, 'Pre trip complete')}${kpi('Incident alerts', incidentAlerts.length, 'Open owner vessel incidents')}${kpi('Expense alerts', expenseAlerts.length, 'Submitted or review needed')}${kpi('Payroll alerts', ownerPayroll.filter((entry) => entry.outstanding > 0).length, 'Outstanding payout lines')}</div>${weatherSummaryCards(trips)}<div class="grid dashboard-grid"><div class="card"><div class="card-header"><h3>Upcoming trips</h3>${statusBadge(trips.length ? 'Pending' : 'Ready')}</div><div class="stat-list">${trips.length ? trips.map((trip) => `<div class="stat-row"><span>${escapeHtml(formatDate(trip.tripDate))} · ${escapeHtml(trip.vessel)}</span><strong>${escapeHtml(trip.customer || 'Trip')}<br><small>Captain ${escapeHtml(trip.captain || 'Missing')} · Mate ${escapeHtml(trip.mate || 'Missing')} · ${escapeHtml(calculateDispatchReadiness(trip))}<br>${weatherRiskBadge(trip)}</small></strong></div>`).join('') : '<p class="empty-state">No owner vessel assignments.</p>'}</div></div><div class="card"><div class="card-header"><h3>Owner alerts</h3>${statusBadge(incidentAlerts.length ? 'Incident' : expenseAlerts.length ? 'Needs Review' : 'Ready')}</div><div class="notice-list card-pad">${notices.length ? notices.slice(0, 8).map((notice) => `<div class="notice-item ${notice.read ? '' : 'unread'}"><span class="badge ${statusColor(notice.category)}">${escapeHtml(notice.category)}</span><div><strong>${escapeHtml(notice.title)}</strong><p>${escapeHtml(notice.message)}</p></div></div>`).join('') : '<p class="empty-state">No owner alerts.</p>'}</div></div></div>${renderPhotoNotePanel('owner-dashboard')}</div>`;
 }
 
 
