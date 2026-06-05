@@ -526,6 +526,8 @@ def validate_module_visibility_and_titles() -> tuple[bool, str]:
         "no modules depend on More": "const mobileMoreNav = [];",
         "mobile horizontal scrolling": "overflow-x: auto;",
         "mobile labels remain visible": ".mobile-nav-label,",
+        "inactive mobile labels have readable contrast": ".mobile-nav-link:not(.active) {",
+        "Safari mobile labels use explicit text fill": "-webkit-text-fill-color: currentColor;",
         "sidebar labels remain visible": ".nav-link .nav-label,",
         "active mobile module indicator": "box-shadow: inset 0 -3px 0 var(--aqua);",
         "active sidebar module indicator": "box-shadow: inset 4px 0 0 var(--aqua);",
