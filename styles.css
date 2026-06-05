@@ -898,3 +898,24 @@ html, body { max-width: 100%; overflow-x: hidden; }
   .invoice-brand-header > div { text-align: right; }
   .invoice-brand-header img { max-width: 100%; }
 }
+
+/* Phase 5A operational cleanup */
+.compact-intake { align-self: start; position: relative; }
+.compact-intake > summary { list-style: none; width: max-content; }
+.compact-intake > summary::-webkit-details-marker { display: none; }
+.compact-intake-menu { background: #fff; border: 1px solid var(--line); border-radius: 16px; box-shadow: 0 14px 35px rgba(8,29,51,.14); display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; padding: 10px; position: absolute; z-index: 12; }
+.dashboard-logo { border-radius: 16px; height: 72px; object-fit: cover; width: 72px; }
+.calendar-date-controls { display: grid; gap: 10px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.calendar-date-controls label, .create-as-control { display: grid; font-weight: 800; gap: 5px; }
+.create-as-control { min-width: min(240px, 100%); }
+@media (max-width: 700px) {
+  .calendar-date-controls { grid-template-columns: 1fr; }
+  .calendar-grid.month-view { gap: 4px; grid-template-columns: repeat(7, minmax(0, 1fr)); overflow: hidden; }
+  .calendar-weekday { font-size: .65rem; padding: 4px 0; text-align: center; }
+  .calendar-day-cell { min-height: 72px; padding: 5px; }
+  .calendar-day-cell span:not(:first-of-type) { display: none; }
+  .calendar-day-cell strong, .calendar-day-cell span { font-size: .66rem; }
+  .week-view { grid-template-columns: 1fr; }
+  .compact-intake-menu { left: 0; position: relative; }
+  .compact-intake-menu .btn { width: 100%; }
+}
