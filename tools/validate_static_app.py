@@ -502,7 +502,7 @@ def validate_module_visibility_and_titles() -> tuple[bool, str]:
     index_html = (ROOT / "index.html").read_text()
     required_modules = [
         "Dashboard", "Dispatch", "Calendar", "Bookings", "Chat", "Customers", "Invoice / Quote", "Trips",
-        "Vessels", "Crew", "Captain Dashboard", "Mate Dashboard", "Owner Dashboard", "Payroll", "Expenses",
+        "Vessels", "Maintenance", "Crew", "Captain Dashboard", "Mate Dashboard", "Owner Dashboard", "Payroll", "Expenses",
         "Inventory", "Incident Reports", "Pre Trip Checklist", "Post Trip Checklist", "Reports", "Notifications",
         "Audit Trail", "Settings",
     ]
@@ -556,6 +556,29 @@ def validate_phase_6d_weather_intelligence() -> tuple[bool, str]:
         return False, "FAIL — " + "; ".join(f"missing {label}" for label in failures)
     return True, "PASS — Phase 6D local weather records, risk windows, alerts, role dashboards, dispatch, calendar, future API fields, and mobile cards are present"
 
+def validate_phase_6f_limited_maintenance() -> tuple[bool, str]:
+    combined = (ROOT / "app.js").read_text() + (ROOT / "index.html").read_text() + (ROOT / "styles.css").read_text()
+    required_tokens = {
+        "exact two-vessel scope": "const MAINTENANCE_VESSELS = ['Reel Adventure Tours I', 'Reel Adventure Tours II'];",
+        "maintenance page host": 'id="page-maintenance"',
+        "limited record migration": "filter((record) => isMaintenanceVessel(record.vessel))",
+        "service records": "function saveServiceRecord",
+        "service record vessel guard": "if (!isMaintenanceVessel(data.vessel))",
+        "out-of-service assignment block": "Out of Service vessels cannot be assigned.",
+        "dispatch and trip warning": "function maintenanceWarning",
+        "pre-trip warning": "maintenanceChecklistWarnings()",
+        "maintenance notifications": "function generateMaintenanceNotifications",
+        "admin owner editing": "function canEditMaintenance() { return ['Admin', 'Owner'].includes(activeRoleName()); }",
+        "crew warning-only visibility": "Warning-only access",
+        "mobile maintenance cards": ".maintenance-overview { grid-template-columns: repeat(2,minmax(0,1fr));",
+        "photo and receipt upload": 'name="attachments" type="file" accept="image/*,.pdf" multiple',
+    }
+    failures = [label for label, token in required_tokens.items() if token not in combined]
+    if failures:
+        return False, "FAIL — " + "; ".join(f"missing {label}" for label in failures)
+    return True, "PASS — Phase 6F maintenance remains limited to Reel Adventure Tours I and II with scoped service records, warnings, notifications, roles, uploads, and mobile cards"
+
+
 def main() -> int:
     checks = [
         ("JavaScript syntax", validate_javascript),
@@ -572,6 +595,7 @@ def main() -> int:
         ("Phase 5 completion checks", validate_phase_5_completion),
         ("Phase 6A assignment engine checks", validate_phase_6a_assignment_engine),
         ("Phase 6D weather intelligence checks", validate_phase_6d_weather_intelligence),
+        ("Phase 6F limited maintenance checks", validate_phase_6f_limited_maintenance),
     ]
     all_passed = True
     for label, check in checks:
