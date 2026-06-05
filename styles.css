@@ -875,3 +875,26 @@ html, body { max-width: 100%; overflow-x: hidden; }
   [data-printable-invoice] { border: 0; box-shadow: none; left: 0; margin: 0; position: absolute; top: 0; width: 100%; }
   .invoice-action-bar, .sidebar, .topbar, .mobile-bottom-nav, .voice-assistant-root { display: none !important; }
 }
+
+/* Phase 5 reference-document and payroll completion */
+.payroll-document-actions { display: grid; gap: 12px; padding: 0 14px 14px; }
+.payroll-person-row { border: 1px solid var(--line); border-radius: 16px; padding: 10px; }
+.customer-invoice-document { max-width: 760px; margin-inline: auto; }
+.invoice-brand-header { border-bottom: 0; grid-template-columns: minmax(150px, 42%) 1fr; }
+.invoice-brand-header img { border-radius: 0; max-width: 260px; }
+.invoice-brand-header > div { text-align: right; }
+.invoice-brand-header h1 { color: #1f8e98; font-size: clamp(1.8rem, 6vw, 2.35rem); text-transform: uppercase; }
+.confirmation-banner { background: #1f8e98; border: 0; color: #fff; text-align: center; text-transform: uppercase; }
+.customer-invoice-document .invoice-two-col > div,
+.customer-invoice-document .invoice-info-grid div,
+.customer-invoice-document .invoice-total-grid div { background: #f2fafb; }
+.customer-invoice-document thead { background: #1f8e98; color: #fff; }
+.customer-invoice-document .invoice-footer { background: #edf9fa; color: #1f8e98; margin: 0 calc(-1 * clamp(16px, 3vw, 28px)) calc(-1 * clamp(16px, 3vw, 28px)); padding: 14px clamp(16px, 3vw, 28px); }
+@media (max-width: 700px) {
+  .section-heading, .card-header, .topbar { align-items: stretch; }
+  .section-heading > *, .card-header > *, .calendar-view-tabs, .legacy-actions, .upload-actions { min-width: 0; width: 100%; }
+  .calendar-view-tabs .btn, .upload-actions .btn { flex: 1 1 calc(50% - 8px); }
+  .invoice-brand-header { grid-template-columns: 1fr 1fr; text-align: left; }
+  .invoice-brand-header > div { text-align: right; }
+  .invoice-brand-header img { max-width: 100%; }
+}

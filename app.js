@@ -538,7 +538,7 @@ const supportedIntakeExtensions = ['pdf', 'png', 'jpg', 'jpeg', 'html', 'htm', '
 const supportedIntakeDocumentTypes = ['Quote', 'Invoice', 'Tour Confirmation', 'Booking Confirmation', 'Receipt', 'Email Confirmation', 'Screenshot', 'PDF', 'Unknown'];
 const uploadReviewFields = [
   ['invoiceNumber', 'Invoice Number'], ['quoteNumber', 'Quote Number'], ['customerName', 'Customer Name'], ['phone', 'Phone'], ['email', 'Email'],
-  ['tripDate', 'Date'], ['startTime', 'Time'], ['departureTime', 'Departure Time'], ['returnTime', 'Return Time'], ['tourType', 'Tour Type'],
+  ['tripDate', 'Date'], ['startTime', 'Start Time'], ['duration', 'Duration'], ['endTime', 'End Time'], ['departureTime', 'Departure Time'], ['returnTime', 'Return Time'], ['tourType', 'Tour Type'],
   ['guestCount', 'Guest Count'], ['bookingSource', 'Booking Source'], ['vessel', 'Vessel'], ['captain', 'Captain'], ['mate', 'Mate'], ['tourPrice', 'Price'],
   ['depositPaid', 'Deposit'], ['balanceDue', 'Balance'], ['paymentStatus', 'Payment Status'], ['paymentMethod', 'Payment Method'], ['pickupLocation', 'Pickup Location'],
   ['cruiseShip', 'Cruise Ship'], ['specialRequests', 'Special Requests'], ['notes', 'Notes']
@@ -707,7 +707,7 @@ function classifyDocumentText(text = '', fileName = '') {
   const scores = {
     Quote: scoreText(source, ['quote', 'estimate', 'proposal', 'valid until', 'convert to booking']),
     Invoice: scoreText(source, ['invoice', 'amount due', 'balance due', 'invoice number', 'bill to']),
-    Booking: scoreText(source, ['booking', 'reservation', 'booked', 'guest count', 'confirmation number']),
+    'Booking Confirmation': scoreText(source, ['booking confirmation', 'reservation confirmed', 'booked', 'guest count', 'confirmation number']),
     'Tour Confirmation': scoreText(source, ['tour confirmation', 'confirmed tour', 'confirmation', 'departure time', 'pickup location']),
     Email: scoreText(source, ['from:', 'to:', 'subject:', 'sent:', '@']),
     Receipt: scoreText(source, ['receipt', 'paid', 'payment method', 'transaction', 'card', 'cash'])
@@ -760,9 +760,12 @@ function parseQuoteInvoiceText(text = '', fileName = '') {
 ${fileName}`;
   const pick = (...patterns) => patterns.map((pattern) => source.match(pattern)?.[1]?.trim()).find(Boolean) || '';
   const moneyPick = (...patterns) => (pick(...patterns).replace(/[$,]/g, '') || '');
-  const date = pick(/(?:trip|tour|booking|service|invoice|quote)?\s*date[:\-\s]+([0-9]{4}-[0-9]{2}-[0-9]{2}|[0-9]{1,2}[\/\-][0-9]{1,2}[\/\-][0-9]{2,4})/i, /\b([0-9]{4}-[0-9]{2}-[0-9]{2})\b/, /\b([0-9]{1,2}[\/\-][0-9]{1,2}[\/\-][0-9]{2,4})\b/);
+  const date = pick(/(?:trip|tour|booking|service|invoice|quote)?\s*date[:\-\s]+([0-9]{4}-[0-9]{2}-[0-9]{2}|[0-9]{1,2}[\/\-][0-9]{1,2}[\/\-][0-9]{2,4}|(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2},?\s+\d{4})/i, /\b([0-9]{4}-[0-9]{2}-[0-9]{2})\b/, /\b([0-9]{1,2}[\/\-][0-9]{1,2}[\/\-][0-9]{2,4})\b/, /\b((?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2},?\s+\d{4})\b/i);
   const time = pick(/(?:start\s*time|pickup\s*time|trip\s*time|departure\s*time|tour\s*time|time)[\s:#-]+([0-9: apm.]+)/i, /\b([0-9]{1,2}:[0-9]{2}\s*(?:am|pm)?)\b/i);
   const customer = extractCustomerName(source);
+  const duration = pick(/(?:duration[\s:#-]+)?(\d+(?:\.\d+)?)\s*(?:hour|hr)s?(?:\s+(?:excursion|tour|experience|adventure))?/i);
+  const explicitEndTime = normalizeTimeInput(pick(/(?:return|end)\s*time[\s:#-]+([0-9: apm.]+)/i));
+  const calculatedEndTime = explicitEndTime || calculateEndTime(normalizeTimeInput(time), duration);
   const notes = pick(/notes?[\s:#-]+([^\n]+)/i, /message[\s:#-]+([^\n]+)/i, /special\s*instructions?[\s:#-]+([^\n]+)/i);
   const extracted = {
     invoiceNumber: pick(/invoice\s*(?:number|#|no\.?)?[\s:#-]*([A-Z0-9-]+)/i),
@@ -772,12 +775,14 @@ ${fileName}`;
     email: pick(/([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})/i),
     tripDate: normalizeDateInput(date),
     startTime: normalizeTimeInput(time),
+    duration: duration ? `${Number(duration)} Hour${Number(duration) === 1 ? '' : 's'}` : '',
+    endTime: calculatedEndTime,
     departureTime: normalizeTimeInput(pick(/departure\s*time[\s:#-]+([0-9: apm.]+)/i)),
-    returnTime: normalizeTimeInput(pick(/(?:return|end)\s*time[\s:#-]+([0-9: apm.]+)/i)),
-    tourType: pick(/(?:tour\s*type|tour|product|package|service)[\s:#-]+([^\n,;]+)/i),
-    guestCount: pick(/(?:guest\s*count|guests|passengers|pax|party\s*size)[\s:#-]+(\d+)/i),
+    returnTime: calculatedEndTime,
+    tourType: pick(/(?:tour\s*type|product|package|service)[\s:#-]+([^\n,;]+)/i, /^([^\n]*(?:\d+(?:\.\d+)?\s*(?:hour|hr)s?)[^\n]*(?:excursion|tour|experience|adventure)[^\n]*)$/im),
+    guestCount: pick(/(?:guest\s*count|guests|passengers|pax|party\s*size)[\s:#-]+(\d+)/i, /\b(\d+)\s*(?:guests?|passengers?|pax)\b/i),
     bookingSource: pick(/booking\s*source[\s:#-]+([^\n,;]+)/i, /source[\s:#-]+([^\n,;]+)/i),
-    vessel: pick(/(?:vessel|boat)[\s:#-]+([^\n,;]+)/i), captain: pick(/captain[\s:#-]+([^\n,;]+)/i), mate: pick(/mate[\s:#-]+([^\n,;]+)/i),
+    vessel: pick(/(?:vessel|boat)[\s:#-]+([^\n,;]+)/i), captain: pick(/\bcaptain\b[\s:#-]+([^\n,;]+)/i), mate: pick(/\bmate\b[\s:#-]+([^\n,;]+)/i),
     tourPrice: moneyPick(/(?:tour\s*price|price|total|amount|subtotal)[\s:#-]+\$?([0-9,]+(?:\.\d{2})?)/i),
     depositPaid: moneyPick(/deposit(?:\s*paid)?[\s:#-]+\$?([0-9,]+(?:\.\d{2})?)/i),
     balanceDue: moneyPick(/balance(?:\s*due)?[\s:#-]+\$?([0-9,]+(?:\.\d{2})?)/i, /amount\s*due[\s:#-]+\$?([0-9,]+(?:\.\d{2})?)/i),
@@ -785,7 +790,7 @@ ${fileName}`;
     pickupLocation: pick(/pickup\s*location[\s:#-]+([^\n;]+)/i), cruiseShip: pick(/cruise\s*ship[\s:#-]+([^\n;]+)/i),
     specialRequests: pick(/special\s*requests?[\s:#-]+([^\n;]+)/i), notes
   };
-  extracted.extractionConfidence = confidenceMap(extracted, { customerName: customer.source, invoiceNumber: 'direct', quoteNumber: 'direct', tripDate: 'direct', startTime: 'direct', departureTime: 'direct', returnTime: 'direct', tourType: 'direct' });
+  extracted.extractionConfidence = confidenceMap(extracted, { customerName: customer.source, invoiceNumber: 'direct', quoteNumber: 'direct', tripDate: 'direct', startTime: 'direct', duration: duration ? 'direct' : 'missing', endTime: explicitEndTime ? 'direct' : calculatedEndTime ? 'calculated' : 'missing', departureTime: 'direct', returnTime: explicitEndTime ? 'direct' : calculatedEndTime ? 'calculated' : 'missing', tourType: 'direct' });
   return extracted;
 }
 
@@ -862,7 +867,7 @@ function createBookingFromUpload(data) {
 }
 function createInvoiceFromUpload(data, linkCustomer = false) {
   const linked = linkCustomer ? findRelatedCustomerRecord(data) : {};
-  const invoice = { id: makeId('invoices'), invoiceNumber: data.invoiceNumber || data.quoteNumber || `INV-${Date.now()}`, documentType: data.documentType === 'Receipt' ? 'Invoice' : data.documentType || (data.invoiceNumber ? 'Invoice' : 'Quote'), customerName: data.customerName || '', phone: data.phone || '', email: data.email || '', tripDate: data.tripDate || '', startTime: data.startTime || data.departureTime || '', endTime: data.returnTime || '', tourType: data.tourType || '', guestCount: Number(data.guestCount || 0), pickupLocation: data.pickupLocation || '', vessel: data.vessel || '', bookingSource: data.bookingSource || '', tourPrice: Number(data.tourPrice || 0), depositPaid: Number(data.depositPaid || 0), balanceDue: Number(data.balanceDue || 0), paymentStatus: data.paymentStatus || (Number(data.balanceDue || 0) > 0 ? 'Balance Due' : 'Deposit Due'), paymentMethod: data.paymentMethod || '', bookingId: linked.bookingId || data.bookingId || '', tripId: linked.tripId || data.tripId || '', notes: [data.cruiseShip && `Cruise Ship: ${data.cruiseShip}`, data.specialRequests, data.notes].filter(Boolean).join('\n') };
+  const invoice = { id: makeId('invoices'), invoiceNumber: data.invoiceNumber || data.quoteNumber || `INV-${Date.now()}`, documentType: data.documentType === 'Receipt' ? 'Invoice' : data.documentType || (data.invoiceNumber ? 'Invoice' : 'Quote'), customerName: data.customerName || '', phone: data.phone || '', email: data.email || '', tripDate: data.tripDate || '', startTime: data.startTime || data.departureTime || '', endTime: data.endTime || data.returnTime || '', duration: data.duration || '', tourType: data.tourType || '', guestCount: Number(data.guestCount || 0), pickupLocation: data.pickupLocation || '', vessel: data.vessel || '', bookingSource: data.bookingSource || '', tourPrice: Number(data.tourPrice || 0), depositPaid: Number(data.depositPaid || 0), balanceDue: Number(data.balanceDue || 0), paymentStatus: data.paymentStatus || (Number(data.balanceDue || 0) > 0 ? 'Balance Due' : 'Deposit Due'), paymentMethod: data.paymentMethod || '', bookingId: linked.bookingId || data.bookingId || '', tripId: linked.tripId || data.tripId || '', notes: [data.cruiseShip && `Cruise Ship: ${data.cruiseShip}`, data.specialRequests, data.notes].filter(Boolean).join('\n') };
   store.invoices.push(invoice); addAudit('created', 'Smart Document Intake', `${linkCustomer ? invoice.documentType + ' created and linked' : invoice.documentType + ' created'} from reviewed upload for ${invoice.customerName || 'customer'}.`, { invoiceId: invoice.id, bookingId: invoice.bookingId, tripId: invoice.tripId }); addNotification(invoice.documentType === 'Quote' ? 'Quote created from upload.' : 'Invoice created from upload.', `${invoice.invoiceNumber} was created after review.`, 'success', { category: 'Upload', invoiceId: invoice.id });
 }
 function createQuoteFromUpload(data) {
@@ -880,7 +885,7 @@ function findRelatedCustomerRecord(data = {}) {
 function createTripFromUpload(data, scheduleOnly = false) {
   const duplicate = findUploadDuplicate(data);
   const trip = duplicate && pendingDuplicateAction === 'update' ? duplicate : { id: makeId('trips') };
-  Object.assign(trip, normalizeTrip({ ...trip, customer: data.customerName || trip.customer || '', phone: data.phone || trip.phone || '', email: data.email || trip.email || '', bookingSource: data.bookingSource || trip.bookingSource || '', tripDate: data.tripDate || trip.tripDate || '', startTime: data.startTime || data.departureTime || trip.startTime || '', passengers: Number(data.guestCount || trip.passengers || 0), hours: trip.hours || 4, tourType: data.tourType || trip.tourType || '', tourPrice: Number(data.tourPrice || trip.tourPrice || 0), depositPaid: Number(data.depositPaid || trip.depositPaid || 0), balanceDue: Number(data.balanceDue || trip.balanceDue || 0), vessel: data.vessel || trip.vessel || '', captain: data.captain || trip.captain || '', mate: data.mate || trip.mate || '', status: trip.status || 'Scheduled', notes: [data.pickupLocation && `Pickup Location: ${data.pickupLocation}`, data.cruiseShip && `Cruise Ship: ${data.cruiseShip}`, data.specialRequests, data.notes].filter(Boolean).join('\n') || trip.notes || '' }));
+  Object.assign(trip, normalizeTrip({ ...trip, customer: data.customerName || trip.customer || '', phone: data.phone || trip.phone || '', email: data.email || trip.email || '', bookingSource: data.bookingSource || trip.bookingSource || '', tripDate: data.tripDate || trip.tripDate || '', startTime: data.startTime || data.departureTime || trip.startTime || '', passengers: Number(data.guestCount || trip.passengers || 0), hours: Number.parseFloat(data.duration) || trip.hours || 4, tourType: data.tourType || trip.tourType || '', tourPrice: Number(data.tourPrice || trip.tourPrice || 0), depositPaid: Number(data.depositPaid || trip.depositPaid || 0), balanceDue: Number(data.balanceDue || trip.balanceDue || 0), vessel: data.vessel || trip.vessel || '', captain: data.captain || trip.captain || '', mate: data.mate || trip.mate || '', status: trip.status || 'Scheduled', notes: [data.pickupLocation && `Pickup Location: ${data.pickupLocation}`, data.cruiseShip && `Cruise Ship: ${data.cruiseShip}`, data.specialRequests, data.notes].filter(Boolean).join('\n') || trip.notes || '' }));
   trip.dispatchReadinessStatus = calculateDispatchReadiness(trip);
   if (!trip.vessel || !trip.captain || !trip.mate) trip.unassignedReason = 'Unassigned';
   if (!duplicate || pendingDuplicateAction !== 'update') store.trips.push(trip);
@@ -1907,7 +1912,7 @@ function renderPayroll() {
   const totalPaid = entries.reduce((sum, entry) => sum + entry.amountPaid, 0);
   document.getElementById('page-payroll').innerHTML = `<div class="page-stack">
     <div class="section-heading"><div><p class="eyebrow">Sunday–Saturday payroll and person statements</p><h1>Weekly payroll engine</h1><p class="section-summary">Owner payouts, captain payouts, mate payouts, reimbursements, person statements, receipts, weekly summaries, and export/print workflows are calculated as separate role lines so the same person can be paid independently for multiple roles on one trip.</p></div><div class="legacy-actions"><button class="btn btn-primary" data-route="trips">Create trip</button><button class="btn btn-outline" type="button" onclick="window.print()">Print / Export Statements</button></div></div>
-    <div class="grid kpi-grid">${kpi('Amount owed', money(totalOwed), 'All active trips')}${kpi('Amount paid', money(totalPaid), 'Recorded payments')}${kpi('Outstanding', money(totalOwed - totalPaid), 'Still due')}${kpi('Payment records', store.payrollPayments.length, 'Local history')}${kpi('Owner Statements', entries.filter((entry) => entry.role === 'Owner').length, 'Owner payout lines')}${kpi('Captain Statements', entries.filter((entry) => entry.role === 'Captain').length, 'Captain payout lines')}${kpi('Mate Statements', entries.filter((entry) => entry.role === 'Mate').length, 'Mate payout lines')}</div><div class="card card-pad"><h3>Person Statement Summary</h3>${renderPersonStatementSummary(entries)}</div>
+    <div class="grid kpi-grid">${kpi('Amount owed', money(totalOwed), 'All active trips')}${kpi('Amount paid', money(totalPaid), 'Recorded payments')}${kpi('Outstanding', money(totalOwed - totalPaid), 'Still due')}${kpi('Payment records', store.payrollPayments.length, 'Local history')}${kpi('Owner Statements', entries.filter((entry) => entry.role === 'Owner').length, 'Owner payout lines')}${kpi('Captain Statements', entries.filter((entry) => entry.role === 'Captain').length, 'Captain payout lines')}${kpi('Mate Statements', entries.filter((entry) => entry.role === 'Mate').length, 'Mate payout lines')}</div><details class="card app-accordion" open><summary><div><h3>Person Statement Summary</h3><p class="muted-text">Generate Captain Payment Receipt, Mate Payment Receipt, Owner Payout Statement, or Payment Due Notice.</p></div><span class="chevron" aria-hidden="true">⌄</span></summary><div class="payroll-document-actions">${renderPersonStatementSummary(entries)}</div></details><div data-payroll-document-host></div>
     ${Object.keys(grouped).length ? Object.entries(grouped).map(([week, weekEntries]) => renderPayrollWeek(week, weekEntries)).join('') : '<div class="card card-pad empty-state">No payroll yet. Create assigned trips to calculate weekly payouts.</div>'}
   </div>`;
 }
@@ -1924,8 +1929,27 @@ function renderPersonStatementSummary(entries) {
     acc[person].items += 1;
     return acc;
   }, {});
-  const rows = Object.entries(byPerson).map(([person, summary]) => `<div class="stat-row"><span>${escapeHtml(person)}<br><small>${escapeHtml([...summary.roles].join(', '))} · ${summary.items} item(s)</small></span><strong>${money(summary.outstanding)} outstanding<br><small>${money(summary.owed)} owed / ${money(summary.paid)} paid</small></strong></div>`).join('');
+  const rows = Object.entries(byPerson).map(([person, summary]) => `<div class="payroll-person-row"><div class="stat-row"><span>${escapeHtml(person)}<br><small>${escapeHtml([...summary.roles].join(', '))} · ${summary.items} item(s)</small></span><strong>${money(summary.outstanding)} outstanding<br><small>${money(summary.owed)} owed / ${money(summary.paid)} paid</small></strong></div><div class="assignment-actions">${[...summary.roles].map((role) => `<button class="btn btn-outline btn-small" type="button" onclick="previewPayrollDocument(decodeURIComponent('${encodeURIComponent(person)}'),'${escapeHtml(role)}')">${role === 'Owner' ? 'Owner Payout Statement' : `${role} Payment Receipt`}</button>`).join('')}<button class="btn btn-outline btn-small" type="button" onclick="previewPayrollDocument(decodeURIComponent('${encodeURIComponent(person)}'),'Due')">Payment Due Notice</button></div></div>`).join('');
   return rows || '<p class="empty-state">No person statements yet.</p>';
+}
+
+function previewPayrollDocument(person, type) {
+  const entries = payrollEntries().filter((entry) => entry.person === person && (type === 'Due' || entry.role === type));
+  const owed = entries.reduce((sum, entry) => sum + entry.amountOwed, 0);
+  const paid = entries.reduce((sum, entry) => sum + entry.amountPaid, 0);
+  const outstanding = entries.reduce((sum, entry) => sum + entry.outstanding, 0);
+  const title = type === 'Due' ? 'Payment Due Notice' : type === 'Owner' ? 'Owner Payout Statement' : `${type} Payment Receipt`;
+  const host = document.querySelector('[data-payroll-document-host]');
+  if (!host) return;
+  host.innerHTML = `<article class="payroll-document customer-invoice-document" data-printable-invoice><header class="invoice-brand-header"><img src="Reel Adventure Tours Logo (2).jpg" alt="Reel Adventure Tours logo"><div><p class="eyebrow">Reel Adventure Tours Payroll</p><h1>${escapeHtml(title)}</h1><p class="muted-text">Generated ${escapeHtml(new Date().toLocaleDateString())}</p></div></header><div class="confirmation-banner">Prepared for ${escapeHtml(person)}</div><section class="invoice-total-grid"><div><span>Total owed</span><strong>${money(owed)}</strong></div><div><span>Total paid</span><strong>${money(paid)}</strong></div><div><span>Outstanding</span><strong>${money(outstanding)}</strong></div><div><span>Role / document</span><strong>${escapeHtml(type === 'Due' ? 'All roles' : type)}</strong></div></section><section><h3>Payment detail</h3><div class="responsive-table-wrap"><table><thead><tr><th>Tour date</th><th>Customer / vessel</th><th>Role</th><th>Owed</th><th>Paid</th><th>Balance</th></tr></thead><tbody>${entries.map((entry) => `<tr><td>${escapeHtml(formatDate(entry.trip.tripDate))}</td><td>${escapeHtml(entry.trip.customer || '—')} · ${escapeHtml(entry.trip.vessel || '—')}</td><td>${escapeHtml(entry.role)}</td><td>${money(entry.amountOwed)}</td><td>${money(entry.amountPaid)}</td><td>${money(entry.outstanding)}</td></tr>`).join('') || '<tr><td colspan="6">No matching payroll lines.</td></tr>'}</tbody></table></div></section><footer class="invoice-footer"><strong>Reel Adventure Tours</strong><span>Operations payroll record · Review payment records before authorization.</span></footer></article><div class="assignment-actions invoice-action-bar"><button class="btn btn-primary" type="button" onclick="window.print()">Print / Save PDF</button><button class="btn btn-outline" type="button" onclick="downloadPayrollDocument('${encodeURIComponent(person)}','${escapeHtml(type)}')">Download Document</button></div>`;
+  host.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  addAudit('previewed', 'Payroll', `${title} generated for ${person}.`, { person, type }); saveStore();
+}
+function downloadPayrollDocument(personEncoded, type) {
+  previewPayrollDocument(decodeURIComponent(personEncoded), type);
+  const documentHtml = document.querySelector('[data-payroll-document-host] [data-printable-invoice]')?.outerHTML || '';
+  const blob = new Blob([`<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="styles.css"></head><body>${documentHtml}</body></html>`], { type: 'text/html' });
+  const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = `${decodeURIComponent(personEncoded).replace(/[^a-z0-9]+/gi, '-')}-${type.replace(/[^a-z0-9]+/gi, '-')}.html`; link.click(); URL.revokeObjectURL(link.href);
 }
 
 function renderPayrollWeek(week, entries) {
@@ -2296,7 +2320,17 @@ function normalizeDateInput(value) {
   const text = String(value).trim();
   const parts = text.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{2,4})$/);
   if (parts) return `${parts[3].length === 2 ? '20' + parts[3] : parts[3]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
+  const parsed = new Date(text);
+  if (!Number.isNaN(parsed.getTime()) && /[A-Za-z]/.test(text)) return `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, '0')}-${String(parsed.getDate()).padStart(2, '0')}`;
   return text;
+}
+
+function calculateEndTime(startTime, durationHours) {
+  const match = String(startTime || '').match(/^(\d{2}):(\d{2})$/);
+  const hours = Number.parseFloat(durationHours);
+  if (!match || !Number.isFinite(hours)) return '';
+  const minutes = (Number(match[1]) * 60 + Number(match[2]) + Math.round(hours * 60)) % (24 * 60);
+  return `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
 }
 
 function normalizeTimeInput(value) {
