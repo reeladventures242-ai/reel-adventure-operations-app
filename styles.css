@@ -1141,6 +1141,17 @@ body { background: radial-gradient(circle at 100% 0, rgba(82,210,211,.12), trans
   box-shadow: inset 0 -3px 0 var(--aqua);
   font-weight: 950;
 }
+.mobile-nav-link:not(.active) {
+  color: #234b63;
+}
+.mobile-nav-link:not(.active) .mobile-nav-icon {
+  color: #075f7d;
+  filter: none;
+}
+.mobile-nav-link .mobile-nav-label {
+  color: inherit;
+  -webkit-text-fill-color: currentColor;
+}
 .mobile-nav-icon,
 .mobile-nav-label,
 .nav-link .nav-icon,
