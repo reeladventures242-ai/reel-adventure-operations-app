@@ -1154,3 +1154,22 @@ body { background: radial-gradient(circle at 100% 0, rgba(82,210,211,.12), trans
 .nav-link.active {
   box-shadow: inset 4px 0 0 var(--aqua);
 }
+
+/* Phase 6D: Weather Intelligence */
+.weather-summary-cards { margin: 14px 0; }
+.weather-details-card { margin: 12px 0; border: 1px solid var(--line); border-left: 5px solid #26935b; border-radius: 14px; padding: 10px 12px; background: #f7fbfd; }
+.weather-details-card.gold { border-left-color: #d49a19; background: #fffaf0; }
+.weather-details-card.red { border-left-color: #d14b43; background: #fff4f3; }
+.weather-details-card summary { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; cursor: pointer; font-weight: 800; }
+.weather-detail-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
+.weather-detail-grid span, .future-api-fields span { display: grid; gap: 3px; padding: 9px; border-radius: 10px; background: rgba(255,255,255,.82); }
+.weather-detail-grid small, .future-api-fields { color: var(--muted); font-size: .72rem; }
+.future-api-fields { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 8px; margin: 12px 0; }
+.weather-trip-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.weather-risk-badge { white-space: nowrap; }
+.field-wide { grid-column: 1 / -1; }
+@media (max-width: 760px) {
+  .weather-detail-grid, .future-api-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .weather-details-card { padding: 9px; }
+  .weather-trip-row { align-items: flex-start; }
+}

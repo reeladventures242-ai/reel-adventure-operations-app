@@ -530,6 +530,32 @@ def validate_module_visibility_and_titles() -> tuple[bool, str]:
         return False, "FAIL — " + "; ".join(failures)
     return True, "PASS — all requested modules have persistent icon/label navigation, active states, direct routes, and unique body section titles"
 
+
+def validate_phase_6d_weather_intelligence() -> tuple[bool, str]:
+    combined = (ROOT / "app.js").read_text() + (ROOT / "index.html").read_text() + (ROOT / "styles.css").read_text()
+    required_tokens = {
+        "weather module": "Weather / Conditions",
+        "weather page host": 'id="page-weather"',
+        "manual weather entry": "function saveWeatherRecord",
+        "trip duration risk window": "weatherConditionsForTrip",
+        "risk calculation": "function tripWeatherRisk",
+        "dashboard weather summary": "weatherSummaryCards(metrics.scheduledTrips)",
+        "dashboard weather alerts": "renderWeatherAlertPanel(metrics.scheduledTrips)",
+        "dispatch weather node": "renderDispatchLeaf('Weather'",
+        "calendar weather badge": "🌦️ High Risk",
+        "crew assigned trip weather": "weatherDetailsCard(trip, true)",
+        "owner weather summary": "weatherSummaryCards(trips)",
+        "weather notifications": "weatherAlertKey",
+        "future source field": "weatherSource",
+        "future provider field": "apiProvider",
+        "future forecast field": "forecastId",
+        "mobile weather cards": ".weather-details-card { padding: 9px;",
+    }
+    failures = [label for label, token in required_tokens.items() if token not in combined]
+    if failures:
+        return False, "FAIL — " + "; ".join(f"missing {label}" for label in failures)
+    return True, "PASS — Phase 6D local weather records, risk windows, alerts, role dashboards, dispatch, calendar, future API fields, and mobile cards are present"
+
 def main() -> int:
     checks = [
         ("JavaScript syntax", validate_javascript),
@@ -545,6 +571,7 @@ def main() -> int:
         ("Phase 4G upload and calendar checks", validate_phase_4g_upload_calendar),
         ("Phase 5 completion checks", validate_phase_5_completion),
         ("Phase 6A assignment engine checks", validate_phase_6a_assignment_engine),
+        ("Phase 6D weather intelligence checks", validate_phase_6d_weather_intelligence),
     ]
     all_passed = True
     for label, check in checks:
