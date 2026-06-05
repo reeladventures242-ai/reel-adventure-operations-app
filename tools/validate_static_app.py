@@ -209,6 +209,10 @@ Deposit Paid: $175.00
 Remaining Balance: $1,575.00
 Payment method: Cash N' Go\`, 'tour-confirmation-template-01.png')`, context);
 if (ocr.customerName !== 'Keith Wilkes' || ocr.tripDate !== '2026-06-15' || ocr.startTime !== '10:00' || ocr.duration !== '6 Hours' || ocr.endTime !== '16:00' || ocr.guestCount !== '5' || ocr.depositPaid !== '175.00' || ocr.balanceDue !== '1575.00') throw new Error(`OCR extraction mismatch: ${JSON.stringify(ocr)}`);
+const fuelGallons = vm.runInNewContext(`calculateGallonsUsed({ fuelStartLevel: 80, fuelEndLevel: 55, gallonsUsed: 2 })`, context);
+const fuelCost = vm.runInNewContext(`calculateFuelCost({ fuelStartLevel: 80, fuelEndLevel: 55, fuelPricePerGallon: 6.25 })`, context);
+const manualGallonsCost = vm.runInNewContext(`calculateFuelCost({ fuelStartLevel: 0, fuelEndLevel: 0, gallonsUsed: 10, fuelPricePerGallon: 5 })`, context);
+if (fuelGallons !== 25 || fuelCost !== 156.25 || manualGallonsCost !== 50) throw new Error(`Fuel calculation mismatch: ${fuelGallons} gallons / ${fuelCost} cost / ${manualGallonsCost} manual cost`);
 listeners.DOMContentLoaded();
 if (errors.length) throw new Error(errors.join('\n'));
 console.log('PASS — app bootstrap and tour-confirmation OCR duration/end-time extraction completed without errors');
@@ -579,6 +583,33 @@ def validate_phase_6f_limited_maintenance() -> tuple[bool, str]:
     return True, "PASS — Phase 6F maintenance remains limited to Reel Adventure Tours I and II with scoped service records, warnings, notifications, roles, uploads, and mobile cards"
 
 
+
+def validate_phase_6g_fuel_tracking() -> tuple[bool, str]:
+    combined = (ROOT / "app.js").read_text() + (ROOT / "styles.css").read_text()
+    required_tokens = {
+        "fuel start field": "['fuelStartLevel','Fuel Start Level (gallons)','number']",
+        "fuel end field": "['fuelEndLevel','Fuel End Level (gallons)','number']",
+        "gallons calculation": "function calculateGallonsUsed",
+        "fuel cost calculation": "function calculateFuelCost",
+        "manual override": "fuelCostManualOverride",
+        "profitability calculation": "function tripProfitability",
+        "profitability summary": "Tour Revenue",
+        "receipt upload": "function saveFuelReceiptFile",
+        "receipt preview": "function renderFuelReceiptPreview",
+        "receipt removal": "function removeFuelReceipt",
+        "expense integration": "function syncFuelExpense",
+        "fuel expense option": "Create Fuel Expense",
+        "role visibility": "function canEditTripFuel",
+        "captain submission": "Submit fuel information",
+        "fuel reports": "function renderFuelReports",
+        "fuel by vessel report": "Fuel Cost & Net Profit by Vessel",
+        "mobile numeric inputs": 'input[name="fuelStartLevel"]',
+    }
+    failures = [label for label, token in required_tokens.items() if token not in combined]
+    if failures:
+        return False, "FAIL — " + "; ".join(f"missing {label}" for label in failures)
+    return True, "PASS — Phase 6G fuel fields, calculations, receipts, expenses, profitability, reports, roles, and mobile controls are present"
+
 def main() -> int:
     checks = [
         ("JavaScript syntax", validate_javascript),
@@ -596,6 +627,7 @@ def main() -> int:
         ("Phase 6A assignment engine checks", validate_phase_6a_assignment_engine),
         ("Phase 6D weather intelligence checks", validate_phase_6d_weather_intelligence),
         ("Phase 6F limited maintenance checks", validate_phase_6f_limited_maintenance),
+        ("Phase 6G fuel tracking checks", validate_phase_6g_fuel_tracking),
     ]
     all_passed = True
     for label, check in checks:
