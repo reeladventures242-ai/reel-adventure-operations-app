@@ -459,6 +459,41 @@ def validate_phase_5_completion() -> tuple[bool, str]:
     return True, "PASS — Phase 5 OCR duration/end-time calculation, review confidence, payroll documents, reference styling, mobile layout, and collapsible arrows are present"
 
 
+def validate_phase_6a_assignment_engine() -> tuple[bool, str]:
+    app_js = (ROOT / "app.js").read_text()
+    styles_css = (ROOT / "styles.css").read_text()
+    combined = app_js + styles_css
+    required_tokens = {
+        "recommendation engine": "function buildAssignmentRecommendation",
+        "availability scoring": "rankCrewCandidates",
+        "vessel capacity scoring": "Capacity ${capacity} fits ${guests} guests",
+        "recent workload scoring": "recentResourceWorkload",
+        "assignment history scoring": "assignmentHistoryCount",
+        "role eligibility": "crewEligibleForRole",
+        "vessel owner scoring": "Matches vessel owner",
+        "trip form recommendations": "data-assignment-recommendation",
+        "apply suggested assignment action": "function applySuggestedAssignment",
+        "manual override guidance": "You can manually choose any vessel, captain, or mate",
+        "overlap conflict detection": "resourceHasOverlap",
+        "declined crew conflict": "Captain declined",
+        "unavailable crew conflict": "Captain unavailable",
+        "missing assignment conflicts": "Missing vessel",
+        "dispatch recommendation": "dispatch-recommendation-node",
+        "calendar recommendation": "calendar-recommendation",
+        "dashboard recommendation": "Suggested assignment",
+        "captain notification": "addRoleNotification('Captain', recommendation.captain.value",
+        "mate notification": "addRoleNotification('Mate', recommendation.mate.value",
+        "admin notification": "addRoleNotification('Admin', '', 'Suggested assignment applied'",
+        "owner notification": "addRoleNotification('Owner', owner, 'Suggested assignment applied'",
+        "recommendation audit": "addAudit('applied', 'Assignment Recommendation'",
+        "mobile recommendation layout": ".apply-suggestion-btn { width: 100%",
+    }
+    failures = [label for label, token in required_tokens.items() if token not in combined]
+    if failures:
+        return False, "FAIL — " + "; ".join(f"missing {label}" for label in failures)
+    return True, "PASS — Phase 6A recommendation engine, conflicts, manual apply, dispatch/calendar/dashboard integration, notifications, audit, and mobile controls are present"
+
+
 def main() -> int:
     checks = [
         ("JavaScript syntax", validate_javascript),
@@ -472,6 +507,7 @@ def main() -> int:
         ("Phase 4F legacy parity correction", validate_phase_4f_legacy_parity),
         ("Phase 4G upload and calendar checks", validate_phase_4g_upload_calendar),
         ("Phase 5 completion checks", validate_phase_5_completion),
+        ("Phase 6A assignment engine checks", validate_phase_6a_assignment_engine),
     ]
     all_passed = True
     for label, check in checks:

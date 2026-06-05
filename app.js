@@ -1,5 +1,5 @@
 const STORE_KEY = 'rat_ops_v1_store';
-const STORE_VERSION = 14;
+const STORE_VERSION = 15;
 
 const navItems = [
   ['dashboard', '🏠', 'Dashboard'], ['bookings', '📘', 'Bookings'], ['invoices', '🧾', 'Invoice / Quote'],
@@ -121,8 +121,8 @@ const crudConfig = {
   },
   crew: {
     title: 'Crew', eyebrow: 'Simple CRUD', summary: 'Maintain the seeded crew roster, roles, and active status in the new app data layer.', collection: 'crew', addLabel: 'Add crew',
-    fields: [['name','Name','text'], ['role','Role','text'], ['phone','Phone','tel'], ['email','Email','email'], ['active','Active','select:yesNo'], ['notes','Notes','textarea']],
-    columns: [['name','Name'], ['role','Role'], ['phone','Phone'], ['email','Email'], ['active','Active'], ['notes','Notes']]
+    fields: [['name','Name','text'], ['role','Role','text'], ['phone','Phone','tel'], ['email','Email','email'], ['active','Active','select:yesNo'], ['availability','Availability','select:crewAvailability'], ['notes','Notes','textarea']],
+    columns: [['name','Name'], ['role','Role'], ['phone','Phone'], ['email','Email'], ['active','Active'], ['availability','Availability'], ['notes','Notes']]
   },
   vessels: {
     title: 'Vessels', eyebrow: 'Simple CRUD', summary: 'Manage boats and owner payout defaults from the documented legacy payout rules.', collection: 'vessels', addLabel: 'Add vessel',
@@ -382,6 +382,7 @@ function getOptions(kind) {
     vessels: store.vessels.map((v) => v.name),
     crew: store.crew.filter((c) => c.active !== 'No').map((c) => c.name),
     crewOptional: ['None', ...store.crew.filter((c) => c.active !== 'No').map((c) => c.name)],
+    crewAvailability: ['Available', 'Unavailable'],
     vesselReadiness: ['Operational', 'Needs Review', 'Out of Service', 'Maintenance Hold'],
     expenseCategories: ['Fuel', 'Ice', 'Supplies', 'Maintenance', 'Dockage', 'Reimbursement', 'Other'],
     expenseStatus: ['Submitted', 'Approved', 'Paid', 'Needs Review'],
@@ -1090,7 +1091,8 @@ function renderAgendaView(trips) {
 }
 function renderCalendarTripCard(trip) {
   const status = calendarTripStatus(trip); const assignment = `${trip.vessel || 'Unassigned'} · Captain ${trip.captain || 'Unassigned'} · Mate ${trip.mate || 'Unassigned'}`;
-  return `<button class="calendar-trip-card ${calendarStatusClass(status)}" data-calendar-trip="${trip.id}"><div><strong>${escapeHtml(formatTime(trip.startTime) || 'No time')} · ${escapeHtml(trip.customer || 'No customer')}</strong><p>${escapeHtml(trip.tourType || 'Tour')} · ${Number(trip.passengers || 0)} guests · ${escapeHtml(assignment)}</p><p>${escapeHtml(trip.notes || 'No notes')}</p></div><div><span class="badge ${calendarStatusClass(status)}">${escapeHtml(status)}</span><span class="badge ${Number(trip.balanceDue || 0) > 0 ? 'gold' : 'green'}">${money(trip.balanceDue)} balance</span><span class="badge ${calendarStatusClass(calculateDispatchReadiness(trip))}">${escapeHtml(calculateDispatchReadiness(trip))}</span></div></button>`;
+  const warnings = assignmentConflictWarnings(trip, trip.id); const recommendation = buildAssignmentRecommendation(trip, trip.id);
+  return `<button class="calendar-trip-card ${calendarStatusClass(status)}" data-calendar-trip="${trip.id}"><div><strong>${escapeHtml(formatTime(trip.startTime) || 'No time')} · ${escapeHtml(trip.customer || 'No customer')}</strong><p>${escapeHtml(trip.tourType || 'Tour')} · ${Number(trip.passengers || 0)} guests · ${escapeHtml(assignment)}</p><p>${escapeHtml(trip.notes || 'No notes')}</p><p class="calendar-recommendation">Suggested: ${escapeHtml(recommendation.vessel?.value || 'No vessel')} · ${escapeHtml(recommendation.captain?.value || 'No captain')} · ${escapeHtml(recommendation.mate?.value || 'No mate')}</p></div><div><span class="badge ${calendarStatusClass(status)}">${escapeHtml(status)}</span><span class="badge ${Number(trip.balanceDue || 0) > 0 ? 'gold' : 'green'}">${money(trip.balanceDue)} balance</span><span class="badge ${calendarStatusClass(calculateDispatchReadiness(trip))}">${escapeHtml(calculateDispatchReadiness(trip))}</span>${warnings.map((warning) => `<span class="badge red">${escapeHtml(warning.type)}</span>`).join('')}</div></button>`;
 }
 function setCalendarView(view) { store.calendarState = { ...(store.calendarState || {}), view }; saveStore(); renderCalendar(); }
 function openCalendarDay(date) { store.calendarState = { ...(store.calendarState || {}), selectedDate: date, view: 'day' }; saveStore(); renderCalendar(); }
@@ -1182,6 +1184,8 @@ function dashboardUrgentItems(trips) {
     if (readiness === 'Not Ready') items.push({ type: 'Not Ready', color: 'red', title: trip.customer || 'Trip missing customer', detail: `${formatDate(trip.tripDate)} · ${formatTime(trip.startTime)} · ${trip.vessel || 'Missing vessel'}` });
     if (!trip.captain) items.push({ type: 'Missing captain', color: 'red', title: trip.customer || 'Unassigned trip', detail: 'Assign a captain before dispatch.' });
     if (!trip.mate || trip.mate === 'None') items.push({ type: 'Missing mate', color: 'red', title: trip.customer || 'Unassigned trip', detail: 'Assign a mate before dispatch.' });
+    assignmentConflictWarnings(trip, trip.id).filter((warning) => !warning.type.startsWith('Missing')).forEach((warning) => items.push({ type: warning.type, color: 'red', title: trip.customer || 'Assignment conflict', detail: warning.message }));
+    if (assignmentConflictWarnings(trip, trip.id).length) { const suggested = buildAssignmentRecommendation(trip, trip.id); items.push({ type: 'Suggested assignment', color: 'gold', title: trip.customer || 'Trip', detail: `${suggested.vessel?.value || 'No vessel'} · ${suggested.captain?.value || 'No captain'} · ${suggested.mate?.value || 'No mate'} (${suggested.confidence})` }); }
     if (latestChecklistStatus(trip, 'Pre Trip') !== 'Completed') items.push({ type: 'Pre trip', color: 'gold', title: trip.customer || 'Checklist needed', detail: 'Pre trip not complete.' });
     if (Number(trip.balanceDue || 0) > 0) items.push({ type: 'Balance Due', color: 'gold', title: trip.customer || 'Customer balance', detail: `${money(trip.balanceDue)} outstanding.` });
   });
@@ -1341,17 +1345,19 @@ function renderCrud(route) {
 function renderForm(route, record = {}) {
   const config = crudConfig[route];
   const form = document.querySelector(`#page-${route} .record-form`);
-  form.innerHTML = `${route === 'trips' ? naturalSentenceModeHint() : ''}<div class="form-section-stack" data-mobile-form-sections>${renderFormSections(route, config, record)}</div>${route === 'trips' ? '<div class="conflict-panel" data-conflict-panel hidden></div>' : ''}<div class="form-actions sticky-save-controls" data-sticky-save-controls><button class="btn btn-primary" type="submit">Save ${config.title.slice(0, -1)}</button>${voiceFillButton(route)}<button class="btn btn-outline" type="button" data-cancel>Cancel</button></div>`;
+  form.innerHTML = `${route === 'trips' ? naturalSentenceModeHint() : ''}<div class="form-section-stack" data-mobile-form-sections>${renderFormSections(route, config, record)}</div>${route === 'trips' ? '<div data-assignment-recommendation></div><div class="conflict-panel" data-conflict-panel hidden></div>' : ''}<div class="form-actions sticky-save-controls" data-sticky-save-controls><button class="btn btn-primary" type="submit">Save ${config.title.slice(0, -1)}</button>${voiceFillButton(route)}<button class="btn btn-outline" type="button" data-cancel>Cancel</button></div>`;
   if (route === 'invoices') {
     form.addEventListener('input', () => updateInvoiceBalanceDue(form));
     form.addEventListener('change', () => updateInvoiceBalanceDue(form));
   }
   if (route === 'trips') {
-    form.addEventListener('input', () => updateTripConflictPreview(form));
+    form.addEventListener('input', () => { updateTripConflictPreview(form); updateTripAssignmentRecommendation(form); });
     form.addEventListener('change', (event) => {
       if (['tourPrice', 'depositPaid'].includes(event.target.name)) updateBalanceDue(form);
+      updateTripAssignmentRecommendation(form);
     });
   }
+  if (route === 'trips') updateTripAssignmentRecommendation(form);
   form.onsubmit = (event) => saveRecord(event, route);
   form.querySelector('[data-cancel]').onclick = () => { editing[route] = null; form.hidden = true; };
 }
@@ -1428,6 +1434,7 @@ function saveRecord(event, route) {
       return;
     }
     data.status = data.status || 'Scheduled';
+    data.assignmentRecommendation = buildAssignmentRecommendation(data, editing[route]);
     const previous = editing[route] ? store.trips.find((trip) => trip.id === editing[route]) : null;
     data.assignmentStatus = normalizeAssignmentStatus(data);
     if (previous?.captain === data.captain && previous.assignmentStatus?.captain) data.assignmentStatus.captain = previous.assignmentStatus.captain;
@@ -1534,27 +1541,165 @@ function describeTripWindow(trip) {
   return `${trip.tripDate} · ${trip.startTime}–${window.end.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`;
 }
 
+
+function crewEligibleForRole(crew, role) {
+  const listed = String(crew?.role || '').toLowerCase();
+  if (!listed) return true;
+  return listed.split(/[,/;&]+/).map((item) => item.trim()).includes(role.toLowerCase());
+}
+
+function crewIsUnavailable(crew) {
+  return !crew || crew.active === 'No' || String(crew.availability || '').toLowerCase() === 'unavailable' || /\bunavailable\b/i.test(String(crew.notes || ''));
+}
+
+function resourceHasOverlap(candidate, key, name, excludeId = null) {
+  if (!name || !tripWindow(candidate)) return false;
+  return store.trips.some((trip) => trip.id !== excludeId && trip.status !== 'Cancelled' && trip[key] === name && windowsOverlap(tripWindow(candidate), tripWindow(trip)));
+}
+
+function recentResourceWorkload(key, name, candidate) {
+  const anchor = tripWindow(candidate)?.start;
+  if (!anchor || !name) return 0;
+  return store.trips.filter((trip) => trip.status !== 'Cancelled' && trip[key] === name && tripWindow(trip) && Math.abs(tripWindow(trip).start - anchor) <= 14 * 86400000).length;
+}
+
+function assignmentHistoryCount(key, name, candidate) {
+  const vessel = candidate.vessel;
+  return store.trips.filter((trip) => trip.status !== 'Cancelled' && trip[key] === name && (!vessel || trip.vessel === vessel)).length;
+}
+
+function confidenceForScore(score) {
+  return score >= 85 ? 'High' : score >= 65 ? 'Medium' : 'Low';
+}
+
+function rankVesselCandidates(candidate, excludeId = null) {
+  const guests = Number(candidate.passengers || 0);
+  return store.vessels.map((vessel) => {
+    const capacity = Number(vessel.capacity || 0);
+    const unavailable = /out of service|maintenance hold|unavailable/i.test(`${vessel.status || ''} ${vessel.readinessStatus || ''}`);
+    const overlap = resourceHasOverlap(candidate, 'vessel', vessel.name, excludeId);
+    if (unavailable || overlap || (guests && capacity < guests)) return null;
+    const workload = recentResourceWorkload('vessel', vessel.name, candidate);
+    const spareSeats = guests ? Math.max(0, capacity - guests) : 0;
+    const ownerHistory = store.trips.filter((trip) => trip.vessel === vessel.name).length;
+    const score = Math.max(35, Math.min(99, 96 - spareSeats * 2 - workload * 4 + Math.min(ownerHistory, 3)));
+    const reasons = [`Available for the trip window`, guests ? `Capacity ${capacity} fits ${guests} guests` : `Capacity ${capacity}`, `${vessel.owner || 'Unlisted'} owner`, workload ? `${workload} recent assignment${workload === 1 ? '' : 's'}` : 'Light recent workload'];
+    return { value: vessel.name, score, confidence: confidenceForScore(score), reason: reasons.join(' · ') };
+  }).filter(Boolean).sort((a, b) => b.score - a.score || a.value.localeCompare(b.value));
+}
+
+function rankCrewCandidates(candidate, role, excludeId = null) {
+  const key = role.toLowerCase();
+  return store.crew.map((crew) => {
+    if (!crewEligibleForRole(crew, role) || crewIsUnavailable(crew) || resourceHasOverlap(candidate, key, crew.name, excludeId)) return null;
+    if (candidate[key] === crew.name && candidate.assignmentStatus?.[key] === 'Declined') return null;
+    const workload = recentResourceWorkload(key, crew.name, candidate);
+    const history = assignmentHistoryCount(key, crew.name, candidate);
+    const vesselOwner = ownerForVesselName(candidate.vessel);
+    const ownerMatch = vesselOwner && vesselOwner === crew.name;
+    const score = Math.max(35, Math.min(99, 91 - workload * 7 + Math.min(history, 4) * 2 + (ownerMatch ? 4 : 0)));
+    const reasons = [`Available and ${role.toLowerCase()} eligible`, workload ? `${workload} recent assignment${workload === 1 ? '' : 's'}` : 'Light recent workload', history ? `${history} matching assignment${history === 1 ? '' : 's'} in history` : 'Ready for a new assignment', ...(ownerMatch ? ['Matches vessel owner'] : [])];
+    return { value: crew.name, score, confidence: confidenceForScore(score), reason: reasons.join(' · ') };
+  }).filter(Boolean).sort((a, b) => b.score - a.score || a.value.localeCompare(b.value));
+}
+
+function assignmentConflictWarnings(candidate, excludeId = null) {
+  const warnings = [];
+  if (!candidate.vessel) warnings.push({ type: 'Missing vessel', message: 'No vessel is assigned.' });
+  if (!candidate.captain) warnings.push({ type: 'Missing captain', message: 'No captain is assigned.' });
+  if (!candidate.mate || candidate.mate === 'None') warnings.push({ type: 'Missing mate', message: 'No mate is assigned.' });
+  findTripConflicts(candidate, excludeId).forEach((conflict) => warnings.push({ type: `${conflict.type} conflict`, message: conflict.message || `${conflict.name} is already assigned to ${conflict.trip?.customer || 'another trip'}.` }));
+  return warnings;
+}
+
+function buildAssignmentRecommendation(candidate, excludeId = null) {
+  const vessel = rankVesselCandidates(candidate, excludeId)[0] || null;
+  const withVessel = { ...candidate, vessel: vessel?.value || candidate.vessel };
+  const captain = rankCrewCandidates(withVessel, 'Captain', excludeId)[0] || null;
+  const mate = rankCrewCandidates(withVessel, 'Mate', excludeId).find((item) => item.value !== captain?.value) || null;
+  const recommendations = [vessel, captain, mate].filter(Boolean);
+  const score = recommendations.length ? Math.round(recommendations.reduce((sum, item) => sum + item.score, 0) / 3) : 0;
+  return { vessel, captain, mate, score, confidence: confidenceForScore(score), conflicts: assignmentConflictWarnings(candidate, excludeId), generatedAt: new Date().toISOString() };
+}
+
+function recommendationBadge(item) {
+  return item ? `<span class="badge ${item.confidence === 'High' ? 'green' : item.confidence === 'Medium' ? 'gold' : 'red'}">${item.confidence} · ${item.score}%</span>` : '<span class="badge red">Low · 0%</span>';
+}
+
+function renderAssignmentRecommendation(candidate, excludeId = null, compact = false) {
+  const recommendation = buildAssignmentRecommendation(candidate, excludeId);
+  const card = (label, icon, item) => `<article class="recommendation-card"><div class="recommendation-card-title"><span>${icon}</span><div><small>Recommended ${label}</small><strong>${escapeHtml(item?.value || `No available ${label.toLowerCase()}`)}</strong></div>${recommendationBadge(item)}</div><p>${escapeHtml(item?.reason || `Resolve conflicts or add an eligible ${label.toLowerCase()}.`)}</p></article>`;
+  const conflicts = recommendation.conflicts.length ? `<div class="recommendation-conflicts"><strong>Conflict warnings</strong><div>${recommendation.conflicts.map((warning) => `<span class="badge red" title="${escapeHtml(warning.message)}">${escapeHtml(warning.type)}</span>`).join('')}</div></div>` : '<div class="recommendation-conflicts clear"><span class="badge green">No assignment conflicts detected</span></div>';
+  if (compact) return `<div class="assignment-recommendation-compact"><strong>Suggested: ${escapeHtml(recommendation.vessel?.value || 'No vessel')} · ${escapeHtml(recommendation.captain?.value || 'No captain')} · ${escapeHtml(recommendation.mate?.value || 'No mate')}</strong>${recommendationBadge({ confidence: recommendation.confidence, score: recommendation.score })}${conflicts}</div>`;
+  const canApply = recommendation.vessel && recommendation.captain && recommendation.mate;
+  return `<details class="assignment-recommendation card" open><summary><div><p class="eyebrow">Automated Crew Assignment Engine</p><h3>Assignment Recommendation</h3></div><div>${recommendationBadge({ confidence: recommendation.confidence, score: recommendation.score })}<span class="chevron" aria-hidden="true">⌄</span></div></summary><div class="recommendation-body"><div class="recommendation-grid">${card('Vessel', '⛵', recommendation.vessel)}${card('Captain', '🧢', recommendation.captain)}${card('Mate', '⚓', recommendation.mate)}</div>${conflicts}<button class="btn btn-primary apply-suggestion-btn" type="button" onclick="applySuggestedAssignment(this)" ${canApply ? '' : 'disabled'}>Apply Suggested Assignment</button><p class="muted-text">Suggestions are optional. You can manually choose any vessel, captain, or mate before saving.</p></div></details>`;
+}
+
+function updateTripAssignmentRecommendation(form) {
+  const target = form.querySelector('[data-assignment-recommendation]');
+  if (!target) return;
+  const candidate = Object.fromEntries(new FormData(form).entries());
+  candidate.hours = Number(candidate.hours || 0);
+  candidate.passengers = Number(candidate.passengers || 0);
+  const previous = editing.trips ? store.trips.find((trip) => trip.id === editing.trips) : null;
+  if (previous) candidate.assignmentStatus = previous.assignmentStatus;
+  target.innerHTML = renderAssignmentRecommendation(candidate, editing.trips);
+}
+
+function applySuggestedAssignment(button) {
+  const form = button.closest('form');
+  if (!form) return;
+  const candidate = Object.fromEntries(new FormData(form).entries());
+  candidate.hours = Number(candidate.hours || 0);
+  candidate.passengers = Number(candidate.passengers || 0);
+  const recommendation = buildAssignmentRecommendation(candidate, editing.trips);
+  if (!recommendation.vessel || !recommendation.captain || !recommendation.mate) { toast('Resolve conflicts before applying the suggested assignment.'); return; }
+  form.elements.vessel.value = recommendation.vessel.value;
+  form.elements.captain.value = recommendation.captain.value;
+  form.elements.mate.value = recommendation.mate.value;
+  const tripId = editing.trips || 'unsaved-trip';
+  const label = candidate.customer || 'New trip';
+  addRoleNotification('Captain', recommendation.captain.value, 'Suggested assignment applied', `${label} assignment was applied for ${formatDate(candidate.tripDate)}.`, 'info', 'Assignment', { tripId, suggested: true });
+  addRoleNotification('Mate', recommendation.mate.value, 'Suggested assignment applied', `${label} assignment was applied for ${formatDate(candidate.tripDate)}.`, 'info', 'Assignment', { tripId, suggested: true });
+  const owner = ownerForVesselName(recommendation.vessel.value);
+  if (owner) addRoleNotification('Owner', owner, 'Suggested assignment applied', `${recommendation.vessel.value} was suggested for ${label}.`, 'info', 'Assignment', { tripId, suggested: true });
+  addRoleNotification('Admin', '', 'Suggested assignment applied', `${label}: ${recommendation.vessel.value}, ${recommendation.captain.value}, and ${recommendation.mate.value}.`, 'success', 'Assignment', { tripId, suggested: true });
+  addAudit('applied', 'Assignment Recommendation', `Suggested vessel, captain, and mate applied to ${label}.`, { tripId, vessel: recommendation.vessel.value, captain: recommendation.captain.value, mate: recommendation.mate.value, confidence: recommendation.confidence, score: recommendation.score });
+  saveStore();
+  updateTripConflictPreview(form);
+  updateTripAssignmentRecommendation(form);
+  toast('Suggested assignment applied. You can still manually override it.');
+}
+
 function findTripConflicts(candidate, excludeId = null) {
+  const conflicts = [];
   const candidateWindow = tripWindow(candidate);
-  if (!candidateWindow) return [];
-  const candidateCrew = crewAssignmentsForTrip(candidate);
-  return store.trips.flatMap((trip) => {
-    if (trip.id === excludeId || trip.status === 'Cancelled' || !windowsOverlap(candidateWindow, tripWindow(trip))) return [];
-    const conflicts = [];
-    if (candidate.vessel && candidate.vessel === trip.vessel) conflicts.push({ type: 'Vessel', name: candidate.vessel, trip });
-    const existingCrew = crewAssignmentsForTrip(trip);
-    candidateCrew.forEach((assignment) => {
-      if (existingCrew.some((existing) => existing.name === assignment.name)) conflicts.push({ type: assignment.role, name: assignment.name, trip });
+  if (candidateWindow) {
+    const candidateCrew = crewAssignmentsForTrip(candidate);
+    store.trips.forEach((trip) => {
+      if (trip.id === excludeId || trip.status === 'Cancelled' || !windowsOverlap(candidateWindow, tripWindow(trip))) return;
+      if (candidate.vessel && candidate.vessel === trip.vessel) conflicts.push({ type: 'Vessel', name: candidate.vessel, trip, message: `${candidate.vessel} is already assigned to ${trip.customer || 'another trip'} (${describeTripWindow(trip)}).` });
+      const existingCrew = crewAssignmentsForTrip(trip);
+      candidateCrew.forEach((assignment) => {
+        if (existingCrew.some((existing) => existing.name === assignment.name)) conflicts.push({ type: assignment.role, name: assignment.name, trip, message: `${assignment.name} is already assigned to ${trip.customer || 'another trip'} (${describeTripWindow(trip)}).` });
+      });
     });
-    return conflicts;
+  }
+  ['captain', 'mate'].forEach((role) => {
+    const name = candidate[role];
+    if (!name || name === 'None') return;
+    const crew = store.crew.find((person) => person.name === name);
+    if (crewIsUnavailable(crew)) conflicts.push({ type: role === 'captain' ? 'Captain unavailable' : 'Mate unavailable', name, message: `${name} is marked unavailable.` });
+    if (candidate.assignmentStatus?.[role] === 'Declined') conflicts.push({ type: role === 'captain' ? 'Captain declined' : 'Mate declined', name, message: `${name} declined this assignment.` });
   });
+  return conflicts;
 }
 
 function showTripConflicts(form, conflicts) {
   const panel = form.querySelector('[data-conflict-panel]');
   if (!panel) return;
   panel.hidden = false;
-  panel.innerHTML = `<strong>Assignment conflict detected</strong><p>Resolve these overlapping vessel or crew assignments before saving this trip.</p><ul>${conflicts.map((conflict) => `<li>${escapeHtml(conflict.type)} <strong>${escapeHtml(conflict.name)}</strong> is already assigned to ${escapeHtml(conflict.trip.customer || 'another trip')} (${escapeHtml(describeTripWindow(conflict.trip))}).</li>`).join('')}</ul>`;
+  panel.innerHTML = `<strong>Assignment conflict detected</strong><p>Resolve these vessel or crew assignment warnings before saving this trip.</p><ul>${conflicts.map((conflict) => `<li><strong>${escapeHtml(conflict.type)}:</strong> ${escapeHtml(conflict.message || `${conflict.name} conflicts with another trip.`)}</li>`).join('')}</ul>`;
 }
 
 function showTripAssignmentWarning(form, title, messages) {
@@ -1583,6 +1728,8 @@ function missingTripAssignmentFields(data) {
 function updateTripConflictPreview(form) {
   const data = Object.fromEntries(new FormData(form).entries());
   data.hours = Number(data.hours || 0);
+  const previous = editing.trips ? store.trips.find((trip) => trip.id === editing.trips) : null;
+  if (previous) data.assignmentStatus = previous.assignmentStatus;
   const conflicts = findTripConflicts(data, editing.trips);
   const panel = form.querySelector('[data-conflict-panel]');
   if (!panel) return;
@@ -1754,6 +1901,7 @@ function renderDispatchTripNode(trip) {
     ${renderDispatchLeaf('Pre Trip Status', preStatus, 'Checklist', 'pre', trip.id, checklistColor(preStatus))}
     ${renderDispatchLeaf('Post Trip Status', postStatus, 'Checklist', 'post', trip.id, checklistColor(postStatus))}
     ${renderDispatchLeaf('Countdown', departureCountdown(trip), 'Departure timer', 'trip', trip.id, 'blue')}
+    <div class="dispatch-recommendation-node">${renderAssignmentRecommendation(trip, trip.id, true)}</div>
   </div></details>`;
 }
 
