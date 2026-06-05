@@ -1,11 +1,11 @@
 const STORE_KEY = 'rat_ops_v1_store';
-const STORE_VERSION = 19;
+const STORE_VERSION = 20;
 const MAINTENANCE_VESSELS = ['Reel Adventure Tours I', 'Reel Adventure Tours II'];
 const MAINTENANCE_STATUSES = ['Good', 'Due Soon', 'Overdue', 'Needs Review', 'Out of Service'];
 
 const navItems = [
   ['dashboard', '🏠', 'Dashboard'], ['dispatch', '📍', 'Dispatch'], ['calendar', '📅', 'Calendar'], ['weather', '🌦️', 'Weather / Conditions'],
-  ['bookings', '📘', 'Bookings'], ['chat', '💬', 'Chat'], ['customers', '🪪', 'Customers'],
+  ['bookings', '📘', 'Bookings'], ['chat', '💬', 'Chat'], ['whatsapp', '🟢', 'WhatsApp'], ['customers', '🪪', 'Customers'],
   ['invoices', '🧾', 'Invoice / Quote'], ['trips', '🧭', 'Trips'], ['vessels', '⛵', 'Vessels'], ['maintenance', '🛠️', 'Maintenance'], ['crew', '👥', 'Crew'],
   ['captain-dashboard', '🧢', 'Captain Dashboard'], ['mate-dashboard', '⚓', 'Mate Dashboard'], ['owner-dashboard', '👑', 'Owner Dashboard'],
   ['payroll', '💸', 'Payroll'], ['expenses', '💳', 'Expenses'], ['inventory', '📦', 'Inventory'], ['incident-reports', '🚨', 'Incident Reports'],
@@ -108,6 +108,9 @@ const seedData = {
   chatMessages: [],
   chatReadReceipts: [],
   chatPreferences: { generalEnabled: true, directEnabled: true, showUnreadBadges: true },
+  whatsappTemplates: [],
+  whatsappQueue: [],
+  whatsappSettings: { defaultCountryCode: '1', companyWhatsAppNumber: '', enableCustomerActions: true, enableCrewActions: true },
   activeUserId: ''
 };
 
@@ -194,6 +197,27 @@ const defaultDashboardPreferences = {
 const intakeRoutes = new Set(['bookings', 'invoices', 'trips', 'calendar', 'expenses', 'incident-reports', 'pre-trip-checklist', 'post-trip-checklist', 'reports']);
 const photoNoteRoutes = new Set(['bookings', 'invoices', 'trips', 'captain-dashboard', 'mate-dashboard', 'owner-dashboard', 'pre-trip-checklist', 'post-trip-checklist', 'incident-reports', 'expenses', 'vessels', 'crew']);
 
+/* Phase 6I: WhatsApp Integration Framework — manual share links only; no Business API connection. */
+const WHATSAPP_VARIABLES = ['Customer Name','Trip Date','Start Time','End Time','Tour Type','Guest Count','Vessel','Captain','Mate','Meeting Point','Balance Due','Deposit Paid','Payment Link','Cruise Ship','All Aboard Time','Weather Risk','Checklist Link','Invoice Link','Receipt Link'];
+const WHATSAPP_STATUSES = ['Draft','Ready','Opened in WhatsApp','Sent Manually','Failed','Cancelled'];
+const DEFAULT_WHATSAPP_TEMPLATES = [
+  ['Customer Booking Confirmation','Hi {{Customer Name}}, your {{Tour Type}} is confirmed for {{Trip Date}} at {{Start Time}} aboard {{Vessel}}. Meeting point: {{Meeting Point}}.'],
+  ['Quote Follow Up','Hi {{Customer Name}}, we are following up on your {{Tour Type}} quote. View it here: {{Invoice Link}}'],
+  ['Invoice / Payment Reminder','Hi {{Customer Name}}, this is a friendly reminder that {{Balance Due}} remains due for your trip. Pay here: {{Payment Link}}'],
+  ['Trip Reminder','Hi {{Customer Name}}, your {{Tour Type}} is on {{Trip Date}} from {{Start Time}} to {{End Time}}. We look forward to welcoming you!'],
+  ['Meeting Point Message','Hi {{Customer Name}}, please meet us at {{Meeting Point}} on {{Trip Date}} by {{Start Time}}.'],
+  ['Captain Assignment','Hi {{Captain}}, you are assigned to {{Tour Type}} aboard {{Vessel}} on {{Trip Date}} at {{Start Time}}.'],
+  ['Mate Assignment','Hi {{Mate}}, you are assigned to {{Tour Type}} aboard {{Vessel}} on {{Trip Date}} at {{Start Time}}.'],
+  ['Owner Assignment Alert','Owner alert: {{Vessel}} is assigned to {{Tour Type}} on {{Trip Date}} at {{Start Time}}.'],
+  ['Pre Trip Checklist Reminder','Pre-trip checklist reminder for {{Vessel}} on {{Trip Date}}: {{Checklist Link}}'],
+  ['Post Trip Checklist Reminder','Post-trip checklist reminder for {{Vessel}} on {{Trip Date}}: {{Checklist Link}}'],
+  ['Incident Alert','Incident alert for {{Vessel}} / {{Tour Type}} on {{Trip Date}}. Please review the related incident report.'],
+  ['Weather Alert','Weather alert for {{Trip Date}}: {{Weather Risk}}. Review conditions before departure.'],
+  ['Cruise Timing Alert','Cruise timing alert for {{Customer Name}} aboard {{Cruise Ship}}. All aboard time: {{All Aboard Time}}.'],
+  ['Payment Receipt','Hi {{Customer Name}}, thank you. Deposit paid: {{Deposit Paid}}. Receipt: {{Receipt Link}}'],
+  ['Owner Payout Statement','Owner payout statement for {{Vessel}} / {{Trip Date}} is ready. Receipt: {{Receipt Link}}']
+].map(([category, body]) => ({ id: `wa-template-${category.toLowerCase().replace(/[^a-z0-9]+/g,'-')}`, category, body, updatedAt: '' }));
+
 let store = loadStore();
 let currentRoute = 'dashboard';
 let editing = {};
@@ -232,6 +256,9 @@ function migrateStore(existing = {}) {
   next.payrollPayments = Array.isArray(next.payrollPayments) ? next.payrollPayments : [];
   next.notifications = (Array.isArray(next.notifications) ? next.notifications : []).map(normalizeNotification);
   next.auditTrail = Array.isArray(next.auditTrail) ? next.auditTrail : [];
+  next.whatsappTemplates = normalizeWhatsAppTemplates(next.whatsappTemplates);
+  next.whatsappQueue = Array.isArray(next.whatsappQueue) ? next.whatsappQueue : [];
+  next.whatsappSettings = { defaultCountryCode: '1', companyWhatsAppNumber: '', enableCustomerActions: true, enableCrewActions: true, ...(next.whatsappSettings || {}) };
   next.expenses = Array.isArray(next.expenses) ? next.expenses : [];
   next.fuelRecords = Array.isArray(next.fuelRecords) ? next.fuelRecords : [];
   next.incidentReports = (Array.isArray(next.incidentReports) ? next.incidentReports : []).map(normalizeIncidentRecord);
@@ -670,6 +697,7 @@ function renderRoute(route) {
   else if (route === 'calendar') renderCalendar();
   else if (route === 'weather') renderWeather();
   else if (route === 'chat') renderChat();
+  else if (route === 'whatsapp') renderWhatsApp();
   else if (route === 'payroll') renderPayroll();
   else if (route === 'inventory') renderInventory();
   else if (route === 'captain-dashboard') renderCrewRoleDashboard('captain');
@@ -682,6 +710,7 @@ function renderRoute(route) {
   else if (route === 'notifications') renderNotifications();
   else if (route === 'audit') renderAuditTrail();
   else renderPlaceholder(route);
+  appendWhatsAppIntegrationActions(route);
   renderVoiceCommandPanel(route);
   updateMobileChrome();
 }
@@ -3688,3 +3717,69 @@ function renderIncidentReportsSection() { const monthly=visibleIncidentRecords()
 function renderEntityIncidentHistory(type) { const page=document.getElementById(type==='vessel'?'page-vessels':'page-crew'); const table=page?.querySelector('.table-card'); if(!table)return; const names=type==='vessel'?getOptions('vessels'):getOptions('crew'); const title=type==='vessel'?'Damage History':'Crew Incidents'; const html=`<details class="card entity-incident-history app-accordion" open><summary><h3>${title}</h3><span class="chevron">⌄</span></summary><div class="entity-history-filter"><input type="search" placeholder="Filter ${title.toLowerCase()} by vessel, crew, incident, severity, or status" oninput="filterEntityIncidentHistory(this.value)"></div><div class="entity-history-grid">${names.map(name=>{const matches=visibleIncidentRecords().filter(i=>type==='vessel'?i.vessel===name:i.captain===name||i.mate===name);return `<details class="entity-history-card"><summary><strong>${escapeHtml(name)}</strong><span class="badge ${matches.length?'gold':'green'}">${matches.length}</span></summary><div class="responsive-table-wrap"><table><thead><tr><th>Date</th><th>Incident Number</th>${type==='crew'?'<th>Trip</th><th>Category</th>':''}<th>Severity</th><th>Status</th><th>Description</th></tr></thead><tbody>${matches.length?matches.map(i=>`<tr><td>${escapeHtml(formatDate(i.date))}</td><td>${escapeHtml(i.incidentNumber)}</td>${type==='crew'?`<td>${escapeHtml(incidentTripLabel(i))}</td><td>${escapeHtml(i.category)}</td>`:''}<td>${incidentSeverityBadge(i.severity)}</td><td>${incidentStatusBadge(i.status)}</td><td>${escapeHtml(i.description)}</td></tr>`).join(''):`<tr><td colspan="7" class="empty-state">No ${title.toLowerCase()}.</td></tr>`}</tbody></table></div></details>`;}).join('')}</div></details>`; table.insertAdjacentHTML('afterend',html); }
 
 function filterEntityIncidentHistory(value) { const query=String(value||'').toLowerCase(); document.querySelectorAll('.entity-history-card').forEach(card=>{card.hidden=query&&!card.textContent.toLowerCase().includes(query);}); }
+
+function normalizeWhatsAppTemplates(templates) {
+  const saved = Array.isArray(templates) ? templates : [];
+  return DEFAULT_WHATSAPP_TEMPLATES.map((fallback) => ({ ...fallback, ...(saved.find((item) => item.category === fallback.category) || {}) }));
+}
+function whatsAppRoleCanCreate(category = '', trip = {}) {
+  const role = activeRoleName();
+  const crewCategory = ['Captain Assignment','Mate Assignment','Owner Assignment Alert','Pre Trip Checklist Reminder','Post Trip Checklist Reminder','Incident Alert','Owner Payout Statement'].includes(category);
+  if (crewCategory && !store.whatsappSettings.enableCrewActions) return false;
+  if (!crewCategory && !store.whatsappSettings.enableCustomerActions) return false;
+  if (['Admin','Owner','Operations Manager'].includes(role)) return true;
+  if (role === 'Bookkeeper') return ['Invoice / Payment Reminder','Quote Follow Up','Payment Receipt','Owner Payout Statement'].includes(category);
+  const person = activeRolePerson(role);
+  if (role === 'Captain') return store.whatsappSettings.enableCustomerActions && (!trip.id || trip.captain === person);
+  if (role === 'Mate') return store.whatsappSettings.enableCustomerActions && (!trip.id || trip.mate === person);
+  return false;
+}
+function whatsappDigits(phone = '') {
+  let digits = String(phone).replace(/\D/g, '');
+  const code = String(store.whatsappSettings?.defaultCountryCode || '1').replace(/\D/g, '');
+  if (digits.length === 10 && code) digits = `${code}${digits}`;
+  return digits.length >= 7 ? digits : '';
+}
+function whatsappTemplate(category) { return store.whatsappTemplates.find((item) => item.category === category) || DEFAULT_WHATSAPP_TEMPLATES[0]; }
+function whatsappTrip(id = '') { return store.trips.find((trip) => trip.id === id) || {}; }
+function whatsappInvoice(id = '') { return store.invoices.find((invoice) => invoice.id === id) || {}; }
+function whatsappCrewPhone(name = '') { return store.crew.find((person) => person.name === name)?.phone || ''; }
+function whatsappMeetingPoint(trip = {}) { return String(trip.notes || '').match(/(?:meeting point|pickup location):\s*([^\n]+)/i)?.[1] || 'Confirm meeting point'; }
+function whatsappEndTime(trip = {}) { if (!trip.startTime || !trip.hours) return ''; const [h,m] = trip.startTime.split(':').map(Number); const end = new Date(2000,0,1,h,m); end.setMinutes(end.getMinutes() + Number(trip.hours) * 60); return end.toTimeString().slice(0,5); }
+function whatsappValues(trip = {}, invoice = {}) {
+  return {
+    'Customer Name': trip.customer || invoice.customer || invoice.customerName || '', 'Trip Date': trip.tripDate ? formatDate(trip.tripDate) : '', 'Start Time': trip.startTime || '', 'End Time': whatsappEndTime(trip),
+    'Tour Type': trip.tourType || invoice.tourType || '', 'Guest Count': trip.passengers || '', 'Vessel': trip.vessel || '', 'Captain': trip.captain || '', 'Mate': trip.mate || '', 'Meeting Point': whatsappMeetingPoint(trip),
+    'Balance Due': money(trip.balanceDue ?? invoice.balanceDue ?? invoice.balance ?? 0), 'Deposit Paid': money(trip.depositPaid ?? invoice.depositPaid ?? 0), 'Payment Link': invoice.paymentLink || '[payment link]', 'Cruise Ship': trip.cruiseShip || '',
+    'All Aboard Time': trip.allAboardTime || '', 'Weather Risk': trip.id ? weatherRiskLabel(tripWeatherRisk(trip)) : 'Review conditions', 'Checklist Link': '[checklist link]', 'Invoice Link': invoice.invoiceLink || '[invoice link]', 'Receipt Link': invoice.receiptLink || '[receipt link]'
+  };
+}
+function renderWhatsAppTemplate(body, values) { return String(body || '').replace(/{{\s*([^}]+)\s*}}/g, (_, key) => values[key.trim()] ?? `{{${key.trim()}}}`); }
+function whatsappContextDefaults(category = 'Customer Booking Confirmation', tripId = '', invoiceId = '') {
+  const trip = whatsappTrip(tripId) || {}, invoice = whatsappInvoice(invoiceId) || {};
+  let recipientRole = 'Customer', recipientName = trip.customer || invoice.customer || invoice.customerName || '', phone = trip.phone || invoice.phone || '';
+  if (category === 'Captain Assignment') { recipientRole = 'Captain'; recipientName = trip.captain || ''; phone = whatsappCrewPhone(recipientName); }
+  if (category === 'Mate Assignment') { recipientRole = 'Mate'; recipientName = trip.mate || ''; phone = whatsappCrewPhone(recipientName); }
+  if (['Owner Assignment Alert','Owner Payout Statement'].includes(category)) { recipientRole = 'Owner'; recipientName = store.vessels.find((v) => v.name === trip.vessel)?.owner || ''; phone = whatsappCrewPhone(recipientName); }
+  return { trip, invoice, recipientRole, recipientName, phone, body: renderWhatsAppTemplate(whatsappTemplate(category).body, whatsappValues(trip, invoice)) };
+}
+function whatsappComposer(category = 'Customer Booking Confirmation', tripId = '', invoiceId = '') {
+  const page = document.getElementById('page-whatsapp'); if (!page) return;
+  const d = whatsappContextDefaults(category, tripId, invoiceId);
+  page.innerHTML = `<div class="page-stack whatsapp-page"><div class="card whatsapp-hero"><div><p class="eyebrow">Manual messaging framework</p><h2>WhatsApp Message Preview</h2><p>No live WhatsApp Business API is connected. Messages open in WhatsApp only after a user reviews and taps the button.</p></div><span class="badge gold">Manual send only</span></div><form class="card whatsapp-composer whatsapp-bottom-sheet" onsubmit="createWhatsAppDraft(event)"><div class="form-grid"><div class="field"><label>Message Category</label><select name="category" onchange="refreshWhatsAppComposer(this.form)">${store.whatsappTemplates.map(t=>`<option ${t.category===category?'selected':''}>${escapeHtml(t.category)}</option>`).join('')}</select></div><div class="field"><label>Linked Trip</label><select name="relatedTrip" onchange="refreshWhatsAppComposer(this.form)"><option value="">— None —</option>${store.trips.map(t=>`<option value="${t.id}" ${t.id===tripId?'selected':''}>${escapeHtml(`${t.customer || 'Trip'} · ${t.tripDate || 'No date'}`)}</option>`).join('')}</select></div><div class="field"><label>Linked Invoice / Quote</label><select name="relatedInvoice" onchange="refreshWhatsAppComposer(this.form)"><option value="">— None —</option>${store.invoices.map(i=>`<option value="${i.id}" ${i.id===invoiceId?'selected':''}>${escapeHtml(i.invoiceNumber || i.quoteNumber || i.customer || i.id)}</option>`).join('')}</select></div><div class="field"><label>Recipient Role</label><select name="recipientRole">${['Customer','Captain','Mate','Owner','Admin'].map(r=>`<option ${r===d.recipientRole?'selected':''}>${r}</option>`).join('')}</select></div><div class="field"><label>Recipient</label><input name="recipientName" value="${escapeHtml(d.recipientName)}" required></div><div class="field"><label>Phone Number</label><input name="phoneNumber" type="tel" value="${escapeHtml(d.phone)}" placeholder="242-555-0123"></div><div class="field field-wide"><label>Message Body</label><textarea name="messageBody" rows="7" oninput="updateWhatsAppLivePreview(this.form)" required>${escapeHtml(d.body)}</textarea></div></div><div class="whatsapp-preview-card" data-whatsapp-live-preview>${whatsappPreviewMarkup({...d, category, relatedTrip:tripId, relatedInvoice:invoiceId, messageBody:d.body, phoneNumber:d.phone})}</div><div class="form-actions whatsapp-mobile-actions"><button class="btn btn-primary">Save Draft</button><button class="btn btn-outline" type="button" onclick="copyWhatsAppText(this.form.messageBody.value)">Copy Message</button></div></form>${whatsappQueueMarkup()}</div>`;
+}
+function renderWhatsApp() { store.whatsappTemplates = normalizeWhatsAppTemplates(store.whatsappTemplates); whatsappComposer(); }
+function refreshWhatsAppComposer(form) { whatsappComposer(form.category.value, form.relatedTrip.value, form.relatedInvoice.value); }
+function updateWhatsAppLivePreview(form) { const host=form.querySelector('[data-whatsapp-live-preview]'); if(host) host.innerHTML=whatsappPreviewMarkup(Object.fromEntries(new FormData(form).entries())); }
+function whatsappPreviewMarkup(item = {}) { const trip=whatsappTrip(item.relatedTrip), invoice=whatsappInvoice(item.relatedInvoice); return `<div class="whatsapp-preview-head"><strong>Preview</strong><span class="badge green">${escapeHtml(item.category || 'Message')}</span></div><dl><div><dt>Recipient</dt><dd>${escapeHtml(item.recipientName || 'Not selected')} · ${escapeHtml(item.recipientRole || '')}</dd></div><div><dt>Phone Number</dt><dd>${escapeHtml(item.phoneNumber || 'Phone number required')}</dd></div><div><dt>Linked Trip</dt><dd>${escapeHtml(trip.id ? `${trip.customer || 'Trip'} · ${trip.tripDate || ''}` : 'None')}</dd></div><div><dt>Linked Invoice / Quote</dt><dd>${escapeHtml(invoice.id ? invoice.invoiceNumber || invoice.quoteNumber || invoice.id : 'None')}</dd></div></dl><div class="whatsapp-bubble">${escapeHtml(item.messageBody || item.body || '').replace(/\n/g,'<br>')}</div>`; }
+function createWhatsAppDraft(event) { event.preventDefault(); const data=Object.fromEntries(new FormData(event.target).entries()); if(!whatsAppRoleCanCreate(data.category,whatsappTrip(data.relatedTrip))){toast('Your role is not permitted to create this WhatsApp message.');return;} const item={ id:makeId('wa-message'), recipientName:data.recipientName, recipientRole:data.recipientRole, phoneNumber:data.phoneNumber, category:data.category, messageBody:data.messageBody, relatedTrip:data.relatedTrip, relatedBooking:whatsappTrip(data.relatedTrip).bookingId || '', relatedInvoice:data.relatedInvoice, status:whatsappDigits(data.phoneNumber)?'Ready':'Draft', createdAt:new Date().toISOString(), sentAt:'', createdBy:currentUserLabel() }; store.whatsappQueue.unshift(item); addAudit('created','WhatsApp',`${item.category} draft created for ${item.recipientName}.`,{messageId:item.id,tripId:item.relatedTrip,invoiceId:item.relatedInvoice}); addNotification('WhatsApp message draft created',`${item.category} for ${item.recipientName}.`,'info',{category:'WhatsApp',messageId:item.id,tripId:item.relatedTrip}); saveStore(); renderWhatsApp(); toast('WhatsApp draft created.'); }
+function openWhatsAppMessage(id) { const item=store.whatsappQueue.find(x=>x.id===id); if(!item)return; const digits=whatsappDigits(item.phoneNumber); if(!digits){item.status='Failed'; addAudit('failed','WhatsApp',`Phone number required for ${item.recipientName}.`,{messageId:id}); addNotification('WhatsApp message failed',`Phone number required for ${item.recipientName}.`,'warning',{category:'WhatsApp',messageId:id}); saveStore(); renderWhatsApp(); toast('Phone number required before opening WhatsApp.'); return;} item.status='Opened in WhatsApp'; addAudit('opened','WhatsApp',`${item.category} opened for ${item.recipientName}.`,{messageId:id,tripId:item.relatedTrip,invoiceId:item.relatedInvoice}); addNotification('WhatsApp message opened',`${item.category} opened for ${item.recipientName}.`,'success',{category:'WhatsApp',messageId:id,tripId:item.relatedTrip}); saveStore(); renderWhatsApp(); window.open(`https://wa.me/${digits}?text=${encodeURIComponent(item.messageBody)}`,'_blank','noopener'); }
+function updateWhatsAppStatus(id,status){const item=store.whatsappQueue.find(x=>x.id===id);if(!item||!WHATSAPP_STATUSES.includes(status))return;item.status=status;if(status==='Sent Manually')item.sentAt=new Date().toISOString();addAudit('updated','WhatsApp',`${item.category} marked ${status} for ${item.recipientName}.`,{messageId:id});if(['Sent Manually','Failed'].includes(status))addNotification(`WhatsApp message ${status.toLowerCase()}`,`${item.category} for ${item.recipientName}.`,status==='Failed'?'warning':'success',{category:'WhatsApp',messageId:id});saveStore();renderWhatsApp();}
+function copyWhatsAppText(text){if(navigator.clipboard?.writeText)navigator.clipboard.writeText(text);else{const area=document.createElement('textarea');area.value=text;document.body.appendChild(area);area.select();document.execCommand('copy');area.remove();}toast('Message copied.');}
+function whatsappQueueMarkup(){return `<div class="card table-card"><div class="card-header"><div><p class="eyebrow">Local queue</p><h3>WhatsApp Message Queue</h3></div><span class="badge blue">${store.whatsappQueue.length} messages</span></div><div class="whatsapp-queue-list">${store.whatsappQueue.length?store.whatsappQueue.map(item=>`<article class="whatsapp-queue-card"><div><span class="badge ${item.status==='Failed'?'red':item.status==='Sent Manually'?'green':'gold'}">${escapeHtml(item.status)}</span><h4>${escapeHtml(item.recipientName)} · ${escapeHtml(item.recipientRole)}</h4><p>${escapeHtml(item.category)} · ${escapeHtml(item.phoneNumber || 'Phone missing')}</p><small>${escapeHtml(new Date(item.createdAt).toLocaleString())} · ${escapeHtml(item.createdBy)}</small></div><div class="whatsapp-queue-actions"><button class="btn btn-primary btn-small" onclick="openWhatsAppMessage('${item.id}')">Open in WhatsApp</button><button class="btn btn-outline btn-small" onclick="copyWhatsAppText(store.whatsappQueue.find(x=>x.id==='${item.id}').messageBody)">Copy</button><select aria-label="Message status" onchange="updateWhatsAppStatus('${item.id}',this.value)">${WHATSAPP_STATUSES.map(s=>`<option ${s===item.status?'selected':''}>${s}</option>`).join('')}</select></div></article>`).join(''):'<p class="empty-state">No WhatsApp drafts yet.</p>'}</div></div>`;}
+function saveWhatsAppSettings(event){event.preventDefault();const data=Object.fromEntries(new FormData(event.target).entries());store.whatsappSettings={defaultCountryCode:data.defaultCountryCode.replace(/\D/g,''),companyWhatsAppNumber:data.companyWhatsAppNumber,enableCustomerActions:Boolean(data.enableCustomerActions),enableCrewActions:Boolean(data.enableCrewActions)};addAudit('updated','WhatsApp Settings','WhatsApp manual action settings updated.');saveStore();toast('WhatsApp settings saved.');}
+function saveWhatsAppTemplate(event,id){event.preventDefault();const template=store.whatsappTemplates.find(t=>t.id===id);if(!template)return;template.body=new FormData(event.target).get('body');template.updatedAt=new Date().toISOString();addAudit('updated','WhatsApp Templates',`${template.category} template updated.`,{templateId:id});saveStore();toast('WhatsApp template saved.');}
+function whatsappSettingsMarkup(){const s=store.whatsappSettings;return `<details class="card whatsapp-settings app-accordion" open><summary><div><p class="eyebrow">Manual integration controls</p><h3>WhatsApp Settings</h3></div><span class="chevron">⌄</span></summary><form onsubmit="saveWhatsAppSettings(event)"><div class="form-grid"><div class="field"><label>Default country code</label><input name="defaultCountryCode" value="${escapeHtml(s.defaultCountryCode)}" required></div><div class="field"><label>Company WhatsApp number</label><input name="companyWhatsAppNumber" type="tel" value="${escapeHtml(s.companyWhatsAppNumber)}"></div><label class="toggle-row"><input name="enableCustomerActions" type="checkbox" ${s.enableCustomerActions?'checked':''}> Enable customer WhatsApp actions</label><label class="toggle-row"><input name="enableCrewActions" type="checkbox" ${s.enableCrewActions?'checked':''}> Enable crew WhatsApp actions</label></div><button class="btn btn-primary">Save WhatsApp Settings</button></form><div class="whatsapp-template-list"><h3>Template management</h3><p class="template-variables"><strong>Variables:</strong> ${WHATSAPP_VARIABLES.map(v=>`{{${v}}}`).join(' · ')}</p>${store.whatsappTemplates.map(t=>`<details class="whatsapp-template-card"><summary><strong>${escapeHtml(t.category)}</strong><span class="chevron">⌄</span></summary><form onsubmit="saveWhatsAppTemplate(event,'${t.id}')"><textarea name="body" rows="4">${escapeHtml(t.body)}</textarea><button class="btn btn-outline btn-small">Save Template</button></form></details>`).join('')}</div></details>`;}
+function whatsappRouteCategory(route){return ({bookings:'Customer Booking Confirmation',invoices:'Invoice / Payment Reminder',trips:'Trip Reminder',dispatch:'Captain Assignment',calendar:'Trip Reminder','captain-dashboard':'Trip Reminder','mate-dashboard':'Trip Reminder','owner-dashboard':'Owner Assignment Alert',payroll:'Owner Payout Statement','pre-trip-checklist':'Pre Trip Checklist Reminder','post-trip-checklist':'Post Trip Checklist Reminder','incident-reports':'Incident Alert',weather:'Weather Alert','cruise-schedule':'Cruise Timing Alert'})[route];}
+function openWhatsAppComposer(category,tripId='',invoiceId=''){renderRoute('whatsapp');whatsappComposer(category,tripId,invoiceId);}
+function appendWhatsAppIntegrationActions(route){if(route==='whatsapp')return;const page=document.getElementById(`page-${route}`);if(!page)return;if(route==='settings'){page.insertAdjacentHTML('beforeend',whatsappSettingsMarkup());return;}const category=whatsappRouteCategory(route);if(!category)return;const role=activeRoleName(),person=activeRolePerson(role),trip=store.trips.find(t=>role==='Captain'?t.captain===person:role==='Mate'?t.mate===person:true)||store.trips[0]||{},invoice=store.invoices[0]||{};if(!whatsAppRoleCanCreate(category,trip))return;page.insertAdjacentHTML('afterbegin',`<div class="card whatsapp-action-strip"><div><strong>WhatsApp action</strong><span>${escapeHtml(category)} · manual preview required</span></div><button class="btn btn-primary" onclick="openWhatsAppComposer('${category}','${trip.id||''}','${route==='invoices'?(invoice.id||''):''}')">Preview WhatsApp Message</button></div>`);}
