@@ -1,10 +1,10 @@
 const STORE_KEY = 'rat_ops_v1_store';
-const STORE_VERSION = 21;
+const STORE_VERSION = 22;
 const MAINTENANCE_VESSELS = ['Reel Adventure Tours I', 'Reel Adventure Tours II'];
 const MAINTENANCE_STATUSES = ['Good', 'Due Soon', 'Overdue', 'Needs Review', 'Out of Service'];
 
 const navItems = [
-  ['dashboard', '🏠', 'Dashboard'], ['dispatch', '📍', 'Dispatch'], ['calendar', '📅', 'Calendar'], ['weather', '🌦️', 'Weather / Conditions'],
+  ['dashboard', '🏠', 'Dashboard'], ['operations-assistant', '✨', 'Ask Operations'], ['dispatch', '📍', 'Dispatch'], ['calendar', '📅', 'Calendar'], ['weather', '🌦️', 'Weather / Conditions'],
   ['bookings', '📘', 'Bookings'], ['chat', '💬', 'Chat'], ['whatsapp', '🟢', 'WhatsApp'], ['gmail-import', '📨', 'Gmail Import'], ['customers', '🪪', 'Customers'],
   ['invoices', '🧾', 'Invoice / Quote'], ['trips', '🧭', 'Trips'], ['vessels', '⛵', 'Vessels'], ['maintenance', '🛠️', 'Maintenance'], ['crew', '👥', 'Crew'],
   ['captain-dashboard', '🧢', 'Captain Dashboard'], ['mate-dashboard', '⚓', 'Mate Dashboard'], ['owner-dashboard', '👑', 'Owner Dashboard'],
@@ -120,6 +120,11 @@ const seedData = {
   importRules: [],
   sourceRules: [],
   gmailImportSettings: { enabled: false, allowedSources: ['Viator','GetYourGuide','Tripadvisor','Airbnb Experiences','Website Contact Form','Direct Customer Email','Unknown'], defaultImportAction: 'Save as Draft', duplicateDetectionStrictness: 'Standard', reviewRequiredBeforeSave: true },
+  assistantProvider: 'Local Rule Based',
+  assistantApiStatus: 'Local Only',
+  externalAiEnabled: false,
+  lastAssistantSync: '',
+  assistantQueryLog: [],
   activeUserId: ''
 };
 
@@ -240,6 +245,7 @@ let dashboardFilters = { captain: '', mate: '', owner: '' };
 let activeChatConversationId = 'chat-general';
 let chatMobileThreadOpen = false;
 let chatFilters = { search: '', person: '', role: '' };
+let assistantState = { query: '', result: null };
 
 function loadStore() {
   const raw = localStorage.getItem(STORE_KEY);
@@ -278,6 +284,11 @@ function migrateStore(existing = {}) {
   next.sourceRules = Array.isArray(next.sourceRules) ? next.sourceRules : [];
   next.gmailImportSettings = { enabled: false, allowedSources: ['Viator','GetYourGuide','Tripadvisor','Airbnb Experiences','Website Contact Form','Direct Customer Email','Unknown'], defaultImportAction: 'Save as Draft', duplicateDetectionStrictness: 'Standard', reviewRequiredBeforeSave: true, ...(next.gmailImportSettings || {}) };
   next.gmailImportSettings.reviewRequiredBeforeSave = true;
+  next.assistantProvider = next.assistantProvider || 'Local Rule Based';
+  next.assistantApiStatus = next.assistantApiStatus || 'Local Only';
+  next.externalAiEnabled = false;
+  next.lastAssistantSync = next.lastAssistantSync || '';
+  next.assistantQueryLog = Array.isArray(next.assistantQueryLog) ? next.assistantQueryLog : [];
   next.expenses = Array.isArray(next.expenses) ? next.expenses : [];
   next.fuelRecords = Array.isArray(next.fuelRecords) ? next.fuelRecords : [];
   next.incidentReports = (Array.isArray(next.incidentReports) ? next.incidentReports : []).map(normalizeIncidentRecord);
@@ -711,6 +722,7 @@ function renderRoute(route) {
   if (route === 'incident-reports') renderIncidentLibrary();
   else if (crudConfig[route]) renderCrud(route);
   else if (route === 'dashboard') renderDashboard();
+  else if (route === 'operations-assistant') renderOperationsAssistant();
   else if (route === 'dispatch') renderDispatch();
   else if (route === 'customers') renderCustomers();
   else if (route === 'calendar') renderCalendar();
@@ -3888,3 +3900,73 @@ function saveGmailImportReview(event, id) { event.preventDefault(); const item =
 
 function saveGmailImportSettings(event) { event.preventDefault(); const data = new FormData(event.target); store.gmailImportSettings = { enabled:data.get('enabled') === 'on', allowedSources:data.getAll('allowedSources'), defaultImportAction:data.get('defaultImportAction'), duplicateDetectionStrictness:data.get('duplicateDetectionStrictness'), reviewRequiredBeforeSave:true }; addAudit('updated','Gmail Import Settings','Gmail import framework settings updated; review remains required.'); saveStore(); toast('Gmail Import settings saved. Review before save remains required.'); }
 function gmailImportSettingsMarkup() { const settings = store.gmailImportSettings; return `<details class="legacy-tool settings-span gmail-settings" open><summary><div><p class="eyebrow">Future API readiness · no live connection</p><h3>Gmail Import Settings</h3></div><span class="chevron">⌄</span></summary><form onsubmit="saveGmailImportSettings(event)"><div class="gmail-readiness-grid"><span><small>gmailOAuthStatus</small><strong>${escapeHtml(store.gmailOAuthStatus)}</strong></span><span><small>gmailConnectedAccount</small><strong>${escapeHtml(store.gmailConnectedAccount || 'None')}</strong></span><span><small>lastSyncTime</small><strong>${escapeHtml(store.lastSyncTime || 'Never')}</strong></span><span><small>syncCursor</small><strong>${escapeHtml(store.syncCursor || 'Not set')}</strong></span><span><small>importRules</small><strong>${store.importRules.length} placeholders</strong></span><span><small>sourceRules</small><strong>${store.sourceRules.length} placeholders</strong></span></div><div class="form-grid"><label class="toggle-row"><input name="enabled" type="checkbox" ${settings.enabled ? 'checked' : ''}> Enable Gmail Import framework</label><label>Default Import Action<select name="defaultImportAction">${['Save as Draft','Create Booking','Create Trip','Create Invoice / Quote','Add to Calendar'].map((value) => `<option ${settings.defaultImportAction === value ? 'selected' : ''}>${value}</option>`).join('')}</select></label><label>Duplicate Detection Strictness<select name="duplicateDetectionStrictness">${['Strict','Standard','Relaxed'].map((value) => `<option ${settings.duplicateDetectionStrictness === value ? 'selected' : ''}>${value}</option>`).join('')}</select></label><label class="toggle-row"><input type="checkbox" checked disabled> Review Required Before Save (always on)</label></div><fieldset><legend>Allowed Sources</legend><div class="gmail-source-options">${GMAIL_IMPORT_SOURCES.map((source) => `<label><input type="checkbox" name="allowedSources" value="${escapeHtml(source)}" ${settings.allowedSources.includes(source) ? 'checked' : ''}> ${escapeHtml(source)}</label>`).join('')}</div></fieldset><p class="notice warning"><strong>No live Gmail API:</strong> this framework does not request OAuth credentials, connect to Gmail, sync messages, or automatically read real emails.</p><button class="btn btn-primary">Save Gmail Import Settings</button></form></details>`; }
+
+/* Phase 6K: local-only Operations Assistant. This rule engine never sends app data outside the browser. */
+const assistantLocalDataSources = ['Bookings','Trips','Invoices / Quotes','Customers','Calendar','Crew','Vessels','Payroll','Expenses','Inventory','Incident Reports','Maintenance','Fuel Tracking','Weather','Cruise Tracking','Notifications','Audit Trail'];
+const assistantSuggestedQuestions = [
+  ['Trips needing attention', 'Show trips not dispatch ready.'], ['Outstanding balances', 'Show unpaid invoices.'],
+  ['Payroll due', 'Show payroll due.'], ['Open incidents', 'Show open incidents.'], ['Maintenance due', 'Show vessels due for maintenance.'],
+  ["Today's trips", "Show today's trips."], ["This week's revenue", "Show this week's revenue."], ['Weather risk', 'Show weather risk trips.'],
+  ['Cruise timing risk', 'Show cruise risk trips.']
+];
+const assistantCategoryRoles = {
+  Trips: ['Admin','Owner','Captain','Mate'], Bookings: ['Admin','Owner','Bookkeeper'], Revenue: ['Admin','Owner','Bookkeeper'], Payroll: ['Admin','Owner','Captain','Mate','Bookkeeper'],
+  Crew: ['Admin'], Vessels: ['Admin','Owner','Captain','Mate'], Maintenance: ['Admin','Owner','Captain','Mate'], Fuel: ['Admin','Owner','Bookkeeper'], Weather: ['Admin','Owner','Captain','Mate'],
+  Cruise: ['Admin','Owner','Captain','Mate'], Incidents: ['Admin','Owner','Captain','Mate'], Customers: ['Admin','Bookkeeper'], Invoices: ['Admin','Owner','Bookkeeper'], Checklists: ['Admin','Owner','Captain','Mate']
+};
+function assistantDateRange(period = 'week') {
+  const now = new Date(), start = new Date(now), end = new Date(now);
+  if (period === 'month') { start.setDate(1); end.setMonth(end.getMonth() + 1, 0); }
+  else { start.setDate(now.getDate() - now.getDay()); end.setDate(start.getDate() + 6); }
+  return [start.toISOString().slice(0,10), end.toISOString().slice(0,10)];
+}
+function assistantScopedTrips() { return visibleCalendarTrips(); }
+function assistantScopedInvoices() {
+  const role = activeRoleName(), trips = assistantScopedTrips(), tripIds = new Set(trips.map((trip) => trip.id)), vessels = new Set(trips.map((trip) => trip.vessel));
+  if (['Admin','Bookkeeper'].includes(role)) return store.invoices || [];
+  if (role === 'Owner') return (store.invoices || []).filter((invoice) => tripIds.has(invoice.tripId) || vessels.has(invoice.vessel));
+  return [];
+}
+function assistantScopedIncidents() {
+  const role = activeRoleName(), person = activeRolePerson(role), trips = assistantScopedTrips(), tripIds = new Set(trips.map((trip) => trip.id)), vessels = new Set(trips.map((trip) => trip.vessel));
+  if (['Admin','Bookkeeper'].includes(role)) return store.incidentReports || [];
+  if (role === 'Owner') return (store.incidentReports || []).filter((item) => vessels.has(item.vessel) || tripIds.has(item.tripId));
+  return (store.incidentReports || []).filter((item) => item.reportedBy === person || tripIds.has(item.tripId));
+}
+function assistantAction(label, route, id = '', date = '') { return { label, route, id, date }; }
+function assistantTripCard(trip, extra = {}) { return { title: trip.customer || trip.tourType || 'Trip', fields: { Date: formatDate(trip.tripDate), Time: formatTime(trip.startTime), Customer: trip.customer || '—', Vessel: trip.vessel || 'Unassigned', ...extra }, action: assistantAction('Open Trip','trips',trip.id) }; }
+function assistantResult(category, title, summary, cards = []) { return { category, title, summary, cards }; }
+function assistantAllowed(category) { return (assistantCategoryRoles[category] || ['Admin']).includes(activeRoleName()); }
+function runLocalAssistantQuery(rawQuery) {
+  const query = String(rawQuery || '').trim(), q = query.toLowerCase(), trips = assistantScopedTrips(), today = new Date().toISOString().slice(0,10), role = activeRoleName();
+  let result;
+  if (/captain/.test(q) && /(need|missing|without|unassigned)/.test(q)) result = assistantResult('Trips','Trips Needing Captains','Trips visible to your role with no accepted captain assignment.', trips.filter((t) => !readinessChecklist(t).captainAssigned).map((t) => assistantTripCard(t,{ 'Missing Role':'Captain' })));
+  else if (/mate/.test(q) && /(need|missing|without|unassigned)/.test(q)) result = assistantResult('Trips','Trips Needing Mates','Trips visible to your role with no accepted mate assignment.', trips.filter((t) => !readinessChecklist(t).mateAssigned).map((t) => assistantTripCard(t,{ 'Missing Role':'Mate' })));
+  else if (/(not dispatch ready|needing attention|needs attention|dispatch ready)/.test(q)) result = assistantResult('Trips','Trips Not Dispatch Ready','Trips that need an assignment, checklist, acceptance, vessel, or conflict review.', trips.filter((t) => calculateDispatchReadiness(t) !== 'Dispatch Ready' && t.status !== 'Completed' && t.status !== 'Cancelled').map((t) => assistantTripCard(t,{ Status:calculateDispatchReadiness(t) })));
+  else if (/(today'?s trips|trips today)/.test(q)) result = assistantResult('Trips',"Today's Trips",`Trips scheduled for ${formatDate(today)}.`, trips.filter((t) => t.tripDate === today).map((t) => assistantTripCard(t,{ Status:calculateDispatchReadiness(t) })));
+  else if (/booking/.test(q) && /(without|missing|no trip)/.test(q)) { const linked = new Set((store.trips || []).map((t) => t.bookingId).filter(Boolean)), visibleNames = new Set(trips.map((t) => t.customer)); result = assistantResult('Bookings','Bookings Without Trips','Bookings that are not linked to a trip.', (store.bookings || []).filter((b) => !linked.has(b.id) && (role !== 'Owner' || visibleNames.has(b.customer))).map((b) => ({ title:b.customer || b.order || 'Booking', fields:{ Date:formatDate(b.date), Product:b.product || '—', Balance:money(b.balance) }, action:assistantAction('Open Booking','bookings',b.id) }))); }
+  else if (/(unpaid invoice|balances due)/.test(q)) result = assistantResult('Invoices','Unpaid Invoices','Invoices and quotes with a remaining balance.', assistantScopedInvoices().filter((i) => Number(i.balanceDue || 0) > 0).map((i) => ({ title:i.customerName || 'Customer', fields:{ 'Invoice Number':i.invoiceNumber || '—', Balance:money(i.balanceDue), 'Due / Trip Date':formatDate(i.dueDate || i.tripDate) }, action:assistantAction('Open Invoice / Quote','invoices',i.id) })));
+  else if (/customers?.*(outstanding|balance)/.test(q)) { const totals = {}; assistantScopedInvoices().forEach((i) => totals[i.customerName || 'Unknown'] = (totals[i.customerName || 'Unknown'] || 0) + Number(i.balanceDue || 0)); result = assistantResult('Customers','Customers With Outstanding Balances','Customer balances from visible invoices.', Object.entries(totals).filter(([,v]) => v > 0).sort((a,b)=>b[1]-a[1]).map(([name,value]) => ({ title:name, fields:{ 'Outstanding Balance':money(value) }, action:assistantAction('Open Customer','customers') }))); }
+  else if (/(lifetime spend|highest lifetime|top customers)/.test(q)) { const totals = {}; [...(store.invoices || []), ...(store.trips || [])].forEach((x) => { const name=x.customerName || x.customer; if(name) totals[name]=(totals[name]||0)+Number(x.tourPrice||0); }); result=assistantResult('Customers','Customers With Highest Lifetime Spend','Lifetime value calculated from local invoices and trips.',Object.entries(totals).sort((a,b)=>b[1]-a[1]).slice(0,20).map(([name,value])=>({title:name,fields:{'Lifetime Spend':money(value)},action:assistantAction('Open Customer','customers')}))); }
+  else if (/(payroll due|earnings|owner payouts? due)/.test(q)) { const [start,end]=assistantDateRange('week'), person=activeRolePerson(role); let entries=payrollEntries().filter((e)=>e.outstanding>0); if(role==='Owner') entries=entries.filter((e)=>e.role==='Owner'&&e.person===person); if(['Captain','Mate'].includes(role)) entries=entries.filter((e)=>e.role===role&&e.person===person); if(/captain/.test(q)) entries=entries.filter((e)=>e.role==='Captain'); if(/mate/.test(q)) entries=entries.filter((e)=>e.role==='Mate'); if(/owner payout/.test(q)) entries=entries.filter((e)=>e.role==='Owner'); if(/this week|earnings/.test(q)) entries=entries.filter((e)=>e.trip.tripDate>=start&&e.trip.tripDate<=end); result=assistantResult('Payroll',/owner payout/.test(q)?'Owner Payouts Due':/earnings/.test(q)?`${role} Earnings This Week`:'Payroll Due',`Outstanding payroll visible to ${role}.`,entries.map((e)=>({title:e.person,fields:{Role:e.role,Trip:formatDate(e.trip.tripDate),Vessel:e.vessel||'—',Outstanding:money(e.outstanding)},action:assistantAction('Open Payroll','payroll')}))); }
+  else if (/(maintenance|service due)/.test(q)) { const owned=new Set(trips.map((t)=>t.vessel)); let records=store.maintenanceRecords||[]; if(role==='Owner') records=records.filter((r)=>owned.has(r.vessel)); if(['Captain','Mate'].includes(role)) records=records.filter((r)=>owned.has(r.vessel)); records=records.filter((r)=>r.status!=='Good'||maintenanceAlerts(r).length); result=assistantResult('Maintenance','Vessels Due for Maintenance','Vessels with due, overdue, or review-needed maintenance.',records.map((r)=>({title:r.vessel,fields:{Status:r.status,Alerts:String(maintenanceAlerts(r).length),'Next Service':formatDate(r.nextOilChangeDue)},action:assistantAction('Open Vessel','maintenance')}))); }
+  else if (/(open incident|incident)/.test(q)) result=assistantResult('Incidents','Open Incidents','Unresolved incidents visible to your role.',assistantScopedIncidents().filter((i)=>i.status!=='Resolved'&&i.status!=='Closed').map((i)=>({title:i.category||'Incident',fields:{Date:formatDate(i.date),Vessel:i.vessel||'—',Severity:i.severity||'—','Reported By':i.reportedBy||'—',Status:i.status||'Open'},action:assistantAction('Open Incident','incident-reports',i.id)})));
+  else if (/weather/.test(q)) result=assistantResult('Weather','Weather Risk Trips','Trips with elevated local weather risk.',trips.filter((t)=>tripWeatherRisk(t)!=='Green').map((t)=>assistantTripCard(t,{Risk:weatherRiskLabel(tripWeatherRisk(t))})));
+  else if (/cruise/.test(q)) result=assistantResult('Cruise','Cruise Timing Risk Trips','Trips mentioning a cruise ship or all-aboard timing for operational review.',trips.filter((t)=>/cruise|ship|all aboard/i.test(`${t.notes||''} ${t.tourType||''}`)).map((t)=>assistantTripCard(t,{Risk:'Review cruise timing'})));
+  else if (/pre.?trip.*checklist|missing pre/.test(q)) result=assistantResult('Checklists','Trips Missing Pre Trip Checklist','Trips without a completed pre-trip checklist.',trips.filter((t)=>latestChecklistStatus(t,'Pre Trip')!=='Completed').map((t)=>assistantTripCard(t,{Checklist:latestChecklistStatus(t,'Pre Trip')})));
+  else if (/post.?trip.*checklist|missing post/.test(q)) result=assistantResult('Checklists','Trips Missing Post Trip Checklist','Completed trips without a completed post-trip checklist.',trips.filter((t)=>t.status==='Completed'&&latestChecklistStatus(t,'Post Trip')!=='Completed').map((t)=>assistantTripCard(t,{Checklist:latestChecklistStatus(t,'Post Trip')})));
+  else if (/fuel cost/.test(q)) { const [start,end]=assistantDateRange('month'), amount=trips.filter((t)=>t.tripDate>=start&&t.tripDate<=end).reduce((sum,t)=>sum+Number(t.totalFuelCost||0),0); result=assistantResult('Fuel','Fuel Cost This Month',`${money(amount)} in locally tracked trip fuel cost.`,[{title:'Monthly Fuel Cost',fields:{Period:`${formatDate(start)} – ${formatDate(end)}`,Total:money(amount)},action:assistantAction('Open Trips','trips')}]); }
+  else if (/(revenue|most profitable vessel)/.test(q)) { const period=/week/.test(q)?'week':'month',[start,end]=assistantDateRange(period), relevant=trips.filter((t)=>t.tripDate>=start&&t.tripDate<=end); if(/most profitable vessel/.test(q)){const totals={};relevant.forEach((t)=>totals[t.vessel||'Unassigned']=(totals[t.vessel||'Unassigned']||0)+Number(t.tourPrice||0)-Number(t.totalFuelCost||0)-(t.payroll||calculateTripPayroll(t)).reduce((s,e)=>s+Number(e.amount||0),0));const best=Object.entries(totals).sort((a,b)=>b[1]-a[1])[0];result=assistantResult('Revenue','Most Profitable Vessel','Estimated profit uses local revenue, payroll, and fuel values.',best?[{title:best[0],fields:{'Estimated Profit':money(best[1]),Period:`${formatDate(start)} – ${formatDate(end)}`},action:assistantAction('Open Vessel','vessels')}]:[]);}else{const amount=relevant.reduce((sum,t)=>sum+Number(t.tourPrice||0),0);result=assistantResult('Revenue',`Revenue This ${period==='week'?'Week':'Month'}`,`${money(amount)} from visible trip revenue.`,[{title:'Revenue Summary',fields:{Period:`${formatDate(start)} – ${formatDate(end)}`,Revenue:money(amount),Trips:String(relevant.length)},action:assistantAction('Open Reports','reports')}]);} }
+  else result=assistantResult('Trips','Try a Suggested Operations Question','I could not match that question yet. Use a suggested prompt or ask about trips, invoices, payroll, incidents, maintenance, customers, revenue, fuel, weather, cruise timing, or checklists.',[]);
+  if (!assistantAllowed(result.category)) result=assistantResult(result.category,'Query Not Available for This Role',`${role} does not have visibility for ${result.category.toLowerCase()} queries.`,[]);
+  store.assistantQueryLog.unshift({id:makeId('assistant-query'),user:currentUserLabel(),query,category:result.category,resultCount:result.cards.length,at:new Date().toISOString()}); store.assistantQueryLog=store.assistantQueryLog.slice(0,100);
+  addAudit('queried','Operations Assistant',query,{resultCategory:result.category,resultCount:result.cards.length}); saveStore(); return result;
+}
+function submitAssistantQuery(event) { event.preventDefault(); const query=new FormData(event.currentTarget).get('assistantQuery'); assistantState={query,result:runLocalAssistantQuery(query)}; renderOperationsAssistant(); }
+function askOperations(query) { assistantState={query,result:runLocalAssistantQuery(query)}; renderOperationsAssistant(); }
+function openAssistantAction(route,id='',date='') { if(date){store.calendarState.selectedDate=date;store.calendarState.view='day';saveStore();} renderRoute(route); if(id&&route==='incident-reports') openIncidentForm(id); else if(id&&crudConfig[route]) showForm(route,id); }
+function renderAssistantCard(card) { return `<article class="assistant-result-card"><div><h4>${escapeHtml(card.title)}</h4><dl>${Object.entries(card.fields||{}).map(([k,v])=>`<div><dt>${escapeHtml(k)}</dt><dd>${escapeHtml(v||'—')}</dd></div>`).join('')}</dl></div>${card.action?`<button class="btn btn-primary btn-small" onclick="openAssistantAction('${card.action.route}','${card.action.id||''}','${card.action.date||''}')">${escapeHtml(card.action.label)}</button>`:''}</article>`; }
+function renderOperationsAssistant() {
+  const page=document.getElementById('page-operations-assistant'), result=assistantState.result;
+  page.innerHTML=`<div class="page-stack assistant-page"><section class="card assistant-hero"><div><p class="eyebrow">Local rule-based assistant</p><h2>Ask Operations</h2><p>Ask business questions using data already stored in this browser. No external AI service is connected and no app data leaves this device.</p></div><span class="badge green">Local Only</span></section><form class="card assistant-search" onsubmit="submitAssistantQuery(event)"><label for="assistantQuery">What do you need to know?</label><div><input id="assistantQuery" name="assistantQuery" type="search" value="${escapeHtml(assistantState.query)}" placeholder="Show trips needing captains." required><button class="btn btn-primary">Ask Operations</button></div></form><section class="assistant-prompts" aria-label="Suggested questions">${assistantSuggestedQuestions.map(([label,q])=>`<button class="assistant-chip" onclick="askOperations('${q.replace(/'/g,"\\'")}')">${escapeHtml(label)}</button>`).join('')}</section>${result?`<details class="card assistant-results" open><summary><div><p class="eyebrow">${escapeHtml(result.category)}</p><h3>${escapeHtml(result.title)}</h3><p>${escapeHtml(result.summary)}</p></div><span class="badge blue">${result.cards.length} result${result.cards.length===1?'':'s'}</span></summary><div class="assistant-result-list">${result.cards.length?result.cards.map(renderAssistantCard).join(''):'<p class="empty-state">No matching records are visible to your role.</p>'}</div></details>`:'<div class="card card-pad empty-state">Choose a suggested question or type your own operations question.</div>'}<details class="card assistant-readiness"><summary><div><h3>Future AI Readiness</h3><p>External AI remains disabled.</p></div><span class="chevron">⌄</span></summary><dl><div><dt>assistantProvider</dt><dd>${escapeHtml(store.assistantProvider)}</dd></div><div><dt>assistantApiStatus</dt><dd>${escapeHtml(store.assistantApiStatus)}</dd></div><div><dt>externalAiEnabled</dt><dd>${String(store.externalAiEnabled)}</dd></div><div><dt>lastAssistantSync</dt><dd>${escapeHtml(store.lastAssistantSync||'Never')}</dd></div><div><dt>assistantQueryLog</dt><dd>${store.assistantQueryLog.length} local entries</dd></div></dl></details></div>`;
+}
