@@ -1,5 +1,15 @@
 const STORE_KEY = 'rat_ops_v1_store';
-const STORE_VERSION = 22;
+const STORE_VERSION = 23;
+const STORE_BACKUP_KEY = `${STORE_KEY}_backup`;
+const STORE_RECOVERY_KEY = `${STORE_KEY}_recovery`;
+
+const roleRouteVisibility = {
+  Admin: null,
+  Owner: new Set(['dashboard','operations-assistant','dispatch','calendar','weather','chat','whatsapp','trips','vessels','maintenance','owner-dashboard','payroll','expenses','incident-reports','pre-trip-checklist','post-trip-checklist','cruise-schedule','reports','notifications','settings']),
+  Captain: new Set(['dashboard','operations-assistant','dispatch','calendar','weather','chat','whatsapp','trips','vessels','maintenance','captain-dashboard','payroll','incident-reports','pre-trip-checklist','post-trip-checklist','cruise-schedule','notifications','settings']),
+  Mate: new Set(['dashboard','operations-assistant','dispatch','calendar','weather','chat','whatsapp','trips','vessels','maintenance','mate-dashboard','payroll','incident-reports','pre-trip-checklist','post-trip-checklist','cruise-schedule','notifications','settings']),
+  Bookkeeper: new Set(['dashboard','operations-assistant','calendar','chat','whatsapp','gmail-import','customers','invoices','trips','payroll','expenses','reports','notifications','audit','settings'])
+};
 const MAINTENANCE_VESSELS = ['Reel Adventure Tours I', 'Reel Adventure Tours II'];
 const MAINTENANCE_STATUSES = ['Good', 'Due Soon', 'Overdue', 'Needs Review', 'Out of Service'];
 
@@ -252,10 +262,17 @@ function loadStore() {
   if (!raw) return seedStore();
   try {
     const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('Stored operations data is not an object.');
+    localStorage.setItem(STORE_BACKUP_KEY, raw);
     return migrateStore(parsed);
   } catch (error) {
-    console.warn('Resetting invalid local data', error);
-    return seedStore();
+    console.error('Local operations data could not be migrated; preserving it for recovery.', error);
+    localStorage.setItem(STORE_RECOVERY_KEY, raw);
+    const backup = localStorage.getItem(STORE_BACKUP_KEY);
+    if (backup && backup !== raw) {
+      try { return migrateStore(JSON.parse(backup)); } catch (backupError) { console.error('Backup recovery failed.', backupError); }
+    }
+    return seedStore({ migrationWarning: 'Existing local data was preserved in recovery storage because it could not be read.' });
   }
 }
 
@@ -267,6 +284,25 @@ function seedStore(existing = {}) {
 
 function migrateStore(existing = {}) {
   const next = { ...structuredClone(seedData), ...existing, version: STORE_VERSION, updatedAt: existing.updatedAt || new Date().toISOString() };
+  const preserveArray = (primary, ...legacyKeys) => {
+    if (Array.isArray(next[primary])) return next[primary];
+    const legacy = legacyKeys.map((key) => next[key]).find(Array.isArray);
+    return legacy ? legacy : [];
+  };
+  next.bookings = preserveArray('bookings');
+  next.customerProfiles = preserveArray('customerProfiles', 'customers');
+  next.chatConversations = preserveArray('chatConversations', 'conversations');
+  next.chatMessages = preserveArray('chatMessages', 'messages');
+  next.chatReadReceipts = preserveArray('chatReadReceipts', 'readReceipts');
+  next.payrollPayments = preserveArray('payrollPayments', 'payrollReceipts');
+  next.maintenanceRecords = preserveArray('maintenanceRecords', 'maintenance');
+  next.serviceRecords = preserveArray('serviceRecords', 'maintenanceServiceRecords');
+  next.fuelRecords = preserveArray('fuelRecords', 'fuel');
+  next.incidentReports = preserveArray('incidentReports', 'incidents');
+  next.weatherRecords = preserveArray('weatherRecords', 'weather');
+  next.cruiseSchedule = preserveArray('cruiseSchedule', 'cruise');
+  next.assistantQueryLog = preserveArray('assistantQueryLog', 'operationsAssistantLog');
+  next.calendarState = next.calendarState && typeof next.calendarState === 'object' && !Array.isArray(next.calendarState) ? next.calendarState : { view: 'month', selectedDate: '' };
   next.weatherRecords = (Array.isArray(next.weatherRecords) ? next.weatherRecords : []).map(normalizeWeatherRecord);
   next.payrollPayments = Array.isArray(next.payrollPayments) ? next.payrollPayments : [];
   next.notifications = (Array.isArray(next.notifications) ? next.notifications : []).map(normalizeNotification);
@@ -451,7 +487,7 @@ function editWeatherRecord(id) { const record = store.weatherRecords.find((item)
 function renderWeather(editingRecord = {}) {
   const page = document.getElementById('page-weather'), canEdit = ['Admin','Owner'].includes(activeRoleName());
   const rows = (store.weatherRecords || []).sort((a,b) => `${b.date}${b.time}`.localeCompare(`${a.date}${a.time}`)).map((record) => { const level = weatherConditionRisk(record); return `<tr><td>${escapeHtml(formatDate(record.date))}<br><small>${escapeHtml(formatTime(record.time))}</small></td><td>${escapeHtml(record.location)}</td><td>${record.windSpeed} / ${record.windGusts} kt</td><td>${record.rainChance}%</td><td>${escapeHtml(record.stormRisk)}</td><td>${escapeHtml(record.seaConditions)}</td><td>${escapeHtml(record.visibility)}</td><td><span class="badge ${weatherRiskClass(level)}">${weatherRiskLabel(level)}</span></td><td>${escapeHtml(record.notes || '—')}</td><td>${canEdit ? `<button class="btn btn-outline btn-small" onclick="editWeatherRecord('${record.id}')">Edit</button>` : ''}</td></tr>`; }).join('');
-  page.innerHTML = `<div class="page-stack weather-page"><div class="card card-pad"><p class="eyebrow">Local / simulated framework</p><h2>Weather Intelligence</h2><p>Evaluate departure risk now with manual conditions. Provider-neutral fields are ready for a future live forecast integration.</p></div>${weatherSummaryCards(visibleCalendarTrips())}${canEdit ? `<form class="record-form card" onsubmit="saveWeatherRecord(event)"><input type="hidden" name="id" value="${escapeHtml(editingRecord.id || '')}"><div class="form-grid">${[['date','Date','date'],['time','Time','time'],['location','Location','text'],['windSpeed','Wind Speed (knots)','number'],['windGusts','Wind Gusts (knots)','number'],['rainChance','Rain Chance (%)','number']].map(([key,label,type]) => `<div class="field"><label>${label}</label><input name="${key}" type="${type}" value="${escapeHtml(editingRecord[key] ?? '')}" ${key === 'date' ? 'required' : ''}></div>`).join('')}<div class="field"><label>Storm Risk</label><select name="stormRisk">${['Low','Moderate','High','Severe'].map(v => `<option ${editingRecord.stormRisk === v ? 'selected' : ''}>${v}</option>`).join('')}</select></div><div class="field"><label>Sea Conditions</label><select name="seaConditions">${['Calm','Moderate','Choppy','Rough','Dangerous'].map(v => `<option ${editingRecord.seaConditions === v ? 'selected' : ''}>${v}</option>`).join('')}</select></div><div class="field"><label>Visibility</label><select name="visibility">${['Good','Fair','Reduced','Poor'].map(v => `<option ${editingRecord.visibility === v ? 'selected' : ''}>${v}</option>`).join('')}</select></div><div class="field field-wide"><label>Weather Notes</label><textarea name="notes">${escapeHtml(editingRecord.notes || '')}</textarea></div></div><div class="future-api-fields"><span>weatherSource: ${escapeHtml(editingRecord.weatherSource || 'Local Manual')}</span><span>lastUpdated: ${escapeHtml(editingRecord.lastUpdated || 'On save')}</span><span>apiProvider: ${escapeHtml(editingRecord.apiProvider || 'Not connected')}</span><span>forecastId: ${escapeHtml(editingRecord.forecastId || 'Pending')}</span></div><div class="form-actions"><button class="btn btn-primary">Save Conditions</button></div></form>` : '<div class="card card-pad"><strong>Read-only weather view</strong><p>Only Owner/Admin can manually update conditions.</p></div>'}<div class="card table-card"><div class="card-header"><h3>Condition records</h3><span class="badge blue">${store.weatherRecords.length} local forecasts</span></div><div class="responsive-table-wrap"><table><thead><tr><th>Date / Time</th><th>Location</th><th>Wind / Gusts</th><th>Rain</th><th>Storm</th><th>Sea</th><th>Visibility</th><th>Risk Level</th><th>Notes</th><th></th></tr></thead><tbody>${rows || '<tr><td colspan="10" class="empty-state">No weather conditions entered yet.</td></tr>'}</tbody></table></div></div></div>`;
+  page.innerHTML = `<div class="page-stack weather-page"><div class="card card-pad"><p class="eyebrow">Local / simulated framework</p><h3>Condition Records</h3><p>Evaluate departure risk now with manual conditions. Provider-neutral fields are ready for a future live forecast integration.</p></div>${weatherSummaryCards(visibleCalendarTrips())}${canEdit ? `<form class="record-form card" onsubmit="saveWeatherRecord(event)"><input type="hidden" name="id" value="${escapeHtml(editingRecord.id || '')}"><div class="form-grid">${[['date','Date','date'],['time','Time','time'],['location','Location','text'],['windSpeed','Wind Speed (knots)','number'],['windGusts','Wind Gusts (knots)','number'],['rainChance','Rain Chance (%)','number']].map(([key,label,type]) => `<div class="field"><label>${label}</label><input name="${key}" type="${type}" value="${escapeHtml(editingRecord[key] ?? '')}" ${key === 'date' ? 'required' : ''}></div>`).join('')}<div class="field"><label>Storm Risk</label><select name="stormRisk">${['Low','Moderate','High','Severe'].map(v => `<option ${editingRecord.stormRisk === v ? 'selected' : ''}>${v}</option>`).join('')}</select></div><div class="field"><label>Sea Conditions</label><select name="seaConditions">${['Calm','Moderate','Choppy','Rough','Dangerous'].map(v => `<option ${editingRecord.seaConditions === v ? 'selected' : ''}>${v}</option>`).join('')}</select></div><div class="field"><label>Visibility</label><select name="visibility">${['Good','Fair','Reduced','Poor'].map(v => `<option ${editingRecord.visibility === v ? 'selected' : ''}>${v}</option>`).join('')}</select></div><div class="field field-wide"><label>Weather Notes</label><textarea name="notes">${escapeHtml(editingRecord.notes || '')}</textarea></div></div><div class="future-api-fields"><span>weatherSource: ${escapeHtml(editingRecord.weatherSource || 'Local Manual')}</span><span>lastUpdated: ${escapeHtml(editingRecord.lastUpdated || 'On save')}</span><span>apiProvider: ${escapeHtml(editingRecord.apiProvider || 'Not connected')}</span><span>forecastId: ${escapeHtml(editingRecord.forecastId || 'Pending')}</span></div><div class="form-actions"><button class="btn btn-primary">Save Conditions</button></div></form>` : '<div class="card card-pad"><strong>Read-only weather view</strong><p>Only Owner/Admin can manually update conditions.</p></div>'}<div class="card table-card"><div class="card-header"><h3>Condition records</h3><span class="badge blue">${store.weatherRecords.length} local forecasts</span></div><div class="responsive-table-wrap"><table><thead><tr><th>Date / Time</th><th>Location</th><th>Wind / Gusts</th><th>Rain</th><th>Storm</th><th>Sea</th><th>Visibility</th><th>Risk Level</th><th>Notes</th><th></th></tr></thead><tbody>${rows || '<tr><td colspan="10" class="empty-state">No weather conditions entered yet.</td></tr>'}</tbody></table></div></div></div>`;
 }
 
 function saveStore() {
@@ -552,8 +588,15 @@ function renderLoginUsers() {
   select.innerHTML = store.users.filter((user) => user.active !== false).map((user) => `<option value="${user.id}" ${user.id === store.activeUserId ? 'selected' : ''}>${escapeHtml(user.name)} — ${escapeHtml(user.role)}</option>`).join('');
 }
 
+function canAccessRoute(route, role = activeRoleName()) {
+  const allowed = roleRouteVisibility[role];
+  return allowed == null || allowed.has(route);
+}
+
+function visibleNavItems() { return navItems.filter(([route]) => canAccessRoute(route)); }
+
 function renderNav() {
-  document.getElementById('primaryNav').innerHTML = navItems.map(([route, icon, label]) => { const badge = route === 'chat' ? chatBadgeMarkup('nav-badge') : ''; return `
+  document.getElementById('primaryNav').innerHTML = visibleNavItems().map(([route, icon, label]) => { const badge = route === 'chat' ? chatBadgeMarkup('nav-badge') : ''; return `
     <button class="nav-link" data-route="${route}" aria-label="${label}"><span class="nav-icon" aria-hidden="true">${icon}</span><span class="nav-label">${label}</span>${badge}</button>
   `; }).join('');
   renderMobileNav();
@@ -564,7 +607,7 @@ function renderMobileNav() {
   const more = document.getElementById('mobileMoreMenu');
   if (!bottom) return;
   const unread = unreadNotificationCount();
-  bottom.innerHTML = `<div class="mobile-nav-scroll">${mobilePrimaryNav.map(([route, icon, label]) => {
+  bottom.innerHTML = `<div class="mobile-nav-scroll">${mobilePrimaryNav.filter(([route]) => canAccessRoute(route)).map(([route, icon, label]) => {
     const badge = route === 'chat' ? chatBadgeMarkup('mobile-nav-badge') : route === 'notifications' && unread ? `<span class="mobile-nav-badge" aria-label="${unread} unread notifications">${unread}</span>` : '';
     const active = currentRoute === route;
     return `<button class="mobile-nav-link ${active ? 'active' : ''}" data-route="${route}" aria-label="${label}" ${active ? 'aria-current="page"' : ''}><span class="mobile-nav-icon" aria-hidden="true">${icon}${badge}</span><span class="mobile-nav-label">${label}</span></button>`;
@@ -703,6 +746,10 @@ function closeSidebar() { document.getElementById('sidebar').classList.remove('o
 
 function renderRoute(route) {
   generateChecklistReminders();
+  if (!canAccessRoute(route)) {
+    toast(`${activeRoleName()} does not have access to that module.`);
+    route = 'dashboard';
+  }
   currentRoute = route;
   voiceAssistantOpen = false;
   closeSidebar();
@@ -1530,7 +1577,7 @@ function renderFormSections(route, config, record) {
 
 function naturalSentenceModeHint() { return ''; }
 
-function voiceFillButton(route) { return ''; }
+function voiceFillButton(route) { return voiceSupportedRoutes.has(route) ? `<button class="btn btn-outline" type="button" data-voice-fill>🎙️ Voice Fill</button>` : ''; }
 
 function renderField(key, label, type, value = '') {
   if (type === 'textarea') return `<div class="field"><label for="${key}">${label}</label><textarea id="${key}" name="${key}">${escapeHtml(value)}</textarea></div>`;
@@ -1539,6 +1586,16 @@ function renderField(key, label, type, value = '') {
     return `<div class="field"><label for="${key}">${label}</label><select id="${key}" name="${key}"><option value="">— Select —</option>${options.map((opt) => `<option value="${escapeHtml(opt)}" ${String(value) === String(opt) ? 'selected' : ''}>${escapeHtml(opt)}</option>`).join('')}</select></div>`;
   }
   return `<div class="field"><label for="${key}">${label}</label><input id="${key}" name="${key}" type="${type}" value="${escapeHtml(value)}"></div>`;
+}
+
+function createInvoiceDocument(type) {
+  if (!canAccessRoute('invoices')) return toast('Your role cannot create billing documents.');
+  showForm('invoices');
+  const form = document.querySelector('#page-invoices .record-form');
+  if (!form?.elements.documentType) return toast('Invoice / Quote form could not be opened.');
+  form.elements.documentType.value = type;
+  form.elements.customerName?.focus();
+  toast(`${type} form ready.`);
 }
 
 function showForm(route, id = null) {
@@ -1666,11 +1723,18 @@ function deleteRecord(route, id) {
   toast(`${config.title.slice(0, -1)} deleted locally.`);
 }
 
+function visibleRecordsForRoute(route, records = []) {
+  const role = activeRoleName(); const person = activeRolePerson(role);
+  if (route === 'trips') return records.filter((trip) => role === 'Admin' || role === 'Bookkeeper' || (role === 'Owner' && ownerForVesselName(trip.vessel) === person) || (role === 'Captain' && trip.captain === person) || (role === 'Mate' && trip.mate === person));
+  if (route === 'invoices' && role === 'Owner') return records.filter((invoice) => ownerForVesselName(invoice.vessel) === person);
+  return records;
+}
+
 function renderTable(route) {
   const config = crudConfig[route];
   const page = document.getElementById(`page-${route}`);
   const query = page.querySelector('.search-input')?.value?.toLowerCase() || '';
-  const rows = store[config.collection].filter((item) => JSON.stringify(item).toLowerCase().includes(query));
+  const rows = visibleRecordsForRoute(route, store[config.collection]).filter((item) => JSON.stringify(item).toLowerCase().includes(query));
   const tbody = page.querySelector('tbody');
   tbody.innerHTML = rows.length ? rows.map((item) => `<tr>${config.columns.map(([key]) => `<td>${formatCell(key, item[key])}</td>`).join('')}<td><div class="row-actions"><button class="btn btn-outline btn-small" onclick="showForm('${route}','${item.id}')">Edit</button><button class="btn btn-danger btn-small" onclick="deleteRecord('${route}','${item.id}')">Delete</button></div></td></tr>`).join('') : `<tr><td colspan="${config.columns.length + 1}" class="empty-state">No records found.</td></tr>`;
 }
@@ -2323,6 +2387,7 @@ function saveInventoryItem(event) {
 
 function savePayrollPayment(event, entryKey) {
   event.preventDefault();
+  if (!['Admin','Bookkeeper'].includes(activeRoleName())) return toast('Only Admin and Bookkeeper can record payroll payments.');
   const data = Object.fromEntries(new FormData(event.currentTarget).entries());
   const entry = payrollEntries().find((item) => item.key === entryKey);
   store.payrollPayments.push({ id: makeId('payroll-payment'), entryKey, amountPaid: Number(data.amountPaid || 0), datePaid: data.datePaid, paymentMethod: data.paymentMethod, paymentNotes: data.paymentNotes });
@@ -2334,8 +2399,13 @@ function savePayrollPayment(event, entryKey) {
   toast('Payroll payment saved.');
 }
 
+function visiblePayrollEntries() {
+  const role = activeRoleName(); const person = activeRolePerson(role);
+  return payrollEntries().filter((entry) => role === 'Admin' || role === 'Bookkeeper' || (role === 'Owner' && entry.role === 'Owner' && entry.person === person) || (['Captain','Mate'].includes(role) && entry.role === role && entry.person === person));
+}
+
 function renderPayroll() {
-  const entries = payrollEntries();
+  const entries = visiblePayrollEntries();
   const grouped = entries.reduce((acc, entry) => {
     const week = payrollWeekLabel(entry.trip.tripDate);
     acc[week] ||= [];
@@ -2346,7 +2416,7 @@ function renderPayroll() {
   const totalPaid = entries.reduce((sum, entry) => sum + entry.amountPaid, 0);
   const payrollTripFuel = (store.trips || []).reduce((sum, trip) => sum + Number(trip.totalFuelCost || 0), 0);
   document.getElementById('page-payroll').innerHTML = `<div class="page-stack">
-    <div class="section-heading"><div><h1>Weekly payroll engine</h1></div><div class="legacy-actions"><button class="btn btn-primary" data-route="trips">Create trip</button><button class="btn btn-outline" type="button" onclick="window.print()">Print / Export Statements</button></div></div>
+    <div class="section-heading"><div><h3>Weekly Statements</h3></div><div class="legacy-actions"><button class="btn btn-primary" data-route="trips">Create trip</button><button class="btn btn-outline" type="button" onclick="window.print()">Print / Export Statements</button></div></div>
     <div class="grid kpi-grid">${kpi('Amount owed', money(totalOwed), 'All active trips')}${kpi('Amount paid', money(totalPaid), 'Recorded payments')}${kpi('Outstanding', money(totalOwed - totalPaid), 'Still due')}${kpi('Trip Fuel Cost', money(payrollTripFuel), 'Profitability context')}${kpi('Payment records', store.payrollPayments.length, 'Local history')}${kpi('Owner Statements', entries.filter((entry) => entry.role === 'Owner').length, 'Owner payout lines')}${kpi('Captain Statements', entries.filter((entry) => entry.role === 'Captain').length, 'Captain payout lines')}${kpi('Mate Statements', entries.filter((entry) => entry.role === 'Mate').length, 'Mate payout lines')}</div><details class="card app-accordion" open><summary><div><h3>Person Statement Summary</h3><p class="muted-text">Generate Captain Payment Receipt, Mate Payment Receipt, Owner Payout Statement, or Payment Due Notice.</p></div><span class="chevron" aria-hidden="true">⌄</span></summary><div class="payroll-document-actions">${renderPersonStatementSummary(entries)}</div></details><div data-payroll-document-host></div>
     ${Object.keys(grouped).length ? Object.entries(grouped).map(([week, weekEntries]) => renderPayrollWeek(week, weekEntries)).join('') : '<div class="card card-pad empty-state">No payroll yet. Create assigned trips to calculate weekly payouts.</div>'}
   </div>`;
@@ -2369,7 +2439,8 @@ function renderPersonStatementSummary(entries) {
 }
 
 function previewPayrollDocument(person, type) {
-  const entries = payrollEntries().filter((entry) => entry.person === person && (type === 'Due' || entry.role === type));
+  const entries = visiblePayrollEntries().filter((entry) => entry.person === person && (type === 'Due' || entry.role === type));
+  if (!entries.length) return toast('No visible payroll entries are available for this statement.');
   const owed = entries.reduce((sum, entry) => sum + entry.amountOwed, 0);
   const paid = entries.reduce((sum, entry) => sum + entry.amountPaid, 0);
   const outstanding = entries.reduce((sum, entry) => sum + entry.outstanding, 0);
@@ -2420,7 +2491,7 @@ function renderInvoiceModule() {
   module.className = 'card native-invoice-module app-accordion';
   module.dataset.invoiceModule = 'true';
   module.open = true;
-  module.innerHTML = `<summary><div><h3>Customer-Facing Invoice / Quote Output</h3><p class="muted-text">Supports Quote, Invoice, Tour Confirmation, Booking Confirmation, and Receipt with print, share, email, WhatsApp, copy, preview, and edit actions.</p></div><span class="chevron" aria-hidden="true">⌄</span></summary><div class="grid invoice-card-grid">${cards}</div><div class="card card-pad invoice-preview-host" data-receipt-summary><strong>Document preview</strong><p class="muted-text">Choose Preview Document on any invoice/quote to review the branded customer document before printing or sending.</p></div>`;
+  module.innerHTML = `<summary><div><h3>Customer-Facing Invoice / Quote Output</h3><p class="muted-text">Supports Quote, Invoice, Tour Confirmation, Booking Confirmation, and Receipt with print, share, email, WhatsApp, copy, preview, and edit actions.</p></div><span class="chevron" aria-hidden="true">⌄</span></summary><div class="module-actions invoice-create-actions"><button class="btn btn-primary" type="button" onclick="createInvoiceDocument('Quote')">Create Quote</button><button class="btn btn-primary" type="button" onclick="createInvoiceDocument('Invoice')">Create Invoice</button></div><div class="grid invoice-card-grid">${cards}</div><div class="card card-pad invoice-preview-host" data-receipt-summary><strong>Document preview</strong><p class="muted-text">Choose Preview Document on any invoice/quote to review the branded customer document before printing or sending.</p></div>`;
   table.before(module);
 }
 
@@ -2458,15 +2529,15 @@ function previewInvoiceDocument(id) {
   if (target) target.innerHTML = `${renderInvoiceDocument(invoice)}<div class="assignment-actions invoice-action-bar"><button class="btn btn-outline" onclick="printInvoiceDocument('${id}')">Print to PDF</button><button class="btn btn-outline" onclick="downloadInvoiceDocument('${id}')">Download PDF / HTML</button><button class="btn btn-outline" onclick="sendInvoiceEmail('${id}')">Send by Email</button><button class="btn btn-outline" onclick="sendInvoiceWhatsApp('${id}')">Send by WhatsApp</button><button class="btn btn-outline" onclick="copyInvoiceShareMessage('${id}')">Copy Share Message</button><button class="btn btn-primary" onclick="showForm('invoices','${id}')">Edit Document</button></div>`;
   addAudit('previewed', 'Invoice / Quote', `Previewed ${invoiceDocumentTitle(invoice)} for ${invoice.customerName || invoice.invoiceNumber}.`, { invoiceId: id }); saveStore();
 }
-function printInvoiceDocument(id) { previewInvoiceDocument(id); setTimeout(() => window.print(), 50); }
+function printInvoiceDocument(id) { if (!findInvoice(id)) return toast('Document not found. Print cancelled.'); previewInvoiceDocument(id); setTimeout(() => window.print(), 100); }
 function downloadInvoiceDocument(id) {
-  const invoice = findInvoice(id); if (!invoice) return;
+  const invoice = findInvoice(id); if (!invoice) return toast('Document not found. Download cancelled.');
   const blob = new Blob([`<!doctype html><html><head><meta charset="utf-8"><title>${invoiceDocumentTitle(invoice)}</title><link rel="stylesheet" href="styles.css"></head><body>${renderInvoiceDocument(invoice)}</body></html>`], { type: 'text/html' });
   const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = `${(invoice.invoiceNumber || invoiceDocumentTitle(invoice)).replace(/[^a-z0-9-]+/gi, '-')}.html`; link.click(); URL.revokeObjectURL(link.href); toast('Print-ready document downloaded. Open it and use browser Save as PDF.');
 }
-function sendInvoiceEmail(id) { const invoice = findInvoice(id); if (!invoice) return; window.location.href = `mailto:${encodeURIComponent(invoice.email || '')}?subject=${encodeURIComponent(invoiceDocumentTitle(invoice) + ' ' + (invoice.invoiceNumber || ''))}&body=${encodeURIComponent(invoiceShareMessage(invoice))}`; }
-function sendInvoiceWhatsApp(id) { const invoice = findInvoice(id); if (!invoice) return; window.open(`https://wa.me/?text=${encodeURIComponent(invoiceShareMessage(invoice))}`, '_blank', 'noopener'); }
-async function copyInvoiceShareMessage(id) { const invoice = findInvoice(id); if (!invoice) return; await navigator.clipboard?.writeText(invoiceShareMessage(invoice)); toast('Share message copied.'); }
+function sendInvoiceEmail(id) { const invoice = findInvoice(id); if (!invoice) return toast('Document not found. Email cancelled.'); if (!invoice.email) toast('No customer email is saved; opening a blank recipient.'); window.location.href = `mailto:${encodeURIComponent(invoice.email || '')}?subject=${encodeURIComponent(invoiceDocumentTitle(invoice) + ' ' + (invoice.invoiceNumber || ''))}&body=${encodeURIComponent(invoiceShareMessage(invoice))}`; }
+function sendInvoiceWhatsApp(id) { const invoice = findInvoice(id); if (!invoice) return toast('Document not found. WhatsApp cancelled.'); const popup = window.open(`https://wa.me/?text=${encodeURIComponent(invoiceShareMessage(invoice))}`, '_blank', 'noopener'); if (!popup) toast('WhatsApp could not open. Allow pop-ups and try again.'); }
+async function copyInvoiceShareMessage(id) { const invoice = findInvoice(id); if (!invoice) return toast('Document not found. Copy cancelled.'); await navigator.clipboard?.writeText(invoiceShareMessage(invoice)); toast('Share message copied.'); }
 function markInvoiceDepositPaid(id) {
   const invoice = findInvoice(id); if (!invoice) return;
   invoice.paymentStatus = 'Deposit Paid';
@@ -3513,7 +3584,8 @@ function markConversationRead(conversationId, rerender = true) {
 function sendChatMessage(event) {
   event.preventDefault(); const form = event.target; const text = String(new FormData(form).get('messageText') || '').trim();
   const conversation = visibleChatConversations().find((item) => item.id === activeChatConversationId);
-  if (!text || !conversation) return;
+  if (!text) return toast('Enter a chat message before sending.');
+  if (!conversation) return toast('Choose a visible conversation before sending.');
   const user = currentUser();
   store.chatMessages.push({ id: makeId('chat-message'), conversationId: conversation.id, senderUserId: user.id, senderName: user.name, senderRole: user.role, messageText: text, createdAt: new Date().toISOString(), readBy: [user.id], attachments: [], metadata: { source: 'local-demo' } });
   addAudit('sent', 'Chat', `Sent a message in ${conversationLabel(conversation)}.`, { conversationId: conversation.id }); saveStore(); renderNav(); renderChat();
@@ -3715,7 +3787,7 @@ function setIncidentFilter(key, value) { incidentFilters[key] = value; renderInc
 function resetIncidentFilters() { incidentFilters = { search: '', customer: '', vessel: '', captain: '', mate: '', category: '', severity: '', status: '', from: '', to: '' }; renderIncidentLibrary(); }
 function renderIncidentLibrary() {
   const page = document.getElementById('page-incident-reports'); const incidents = filteredIncidents(); const canManage = canManageIncidents();
-  page.innerHTML = `<div class="page-stack incident-library"><div class="incident-hero card card-pad"><div><p class="eyebrow">Permanent searchable history</p><h2>Damage and Incident Library</h2><p>Incidents, damage, customer and crew issues, injuries, weather, refunds, and operational events.</p></div>${canManage ? '<button class="btn btn-primary" onclick="openIncidentForm()">Create Incident Record</button>' : `<span class="badge blue">${escapeHtml(activeRoleName())} scoped view</span>`}</div>${renderIncidentDashboardSummary()}<details class="card incident-filter-card app-accordion" open><summary><h3>Search and Filters</h3><span class="chevron">⌄</span></summary><div class="incident-filter-grid"><label>Incident Number / keyword<input type="search" value="${escapeHtml(incidentFilters.search)}" oninput="setIncidentFilter('search',this.value)" placeholder="Search incident number, customer, vessel…"></label>${incidentFilterField('customer','Customer',[...new Set(visibleIncidentRecords().map(i=>i.customer).filter(Boolean))])}${incidentFilterField('vessel','Vessel',getOptions('vessels'))}${incidentFilterField('captain','Captain',getOptions('crew'))}${incidentFilterField('mate','Mate',getOptions('crew'))}${incidentFilterField('category','Category',INCIDENT_CATEGORIES)}${incidentFilterField('severity','Severity',INCIDENT_SEVERITIES)}${incidentFilterField('status','Status',INCIDENT_STATUSES)}<label>From<input type="date" value="${incidentFilters.from}" onchange="setIncidentFilter('from',this.value)"></label><label>To<input type="date" value="${incidentFilters.to}" onchange="setIncidentFilter('to',this.value)"></label><button class="btn btn-outline" onclick="resetIncidentFilters()">Clear Filters</button></div></details><div data-incident-form></div><div class="incident-card-grid">${incidents.length ? incidents.map(renderIncidentCard).join('') : '<div class="card card-pad empty-state">No incidents match the current role visibility and filters.</div>'}</div>${renderIncidentReportsSection()}</div>`;
+  page.innerHTML = `<div class="page-stack incident-library"><div class="incident-hero card card-pad"><div><p class="eyebrow">Permanent searchable history</p><h3>Incident Directory</h3><p>Incidents, damage, customer and crew issues, injuries, weather, refunds, and operational events.</p></div>${canManage ? '<button class="btn btn-primary" onclick="openIncidentForm()">Create Incident Record</button>' : `<span class="badge blue">${escapeHtml(activeRoleName())} scoped view</span>`}</div>${renderIncidentDashboardSummary()}<details class="card incident-filter-card app-accordion" open><summary><h3>Search and Filters</h3><span class="chevron">⌄</span></summary><div class="incident-filter-grid"><label>Incident Number / keyword<input type="search" value="${escapeHtml(incidentFilters.search)}" oninput="setIncidentFilter('search',this.value)" placeholder="Search incident number, customer, vessel…"></label>${incidentFilterField('customer','Customer',[...new Set(visibleIncidentRecords().map(i=>i.customer).filter(Boolean))])}${incidentFilterField('vessel','Vessel',getOptions('vessels'))}${incidentFilterField('captain','Captain',getOptions('crew'))}${incidentFilterField('mate','Mate',getOptions('crew'))}${incidentFilterField('category','Category',INCIDENT_CATEGORIES)}${incidentFilterField('severity','Severity',INCIDENT_SEVERITIES)}${incidentFilterField('status','Status',INCIDENT_STATUSES)}<label>From<input type="date" value="${incidentFilters.from}" onchange="setIncidentFilter('from',this.value)"></label><label>To<input type="date" value="${incidentFilters.to}" onchange="setIncidentFilter('to',this.value)"></label><button class="btn btn-outline" onclick="resetIncidentFilters()">Clear Filters</button></div></details><div data-incident-form></div><div class="incident-card-grid">${incidents.length ? incidents.map(renderIncidentCard).join('') : '<div class="card card-pad empty-state">No incidents match the current role visibility and filters.</div>'}</div>${renderIncidentReportsSection()}</div>`;
   if (editingIncidentId || pendingIncidentMedia.length) openIncidentForm(editingIncidentId, false);
 }
 function renderIncidentCard(incident) {
@@ -3799,7 +3871,7 @@ function whatsappContextDefaults(category = 'Customer Booking Confirmation', tri
 function whatsappComposer(category = 'Customer Booking Confirmation', tripId = '', invoiceId = '') {
   const page = document.getElementById('page-whatsapp'); if (!page) return;
   const d = whatsappContextDefaults(category, tripId, invoiceId);
-  page.innerHTML = `<div class="page-stack whatsapp-page"><div class="card whatsapp-hero"><div><p class="eyebrow">Manual messaging framework</p><h2>WhatsApp Message Preview</h2><p>No live WhatsApp Business API is connected. Messages open in WhatsApp only after a user reviews and taps the button.</p></div><span class="badge gold">Manual send only</span></div><form class="card whatsapp-composer whatsapp-bottom-sheet" onsubmit="createWhatsAppDraft(event)"><div class="form-grid"><div class="field"><label>Message Category</label><select name="category" onchange="refreshWhatsAppComposer(this.form)">${store.whatsappTemplates.map(t=>`<option ${t.category===category?'selected':''}>${escapeHtml(t.category)}</option>`).join('')}</select></div><div class="field"><label>Linked Trip</label><select name="relatedTrip" onchange="refreshWhatsAppComposer(this.form)"><option value="">— None —</option>${store.trips.map(t=>`<option value="${t.id}" ${t.id===tripId?'selected':''}>${escapeHtml(`${t.customer || 'Trip'} · ${t.tripDate || 'No date'}`)}</option>`).join('')}</select></div><div class="field"><label>Linked Invoice / Quote</label><select name="relatedInvoice" onchange="refreshWhatsAppComposer(this.form)"><option value="">— None —</option>${store.invoices.map(i=>`<option value="${i.id}" ${i.id===invoiceId?'selected':''}>${escapeHtml(i.invoiceNumber || i.quoteNumber || i.customer || i.id)}</option>`).join('')}</select></div><div class="field"><label>Recipient Role</label><select name="recipientRole">${['Customer','Captain','Mate','Owner','Admin'].map(r=>`<option ${r===d.recipientRole?'selected':''}>${r}</option>`).join('')}</select></div><div class="field"><label>Recipient</label><input name="recipientName" value="${escapeHtml(d.recipientName)}" required></div><div class="field"><label>Phone Number</label><input name="phoneNumber" type="tel" value="${escapeHtml(d.phone)}" placeholder="242-555-0123"></div><div class="field field-wide"><label>Message Body</label><textarea name="messageBody" rows="7" oninput="updateWhatsAppLivePreview(this.form)" required>${escapeHtml(d.body)}</textarea></div></div><div class="whatsapp-preview-card" data-whatsapp-live-preview>${whatsappPreviewMarkup({...d, category, relatedTrip:tripId, relatedInvoice:invoiceId, messageBody:d.body, phoneNumber:d.phone})}</div><div class="form-actions whatsapp-mobile-actions"><button class="btn btn-primary">Save Draft</button><button class="btn btn-outline" type="button" onclick="copyWhatsAppText(this.form.messageBody.value)">Copy Message</button></div></form>${whatsappQueueMarkup()}</div>`;
+  page.innerHTML = `<div class="page-stack whatsapp-page"><div class="card whatsapp-hero"><div><p class="eyebrow">Manual messaging framework</p><h3>Message Composer</h3><p>No live WhatsApp Business API is connected. Messages open in WhatsApp only after a user reviews and taps the button.</p></div><span class="badge gold">Manual send only</span></div><form class="card whatsapp-composer whatsapp-bottom-sheet" onsubmit="createWhatsAppDraft(event)"><div class="form-grid"><div class="field"><label>Message Category</label><select name="category" onchange="refreshWhatsAppComposer(this.form)">${store.whatsappTemplates.map(t=>`<option ${t.category===category?'selected':''}>${escapeHtml(t.category)}</option>`).join('')}</select></div><div class="field"><label>Linked Trip</label><select name="relatedTrip" onchange="refreshWhatsAppComposer(this.form)"><option value="">— None —</option>${store.trips.map(t=>`<option value="${t.id}" ${t.id===tripId?'selected':''}>${escapeHtml(`${t.customer || 'Trip'} · ${t.tripDate || 'No date'}`)}</option>`).join('')}</select></div><div class="field"><label>Linked Invoice / Quote</label><select name="relatedInvoice" onchange="refreshWhatsAppComposer(this.form)"><option value="">— None —</option>${store.invoices.map(i=>`<option value="${i.id}" ${i.id===invoiceId?'selected':''}>${escapeHtml(i.invoiceNumber || i.quoteNumber || i.customer || i.id)}</option>`).join('')}</select></div><div class="field"><label>Recipient Role</label><select name="recipientRole">${['Customer','Captain','Mate','Owner','Admin'].map(r=>`<option ${r===d.recipientRole?'selected':''}>${r}</option>`).join('')}</select></div><div class="field"><label>Recipient</label><input name="recipientName" value="${escapeHtml(d.recipientName)}" required></div><div class="field"><label>Phone Number</label><input name="phoneNumber" type="tel" value="${escapeHtml(d.phone)}" placeholder="242-555-0123"></div><div class="field field-wide"><label>Message Body</label><textarea name="messageBody" rows="7" oninput="updateWhatsAppLivePreview(this.form)" required>${escapeHtml(d.body)}</textarea></div></div><div class="whatsapp-preview-card" data-whatsapp-live-preview>${whatsappPreviewMarkup({...d, category, relatedTrip:tripId, relatedInvoice:invoiceId, messageBody:d.body, phoneNumber:d.phone})}</div><div class="form-actions whatsapp-mobile-actions"><button class="btn btn-primary">Save Draft</button><button class="btn btn-outline" type="button" onclick="copyWhatsAppText(this.form.messageBody.value)">Copy Message</button></div></form>${whatsappQueueMarkup()}</div>`;
 }
 function renderWhatsApp() { store.whatsappTemplates = normalizeWhatsAppTemplates(store.whatsappTemplates); whatsappComposer(); }
 function refreshWhatsAppComposer(form) { whatsappComposer(form.category.value, form.relatedTrip.value, form.relatedInvoice.value); }
@@ -3872,7 +3944,7 @@ function gmailImportFieldInput(key, label, item) { const type = key === 'tourDat
 function renderGmailImport() {
   const page = document.getElementById('page-gmail-import');
   const imports = store.gmailImports || [];
-  page.innerHTML = `<div class="page-stack gmail-import-page"><section class="card gmail-import-hero"><div><p class="eyebrow">Manual framework · Gmail API disconnected</p><h2>Gmail Booking Import</h2><p>Paste or upload a confirmation, review every detected field, then choose what to create. Nothing is automatically read from Gmail or saved as an operational record.</p></div><span class="badge gold">${escapeHtml(store.gmailOAuthStatus)}</span></section>
+  page.innerHTML = `<div class="page-stack gmail-import-page"><section class="card gmail-import-hero"><div><p class="eyebrow">Manual framework · Gmail API disconnected</p><h3>Import & Review</h3><p>Paste or upload a confirmation, review every detected field, then choose what to create. Nothing is automatically read from Gmail or saved as an operational record.</p></div><span class="badge gold">${escapeHtml(store.gmailOAuthStatus)}</span></section>
   <details class="card app-accordion gmail-import-card" open><summary><div><h3>1. Manual Import</h3><p>Paste email text or use existing local OCR / PDF intake.</p></div><span class="chevron">⌄</span></summary><form class="gmail-paste-form" onsubmit="parseManualGmailImport(event)"><label><strong>Paste Email Text</strong><textarea name="emailText" rows="12" placeholder="Paste sender, subject, booking confirmation, customer details, date, time, guests, and payment details here…" required></textarea></label><button class="btn btn-primary">Parse & Review</button></form><div class="gmail-upload-actions"><label class="btn btn-outline">Upload Email Screenshot<input type="file" accept="image/png,image/jpeg" capture="environment" onchange="handleGmailImportFile(event,'Email Screenshot')" hidden></label><label class="btn btn-outline">Upload PDF Confirmation<input type="file" accept="application/pdf,.pdf" onchange="handleGmailImportFile(event,'PDF Confirmation')" hidden></label></div></details>
   <div id="gmailReviewHost">${activeGmailImportId ? gmailReviewMarkup(imports.find((item) => item.id === activeGmailImportId)) : ''}</div>
   <details class="card app-accordion gmail-import-card" open><summary><div><h3>Import Queue</h3><p>${imports.length} local email review record${imports.length === 1 ? '' : 's'}</p></div><span class="chevron">⌄</span></summary><div class="gmail-import-list">${imports.length ? imports.map((item) => `<article class="gmail-import-row"><div><span class="badge ${item.importStatus === 'Needs Review' ? 'gold' : item.importStatus.startsWith('Converted') ? 'green' : 'blue'}">${escapeHtml(item.importStatus)}</span><h4>${escapeHtml(item.customerName || item.subject || 'Untitled email')}</h4><p>${escapeHtml(item.source)} · ${escapeHtml(item.tourDate || 'Date missing')} · ${item.confidenceScore || 0}% confidence</p></div><button class="btn btn-outline btn-small" onclick="openGmailImportReview('${item.id}')">Review</button></article>`).join('') : '<p class="empty-state">No manual email imports yet.</p>'}</div></details></div>`;
@@ -3968,5 +4040,5 @@ function openAssistantAction(route,id='',date='') { if(date){store.calendarState
 function renderAssistantCard(card) { return `<article class="assistant-result-card"><div><h4>${escapeHtml(card.title)}</h4><dl>${Object.entries(card.fields||{}).map(([k,v])=>`<div><dt>${escapeHtml(k)}</dt><dd>${escapeHtml(v||'—')}</dd></div>`).join('')}</dl></div>${card.action?`<button class="btn btn-primary btn-small" onclick="openAssistantAction('${card.action.route}','${card.action.id||''}','${card.action.date||''}')">${escapeHtml(card.action.label)}</button>`:''}</article>`; }
 function renderOperationsAssistant() {
   const page=document.getElementById('page-operations-assistant'), result=assistantState.result;
-  page.innerHTML=`<div class="page-stack assistant-page"><section class="card assistant-hero"><div><p class="eyebrow">Local rule-based assistant</p><h2>Ask Operations</h2><p>Ask business questions using data already stored in this browser. No external AI service is connected and no app data leaves this device.</p></div><span class="badge green">Local Only</span></section><form class="card assistant-search" onsubmit="submitAssistantQuery(event)"><label for="assistantQuery">What do you need to know?</label><div><input id="assistantQuery" name="assistantQuery" type="search" value="${escapeHtml(assistantState.query)}" placeholder="Show trips needing captains." required><button class="btn btn-primary">Ask Operations</button></div></form><section class="assistant-prompts" aria-label="Suggested questions">${assistantSuggestedQuestions.map(([label,q])=>`<button class="assistant-chip" onclick="askOperations('${q.replace(/'/g,"\\'")}')">${escapeHtml(label)}</button>`).join('')}</section>${result?`<details class="card assistant-results" open><summary><div><p class="eyebrow">${escapeHtml(result.category)}</p><h3>${escapeHtml(result.title)}</h3><p>${escapeHtml(result.summary)}</p></div><span class="badge blue">${result.cards.length} result${result.cards.length===1?'':'s'}</span></summary><div class="assistant-result-list">${result.cards.length?result.cards.map(renderAssistantCard).join(''):'<p class="empty-state">No matching records are visible to your role.</p>'}</div></details>`:'<div class="card card-pad empty-state">Choose a suggested question or type your own operations question.</div>'}<details class="card assistant-readiness"><summary><div><h3>Future AI Readiness</h3><p>External AI remains disabled.</p></div><span class="chevron">⌄</span></summary><dl><div><dt>assistantProvider</dt><dd>${escapeHtml(store.assistantProvider)}</dd></div><div><dt>assistantApiStatus</dt><dd>${escapeHtml(store.assistantApiStatus)}</dd></div><div><dt>externalAiEnabled</dt><dd>${String(store.externalAiEnabled)}</dd></div><div><dt>lastAssistantSync</dt><dd>${escapeHtml(store.lastAssistantSync||'Never')}</dd></div><div><dt>assistantQueryLog</dt><dd>${store.assistantQueryLog.length} local entries</dd></div></dl></details></div>`;
+  page.innerHTML=`<div class="page-stack assistant-page"><section class="card assistant-hero"><div><p class="eyebrow">Local rule-based assistant</p><h3>Operations Query</h3><p>Ask business questions using data already stored in this browser. No external AI service is connected and no app data leaves this device.</p></div><span class="badge green">Local Only</span></section><form class="card assistant-search" onsubmit="submitAssistantQuery(event)"><label for="assistantQuery">What do you need to know?</label><div><input id="assistantQuery" name="assistantQuery" type="search" value="${escapeHtml(assistantState.query)}" placeholder="Show trips needing captains." required><button class="btn btn-primary">Ask Operations</button></div></form><section class="assistant-prompts" aria-label="Suggested questions">${assistantSuggestedQuestions.map(([label,q])=>`<button class="assistant-chip" onclick="askOperations('${q.replace(/'/g,"\\'")}')">${escapeHtml(label)}</button>`).join('')}</section>${result?`<details class="card assistant-results" open><summary><div><p class="eyebrow">${escapeHtml(result.category)}</p><h3>${escapeHtml(result.title)}</h3><p>${escapeHtml(result.summary)}</p></div><span class="badge blue">${result.cards.length} result${result.cards.length===1?'':'s'}</span></summary><div class="assistant-result-list">${result.cards.length?result.cards.map(renderAssistantCard).join(''):'<p class="empty-state">No matching records are visible to your role.</p>'}</div></details>`:'<div class="card card-pad empty-state">Choose a suggested question or type your own operations question.</div>'}<details class="card assistant-readiness"><summary><div><h3>Future AI Readiness</h3><p>External AI remains disabled.</p></div><span class="chevron">⌄</span></summary><dl><div><dt>assistantProvider</dt><dd>${escapeHtml(store.assistantProvider)}</dd></div><div><dt>assistantApiStatus</dt><dd>${escapeHtml(store.assistantApiStatus)}</dd></div><div><dt>externalAiEnabled</dt><dd>${String(store.externalAiEnabled)}</dd></div><div><dt>lastAssistantSync</dt><dd>${escapeHtml(store.lastAssistantSync||'Never')}</dd></div><div><dt>assistantQueryLog</dt><dd>${store.assistantQueryLog.length} local entries</dd></div></dl></details></div>`;
 }
