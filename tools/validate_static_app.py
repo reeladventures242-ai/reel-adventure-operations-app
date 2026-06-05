@@ -136,6 +136,10 @@ def validate_legacy_preserved() -> tuple[bool, str]:
         "vessel readiness": "renderVesselReadinessPanel",
         "passenger manifest": "passengerManifest",
         "incident reports": "page-incident-reports",
+        "whatsapp framework": "renderWhatsApp",
+        "whatsapp queue": "whatsappQueue",
+        "whatsapp templates": "DEFAULT_WHATSAPP_TEMPLATES",
+        "manual whatsapp link": "https://wa.me/",
     }
     missing_features = [label for label, token in required_features.items() if token not in app_js and token not in index_html]
     if missing or unlinked or missing_features:
