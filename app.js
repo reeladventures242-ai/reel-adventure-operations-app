@@ -1,5 +1,5 @@
 const STORE_KEY = 'rat_ops_v1_store';
-const STORE_VERSION = 12;
+const STORE_VERSION = 13;
 
 const navItems = [
   ['dashboard', '🏠', 'Dashboard'], ['bookings', '📘', 'Bookings'], ['invoices', '🧾', 'Invoice / Quote'],
@@ -180,11 +180,14 @@ const voiceSupportedRoutes = new Set(['dashboard', 'bookings', 'trips', 'invoice
 
 const dashboardCardCatalog = [
   ['todayTrips', "Today's Trips"], ['readyTrips', 'Ready Trips'], ['needsAttention', 'Trips Needing Attention'], ['outstandingBalances', 'Outstanding Balances'],
-  ['unreadAlerts', 'Unread Alerts'], ['crewAssignments', 'Crew Assignments'], ['preTripMissing', 'Pre Trip Missing'], ['postTripMissing', 'Post Trip Missing'],
+  ['unreadAlerts', 'Unread Alerts'], ['crewAssignments', 'Crew Assignments'], ['preTripMissing', 'Checklist Reminders'], ['postTripMissing', 'Post Trip Missing'],
   ['stockAlerts', 'Stock Alerts'], ['payrollOwed', 'Payroll Owed'], ['expenses', 'Expenses'], ['calendarSummary', 'Calendar Summary'],
   ['revenueSummary', 'Revenue Summary'], ['incidentAlerts', 'Incident Alerts'], ['upcomingTours', 'Upcoming Tours'], ['upcomingCruiseArrivals', 'Upcoming Cruise Arrivals']
 ];
-const defaultDashboardPreferences = { order: dashboardCardCatalog.map(([key]) => key), hidden: [] };
+const defaultDashboardPreferences = {
+  order: dashboardCardCatalog.map(([key]) => key),
+  hidden: dashboardCardCatalog.map(([key]) => key).filter((key) => !['todayTrips', 'readyTrips', 'needsAttention', 'outstandingBalances', 'unreadAlerts', 'preTripMissing'].includes(key))
+};
 const intakeRoutes = new Set(['bookings', 'invoices', 'trips', 'calendar', 'expenses', 'incident-reports', 'pre-trip-checklist', 'post-trip-checklist', 'reports']);
 const photoNoteRoutes = new Set(['bookings', 'invoices', 'trips', 'captain-dashboard', 'mate-dashboard', 'owner-dashboard', 'pre-trip-checklist', 'post-trip-checklist', 'incident-reports', 'expenses', 'vessels', 'crew']);
 
@@ -241,8 +244,8 @@ function migrateStore(existing = {}) {
 
 
 
-function normalizeDashboardPreferences(prefs = {}) {
-  prefs = prefs || {};
+function normalizeDashboardPreferences(prefs = defaultDashboardPreferences) {
+  prefs = prefs || defaultDashboardPreferences;
   const keys = dashboardCardCatalog.map(([key]) => key);
   const order = Array.isArray(prefs.order) ? [...prefs.order.filter((key) => keys.includes(key)), ...keys.filter((key) => !prefs.order.includes(key))] : [...keys];
   const hidden = Array.isArray(prefs.hidden) ? prefs.hidden.filter((key) => keys.includes(key)) : [];
@@ -1081,7 +1084,7 @@ function renderDashboardCustomCard(key, m) {
     upcomingTours: m.scheduledTrips.slice(0, 5).map((trip) => `${formatDate(trip.tripDate)} · ${trip.customer || 'Trip'}`),
     upcomingCruiseArrivals: m.cruise.map((entry) => `${formatDate(entry.arrivalDate)} · ${entry.shipName || 'Ship'}`)
   }[key] || [];
-  return `<section class="card dashboard-custom-card"><div class="card-header"><h3>${escapeHtml(dashboardCardLabel(key))}</h3></div><div class="stat-list">${rows.length ? rows.slice(0, 6).map((row) => `<div class="stat-row"><span>${escapeHtml(row)}</span><strong>${statusBadge(key === 'stockAlerts' && !canViewStockAlerts() ? 'Hidden' : rows.length ? 'Ready' : 'Optional')}</strong></div>`).join('') : mini('Optional', 'No matching items right now')}</div></section>`;
+  return `<details class="card dashboard-custom-card app-accordion" open><summary><h3>${escapeHtml(dashboardCardLabel(key))}</h3><span class="chevron" aria-hidden="true">▼</span></summary><div class="stat-list">${rows.length ? rows.slice(0, 6).map((row) => `<div class="stat-row"><span>${escapeHtml(row)}</span><strong>${statusBadge(key === 'stockAlerts' && !canViewStockAlerts() ? 'Hidden' : rows.length ? 'Ready' : 'Optional')}</strong></div>`).join('') : mini('Optional', 'No matching items right now')}</div></details>`;
 }
 
 function renderDashboardCustomizer() {
@@ -2022,10 +2025,17 @@ function invoiceAddOns(invoice = {}) {
   if (invoice.landingFeeNote) addOns.push(invoice.landingFeeNote);
   return addOns.length ? addOns.join('<br>') : 'No add-ons selected';
 }
+function estimateDocumentPages(invoice = {}) {
+  const longText = [invoice.customerSummary, invoice.includedItems, invoice.whatToBring, invoice.pickupDirections, invoice.notes].filter(Boolean).join(' ');
+  const complexity = longText.length + (invoice.meetingPointImage ? 500 : 0) + (Number(invoice.swimmingPigsPeople || 0) ? 180 : 0) + (invoice.secondBoat === 'Yes' ? 180 : 0);
+  return complexity > 2400 ? 3 : complexity > 1250 ? 2 : 1;
+}
+
 function renderInvoiceDocument(invoice = {}) {
   const title = invoiceDocumentTitle(invoice);
   const qty = Number(invoice.guestCount || 0) || Number(invoice.adultCount || 0) + Number(invoice.kidCount || 0) || 1;
-  return `<article class="customer-invoice-document" data-printable-invoice><header class="invoice-brand-header"><img src="Reel Adventure Tours Logo (2).jpg" alt="Reel Adventure Tours logo"><div><p class="eyebrow">Reel Adventure Tours</p><h1>${escapeHtml(title)}</h1><p class="muted-text">Document # ${escapeHtml(invoice.invoiceNumber || 'Draft')} · Issue date ${escapeHtml(formatDate(invoice.issueDate || new Date().toISOString().slice(0, 10)))}</p></div></header><div class="confirmation-banner">${escapeHtml(title)} prepared for ${escapeHtml(invoice.customerName || 'our guest')} — thank you for choosing Reel Adventure Tours.</div><section><h3>Hello ${escapeHtml(invoice.customerName || 'Guest')},</h3><p>${escapeHtml(invoice.customerSummary || 'Please review your tour details, balance, meeting point, and what to bring below.')}</p></section><section class="invoice-info-grid"><div><strong>Customer name</strong><span>${escapeHtml(invoice.customerName || '—')}</span></div><div><strong>Phone</strong><span>${escapeHtml(invoice.phone || '—')}</span></div><div><strong>Email</strong><span>${escapeHtml(invoice.email || '—')}</span></div><div><strong>Payment status</strong><span>${escapeHtml(invoice.paymentStatus || 'Deposit Due')}</span></div></section><section class="invoice-two-col"><div><h3>Included in your tour</h3><p>${escapeHtml(invoiceIncludedItems(invoice))}</p></div><div><h3>What to bring</h3><p>${escapeHtml(invoiceWhatToBring(invoice))}</p></div></section><section class="invoice-two-col"><div><h3>Meeting point</h3><p>${escapeHtml(invoiceMeetingPoint(invoice))}</p></div><div class="meeting-point-placeholder">${invoice.meetingPointImage ? escapeHtml(invoice.meetingPointImage) : 'Meeting point image placeholder'}</div></section><section><h3>Description</h3><div class="responsive-table-wrap"><table><thead><tr><th>Description</th><th>Date and time</th><th>Unit price</th><th>Quantity</th><th>Amount</th></tr></thead><tbody><tr><td>${escapeHtml(invoice.tourType || 'Tour package')}</td><td>${escapeHtml(formatDate(invoice.tripDate))} ${escapeHtml(formatTime(invoice.startTime))}${invoice.endTime ? `–${escapeHtml(formatTime(invoice.endTime))}` : ''}</td><td>${money(invoice.baseTourPrice || invoice.tourPrice)}</td><td>${escapeHtml(qty)}</td><td>${money(invoice.baseTourPrice || invoice.tourPrice)}</td></tr><tr><td>Add-ons</td><td colspan="3">${invoiceAddOns(invoice)}</td><td>${money(Math.max(Number(invoice.tourPrice || 0) - Number(invoice.baseTourPrice || invoice.tourPrice || 0), 0))}</td></tr></tbody></table></div></section><section class="invoice-total-grid"><div><span>Total booking cost</span><strong>${money(invoice.tourPrice)}</strong></div><div><span>Deposit paid</span><strong>${money(invoice.depositPaid)}</strong></div><div><span>Remaining balance</span><strong>${money(invoice.balanceDue)}</strong></div><div><span>Payment method</span><strong>${escapeHtml(invoice.paymentMethod || 'Not selected')}</strong></div></section><section><h3>Notes</h3><p>${escapeHtml(invoice.notes || 'No additional notes.')}</p></section><footer class="invoice-footer"><strong>Reel Adventure Tours</strong><span>Phone: +1 (242) 422-8256 · Email: info@reeladventuretours.com · Website: reeladventuretours.com</span></footer></article>`;
+  const pageEstimate = estimateDocumentPages(invoice);
+  return `<article class="customer-invoice-document" data-printable-invoice data-page-estimate="${pageEstimate}"><div class="document-page-estimate">Page estimate: ${pageEstimate} ${pageEstimate === 1 ? 'page' : 'pages'}</div><header class="invoice-brand-header"><img src="Reel Adventure Tours Logo (2).jpg" alt="Reel Adventure Tours logo"><div><p class="eyebrow">Reel Adventure Tours</p><h1>${escapeHtml(title)}</h1><p class="muted-text">Document # ${escapeHtml(invoice.invoiceNumber || 'Draft')} · Issue date ${escapeHtml(formatDate(invoice.issueDate || new Date().toISOString().slice(0, 10)))}</p></div></header><div class="confirmation-banner">${escapeHtml(title)} prepared for ${escapeHtml(invoice.customerName || 'our guest')} — thank you for choosing Reel Adventure Tours.</div><section><h3>Hello ${escapeHtml(invoice.customerName || 'Guest')},</h3><p>${escapeHtml(invoice.customerSummary || 'Please review your tour details, balance, meeting point, and what to bring below.')}</p></section><section class="invoice-info-grid"><div><strong>Customer name</strong><span>${escapeHtml(invoice.customerName || '—')}</span></div><div><strong>Phone</strong><span>${escapeHtml(invoice.phone || '—')}</span></div><div><strong>Email</strong><span>${escapeHtml(invoice.email || '—')}</span></div><div><strong>Payment status</strong><span>${escapeHtml(invoice.paymentStatus || 'Deposit Due')}</span></div></section><section class="invoice-two-col"><div><h3>Included in your tour</h3><p>${escapeHtml(invoiceIncludedItems(invoice))}</p></div><div><h3>What to bring</h3><p>${escapeHtml(invoiceWhatToBring(invoice))}</p></div></section><section class="invoice-two-col"><div><h3>Meeting point</h3><p>${escapeHtml(invoiceMeetingPoint(invoice))}</p></div><div class="meeting-point-placeholder">${invoice.meetingPointImage ? escapeHtml(invoice.meetingPointImage) : 'Meeting point image placeholder'}</div></section><section><h3>Description</h3><div class="responsive-table-wrap"><table><thead><tr><th>Description</th><th>Date and time</th><th>Unit price</th><th>Quantity</th><th>Amount</th></tr></thead><tbody><tr><td>${escapeHtml(invoice.tourType || 'Tour package')}</td><td>${escapeHtml(formatDate(invoice.tripDate))} ${escapeHtml(formatTime(invoice.startTime))}${invoice.endTime ? `–${escapeHtml(formatTime(invoice.endTime))}` : ''}</td><td>${money(invoice.baseTourPrice || invoice.tourPrice)}</td><td>${escapeHtml(qty)}</td><td>${money(invoice.baseTourPrice || invoice.tourPrice)}</td></tr><tr><td>Add-ons</td><td colspan="3">${invoiceAddOns(invoice)}</td><td>${money(Math.max(Number(invoice.tourPrice || 0) - Number(invoice.baseTourPrice || invoice.tourPrice || 0), 0))}</td></tr></tbody></table></div></section><section class="invoice-total-grid"><div><span>Total booking cost</span><strong>${money(invoice.tourPrice)}</strong></div><div><span>Deposit paid</span><strong>${money(invoice.depositPaid)}</strong></div><div><span>Remaining balance</span><strong>${money(invoice.balanceDue)}</strong></div><div><span>Payment method</span><strong>${escapeHtml(invoice.paymentMethod || 'Not selected')}</strong></div></section><section><h3>Notes</h3><p>${escapeHtml(invoice.notes || 'No additional notes.')}</p></section><footer class="invoice-footer"><strong>Reel Adventure Tours</strong><span>Phone: +1 (242) 422-8256 · Email: info@reeladventuretours.com · Website: reeladventuretours.com</span></footer></article>`;
 }
 function previewInvoiceDocument(id) {
   const invoice = findInvoice(id); if (!invoice) return;
@@ -2100,7 +2110,7 @@ function startVoiceFill(button) {
     toast('Open or create a record to use Command Voice Fill on this page.');
     return;
   }
-  voiceCommand = { state: 'LISTENING_FOR_FIELD', route: currentRoute, field: null, form, lastValue: '', message: 'Listening for field name.', suggestions: [] };
+  voiceCommand = { state: 'LISTENING_FOR_FIELD', route: currentRoute, field: null, form, lastValue: '', message: 'Which field would you like to fill?', suggestions: voiceFieldExamples() };
   renderVoiceCommandPanel(currentRoute);
   listenForVoiceTranscript((transcript) => processVoiceCommandTranscript(transcript));
 }
@@ -2208,7 +2218,7 @@ function handleVoiceAction(action) {
     return updateVoiceCommand({ state: 'IDLE', field: null, lastValue: '', message: 'Cleared. Command Voice Fill idle.' });
   }
   if (action === 'next') {
-    updateVoiceCommand({ state: 'LISTENING_FOR_FIELD', field: null, lastValue: '', message: 'Listening for field name.' });
+    updateVoiceCommand({ state: 'LISTENING_FOR_FIELD', field: null, lastValue: '', message: 'Next field?' });
     return listenForVoiceTranscript((transcript) => processVoiceCommandTranscript(transcript));
   }
 }
@@ -2407,7 +2417,7 @@ const voiceFieldAliases = [
   { key: 'tourType', fallbackKeys: ['product'], label: 'Tour Type', aliases: ['tour type', 'tour package', 'package', 'trip type'] },
   { key: 'tripDate', fallbackKeys: ['date', 'arrivalDate'], label: 'Trip Date', aliases: ['trip date', 'date', 'arrival date'] },
   { key: 'startTime', fallbackKeys: ['time', 'arrivalTime'], label: 'Start Time', aliases: ['start time', 'departure time', 'trip time', 'pickup time', 'arrival time'] },
-  { key: 'departureTime', fallbackKeys: ['returnTime'], label: 'Departure Time', aliases: ['departure time', 'return time'] },
+  { key: 'endTime', fallbackKeys: ['returnTime', 'departureTime'], label: 'End Time', aliases: ['end time', 'return time', 'finish time'] },
   { key: 'vessel', label: 'Vessel', aliases: ['vessel', 'boat', 'assigned boat'] },
   { key: 'owner', label: 'Owner', aliases: ['owner', 'boat owner', 'vessel owner'] },
   { key: 'captain', label: 'Captain', aliases: ['captain', 'assigned captain', 'boat captain'] },
@@ -2439,7 +2449,7 @@ function matchVoiceField(transcript, form) {
 }
 
 function voiceFieldExamples() {
-  return ['Customer Name', 'Phone Number', 'Email', 'Guest Count', 'Tour Type', 'Trip Date', 'Start Time', 'Departure Time', 'Vessel', 'Owner', 'Captain', 'Mate', 'Price', 'Deposit', 'Balance', 'Payment Status', 'Payment Method', 'Notes', 'Expense Amount', 'Incident Severity', 'Captain Signature', 'Mate Signature'];
+  return ['Customer Name', 'Phone Number', 'Email', 'Guest Count', 'Tour Type', 'Trip Date', 'Start Time', 'End Time', 'Vessel', 'Owner', 'Captain', 'Mate', 'Price', 'Deposit', 'Balance', 'Payment Status', 'Payment Method', 'Notes', 'Expense Amount', 'Incident Severity', 'Captain Signature', 'Mate Signature'];
 }
 
 function renderVoiceCommandPanel(route) {
