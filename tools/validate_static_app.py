@@ -645,6 +645,41 @@ def validate_phase_6j_gmail_import() -> tuple[bool, str]:
         return False, "FAIL — live Gmail/OAuth hooks found: " + ", ".join(live_calls)
     return True, "PASS — Phase 6J manual Gmail import, review, duplicate handling, conversions, CRM/WhatsApp links, future placeholders, settings, and no-live-API guardrails are present"
 
+
+def validate_phase_6k_operations_assistant() -> tuple[bool, str]:
+    combined = (ROOT / "app.js").read_text() + (ROOT / "index.html").read_text() + (ROOT / "styles.css").read_text()
+    required_tokens = {
+        "assistant route": 'id="page-operations-assistant"',
+        "local query engine": "function runLocalAssistantQuery",
+        "local data sources": "assistantLocalDataSources",
+        "suggested prompts": "assistantSuggestedQuestions",
+        "captain query": "Trips Needing Captains",
+        "dispatch query": "Trips Not Dispatch Ready",
+        "invoice query": "Unpaid Invoices",
+        "payroll query": "Payroll Due",
+        "incident query": "Open Incidents",
+        "maintenance query": "Vessels Due for Maintenance",
+        "customer lifetime value": "Customers With Highest Lifetime Spend",
+        "role visibility": "assistantCategoryRoles",
+        "action buttons": "openAssistantAction",
+        "local provider": "assistantProvider: 'Local Rule Based'",
+        "api status": "assistantApiStatus: 'Local Only'",
+        "external ai disabled": "externalAiEnabled: false",
+        "last sync placeholder": "lastAssistantSync",
+        "query log": "assistantQueryLog",
+        "audit entries": "addAudit('queried','Operations Assistant'",
+        "mobile cards": "@media(max-width:700px){.assistant-hero",
+        "no external data statement": "no app data leaves this device",
+    }
+    failures = [label for label, token in required_tokens.items() if token not in combined]
+    if failures:
+        return False, "FAIL — " + "; ".join(f"missing {label}" for label in failures)
+    forbidden = ["api.openai.com", "OpenAI API key", "OPENAI_API_KEY"]
+    live_calls = [token for token in forbidden if token in combined]
+    if live_calls:
+        return False, "FAIL — external AI hooks found: " + ", ".join(live_calls)
+    return True, "PASS — Phase 6K local Operations Assistant, role-scoped queries, result actions, audit logging, future placeholders, and mobile cards are present"
+
 def main() -> int:
     checks = [
         ("JavaScript syntax", validate_javascript),
@@ -664,6 +699,7 @@ def main() -> int:
         ("Phase 6F limited maintenance checks", validate_phase_6f_limited_maintenance),
         ("Phase 6G fuel tracking checks", validate_phase_6g_fuel_tracking),
         ("Phase 6J Gmail import checks", validate_phase_6j_gmail_import),
+        ("Phase 6K Operations Assistant checks", validate_phase_6k_operations_assistant),
     ]
     all_passed = True
     for label, check in checks:
