@@ -166,10 +166,11 @@ class Element {
   constructor(id='') { this.id=id; this.innerHTML=''; this.textContent=''; this.hidden=false; this.value='Owner / Admin'; this.dataset={}; this.classList=new ClassList(); this.listeners={}; }
   addEventListener(type, cb){ this.listeners[type]=cb; }
   setAttribute(name, value){ this[name]=value; }
+  removeAttribute(name){ delete this[name]; }
   querySelector(){ return null; }
   querySelectorAll(){ return []; }
 }
-const ids = ['toast','loginScreen','appShell','roleSelect','enterAppBtn','activeRole','menuBtn','sidebar','sidebarOverlay','primaryNav','installBtn','pageTitle','page-dashboard','page-bookings','page-invoices','page-trips','page-calendar','page-captain-dashboard','page-mate-dashboard','page-owner-dashboard','page-vessels','page-crew','page-payroll','page-expenses','page-inventory','page-incident-reports','page-pre-trip-checklist','page-post-trip-checklist','page-cruise-schedule','page-reports','page-notifications','page-audit','page-settings','page-legacy'];
+const ids = ['toast','loginScreen','appShell','roleSelect','enterAppBtn','activeRole','menuBtn','sidebar','sidebarOverlay','primaryNav','installBtn','pageTitle','page-dashboard','page-dispatch','page-bookings','page-invoices','page-trips','page-calendar','page-chat','page-customers','page-captain-dashboard','page-mate-dashboard','page-owner-dashboard','page-vessels','page-crew','page-payroll','page-expenses','page-inventory','page-incident-reports','page-pre-trip-checklist','page-post-trip-checklist','page-cruise-schedule','page-reports','page-notifications','page-audit','page-settings','page-legacy'];
 const elements = Object.fromEntries(ids.map(id => [id, new Element(id)]));
 for (const id of ids.filter(id => id.startsWith('page-'))) elements[id].classList.add('page');
 const listeners = {};
@@ -494,6 +495,41 @@ def validate_phase_6a_assignment_engine() -> tuple[bool, str]:
     return True, "PASS — Phase 6A recommendation engine, conflicts, manual apply, dispatch/calendar/dashboard integration, notifications, audit, and mobile controls are present"
 
 
+
+def validate_module_visibility_and_titles() -> tuple[bool, str]:
+    app_js = (ROOT / "app.js").read_text()
+    styles = (ROOT / "styles.css").read_text()
+    index_html = (ROOT / "index.html").read_text()
+    required_modules = [
+        "Dashboard", "Dispatch", "Calendar", "Bookings", "Chat", "Customers", "Invoice / Quote", "Trips",
+        "Vessels", "Crew", "Captain Dashboard", "Mate Dashboard", "Owner Dashboard", "Payroll", "Expenses",
+        "Inventory", "Incident Reports", "Pre Trip Checklist", "Post Trip Checklist", "Reports", "Notifications",
+        "Audit Trail", "Settings",
+    ]
+    failures: list[str] = []
+    for module in required_modules:
+        if f"'{module}'" not in app_js:
+            failures.append(f"missing navigation module {module}")
+    for route in ["dispatch", "customers"]:
+        if f'id="page-{route}"' not in index_html:
+            failures.append(f"missing page host {route}")
+    required_tokens = {
+        "all mobile modules use shared navigation": "const mobilePrimaryNav = navItems;",
+        "no modules depend on More": "const mobileMoreNav = [];",
+        "mobile horizontal scrolling": "overflow-x: auto;",
+        "mobile labels remain visible": ".mobile-nav-label,",
+        "sidebar labels remain visible": ".nav-link .nav-label,",
+        "active mobile module indicator": "box-shadow: inset 0 -3px 0 var(--aqua);",
+        "active sidebar module indicator": "box-shadow: inset 4px 0 0 var(--aqua);",
+        "unique customer body title": "Customer Directory",
+        "unique dispatch body title": "Operational Trip Assignment Board",
+    }
+    combined = app_js + styles
+    failures.extend(f"missing {label}" for label, token in required_tokens.items() if token not in combined)
+    if failures:
+        return False, "FAIL — " + "; ".join(failures)
+    return True, "PASS — all requested modules have persistent icon/label navigation, active states, direct routes, and unique body section titles"
+
 def main() -> int:
     checks = [
         ("JavaScript syntax", validate_javascript),
@@ -503,6 +539,7 @@ def main() -> int:
         ("App load console errors", validate_app_bootstrap),
         ("Phase 4D native workflow checks", validate_phase_4d_native_workflows),
         ("Phase 4E mobile redesign checks", validate_phase_4e_mobile_redesign),
+        ("Module visibility and title checks", validate_module_visibility_and_titles),
         ("Phase 4D voice examples", validate_phase_4d_voice_examples),
         ("Phase 4F legacy parity correction", validate_phase_4f_legacy_parity),
         ("Phase 4G upload and calendar checks", validate_phase_4g_upload_calendar),

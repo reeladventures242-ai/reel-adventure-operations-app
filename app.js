@@ -2,23 +2,20 @@ const STORE_KEY = 'rat_ops_v1_store';
 const STORE_VERSION = 15;
 
 const navItems = [
-  ['dashboard', '🏠', 'Dashboard'], ['bookings', '📘', 'Bookings'], ['invoices', '🧾', 'Invoice / Quote'],
-  ['trips', '🧭', 'Trips'], ['calendar', '📅', 'Calendar'], ['chat', '💬', 'Chat'], ['captain-dashboard', '🧢', 'Captain Dashboard'], ['mate-dashboard', '⚓', 'Mate Dashboard'], ['owner-dashboard', '👑', 'Owner Dashboard'], ['vessels', '⛵', 'Vessels'], ['crew', '👥', 'Crew'],
+  ['dashboard', '🏠', 'Dashboard'], ['dispatch', '📍', 'Dispatch'], ['calendar', '📅', 'Calendar'],
+  ['bookings', '📘', 'Bookings'], ['chat', '💬', 'Chat'], ['customers', '🪪', 'Customers'],
+  ['invoices', '🧾', 'Invoice / Quote'], ['trips', '🧭', 'Trips'], ['vessels', '⛵', 'Vessels'], ['crew', '👥', 'Crew'],
+  ['captain-dashboard', '🧢', 'Captain Dashboard'], ['mate-dashboard', '⚓', 'Mate Dashboard'], ['owner-dashboard', '👑', 'Owner Dashboard'],
   ['payroll', '💸', 'Payroll'], ['expenses', '💳', 'Expenses'], ['inventory', '📦', 'Inventory'], ['incident-reports', '🚨', 'Incident Reports'],
   ['pre-trip-checklist', '✅', 'Pre Trip Checklist'], ['post-trip-checklist', '🧽', 'Post Trip Checklist'],
-  ['cruise-schedule', '🚢', 'Cruise Schedule'], ['reports', '📊', 'Reports'],
-  ['notifications', '🔔', 'Notifications'], ['audit', '🧾', 'Audit Trail'], ['settings', '⚙️', 'Settings']
+  ['reports', '📊', 'Reports'], ['notifications', '🔔', 'Notifications'], ['audit', '🧾', 'Audit Trail'], ['settings', '⚙️', 'Settings'],
+  ['cruise-schedule', '🚢', 'Cruise Schedule']
 ];
 
-const mobilePrimaryNav = [
-  ['dashboard', '🏠', 'Dashboard'],
-  ['trips', '🧭', 'Dispatch'],
-  ['calendar', '📅', 'Calendar'],
-  ['chat', '💬', 'Chat'],
-  ['more', '☰', 'More']
-];
-
-const mobileMoreNav = navItems.filter(([route]) => !mobilePrimaryNav.some(([primaryRoute]) => primaryRoute === route));
+// Every module stays in the horizontally scrollable mobile navigation. The More
+// menu remains available as a layout hook, but no module depends on it for access.
+const mobilePrimaryNav = navItems;
+const mobileMoreNav = [];
 
 const legacyTools = [
   { title: 'Legacy Booking Dashboard', file: 'reel_adventure_tours_dashboard.html', desc: 'Original cruise schedule and booking tracking board.' },
@@ -422,7 +419,7 @@ function renderLoginUsers() {
 
 function renderNav() {
   document.getElementById('primaryNav').innerHTML = navItems.map(([route, icon, label]) => { const badge = route === 'chat' ? chatBadgeMarkup('nav-badge') : ''; return `
-    <button class="nav-link" data-route="${route}"><span class="nav-icon">${icon}</span><span>${label}</span>${badge}</button>
+    <button class="nav-link" data-route="${route}" aria-label="${label}"><span class="nav-icon" aria-hidden="true">${icon}</span><span class="nav-label">${label}</span>${badge}</button>
   `; }).join('');
   renderMobileNav();
 }
@@ -432,12 +429,10 @@ function renderMobileNav() {
   const more = document.getElementById('mobileMoreMenu');
   if (!bottom) return;
   const unread = unreadNotificationCount();
-  const isMoreRoute = mobileMoreNav.some(([route]) => route === currentRoute);
   bottom.innerHTML = `<div class="mobile-nav-scroll">${mobilePrimaryNav.map(([route, icon, label]) => {
-    const badge = route === 'chat' ? chatBadgeMarkup('mobile-nav-badge') : '';
-    const active = route === 'more' ? isMoreRoute : currentRoute === route;
-    const action = route === 'more' ? 'data-mobile-more-toggle aria-haspopup="dialog"' : `data-route="${route}"`;
-    return `<button class="mobile-nav-link ${active ? 'active' : ''}" ${action}><span class="mobile-nav-icon">${icon}${badge}</span><span class="mobile-nav-label">${label}</span></button>`;
+    const badge = route === 'chat' ? chatBadgeMarkup('mobile-nav-badge') : route === 'notifications' && unread ? `<span class="mobile-nav-badge" aria-label="${unread} unread notifications">${unread}</span>` : '';
+    const active = currentRoute === route;
+    return `<button class="mobile-nav-link ${active ? 'active' : ''}" data-route="${route}" aria-label="${label}" ${active ? 'aria-current="page"' : ''}><span class="mobile-nav-icon" aria-hidden="true">${icon}${badge}</span><span class="mobile-nav-label">${label}</span></button>`;
   }).join('')}</div>`;
   if (more) more.innerHTML = `<div class="mobile-more-sheet" role="dialog" aria-label="More modules"><div class="mobile-more-handle"></div><div class="mobile-more-grid">${mobileMoreNav.map(([route, icon, label]) => {
     const badge = route === 'notifications' && unread ? `<em aria-label="${unread} unread notifications">${unread}</em>` : route === 'chat' ? chatBadgeMarkup('mobile-nav-badge') : '';
@@ -487,7 +482,7 @@ function wireEvents() {
     const voiceAction = event.target.closest('[data-voice-action]');
     if (voiceAction) handleVoiceAction(voiceAction.dataset.voiceAction);
     const dispatchViewButton = event.target.closest('[data-dispatch-view]');
-    if (dispatchViewButton) { assignmentViewMode = dispatchViewButton.dataset.dispatchView; renderAssignmentBoard(); }
+    if (dispatchViewButton) { assignmentViewMode = dispatchViewButton.dataset.dispatchView; renderAssignmentBoard(document.getElementById(currentRoute === 'dispatch' ? 'page-dispatch' : 'page-trips')); }
     if (event.target.closest('[data-export-store]')) exportStoreData();
     if (event.target.closest('[data-reset-store]')) { addAudit('reset', 'Settings', 'Reset local data to seed defaults.'); localStorage.removeItem(STORE_KEY); store = seedStore({ auditTrail: store.auditTrail, notifications: store.notifications }); renderRoute(currentRoute); toast('Seed data restored.'); }
     if (event.target.closest('[data-mark-notices-read]')) markNotificationsRead();
@@ -576,7 +571,12 @@ function renderRoute(route) {
   voiceAssistantOpen = false;
   closeSidebar();
   document.querySelectorAll('.page').forEach((page) => page.classList.remove('active'));
-  document.querySelectorAll('.nav-link').forEach((link) => link.classList.toggle('active', link.dataset.route === route));
+  document.querySelectorAll('.nav-link').forEach((link) => {
+    const active = link.dataset.route === route;
+    link.classList.toggle('active', active);
+    if (active) link.setAttribute('aria-current', 'page');
+    else link.removeAttribute('aria-current');
+  });
   closeMobileMore();
   const page = document.getElementById(`page-${route}`);
   if (!page) return;
@@ -585,6 +585,8 @@ function renderRoute(route) {
   document.getElementById('pageTitle').textContent = nav ? `${nav[1]} ${nav[2]}` : 'Legacy Tools';
   if (crudConfig[route]) renderCrud(route);
   else if (route === 'dashboard') renderDashboard();
+  else if (route === 'dispatch') renderDispatch();
+  else if (route === 'customers') renderCustomers();
   else if (route === 'calendar') renderCalendar();
   else if (route === 'chat') renderChat();
   else if (route === 'payroll') renderPayroll();
@@ -1816,15 +1818,43 @@ function readinessChecklistHtml(trip) {
   </div>`;
 }
 
-function renderAssignmentBoard() {
-  const page = document.getElementById('page-trips');
+function renderDispatch() {
+  const page = document.getElementById('page-dispatch');
+  page.innerHTML = '<div class="page-stack"><div class="card assignment-board" data-assignment-board></div></div>';
+  renderAssignmentBoard(page);
+}
+
+function customerDirectoryRows() {
+  const records = [
+    ...store.bookings.map((item) => ({ name: item.customer, phone: item.phone, email: item.email, source: 'Booking', date: item.date })),
+    ...store.trips.map((item) => ({ name: item.customer, phone: item.phone, email: item.email, source: 'Trip', date: item.tripDate })),
+    ...store.invoices.map((item) => ({ name: item.customerName, phone: item.phone, email: item.email, source: 'Invoice / Quote', date: item.tripDate }))
+  ].filter((item) => item.name);
+  return Object.values(records.reduce((customers, item) => {
+    const key = `${item.name}|${item.email || ''}|${item.phone || ''}`.toLowerCase();
+    customers[key] ||= { ...item, sources: new Set(), dates: [] };
+    customers[key].sources.add(item.source);
+    if (item.date) customers[key].dates.push(item.date);
+    return customers;
+  }, {})).map((item) => ({ ...item, sources: [...item.sources].join(', '), latestDate: item.dates.sort().at(-1) || '' }));
+}
+
+function renderCustomers() {
+  const customers = customerDirectoryRows();
+  document.getElementById('page-customers').innerHTML = `<div class="page-stack"><div class="card table-card"><div class="card-header"><h3>Customer Directory</h3><span class="badge blue">${customers.length} customers</span></div><div class="responsive-table-wrap"><table><thead><tr><th>Customer</th><th>Phone</th><th>Email</th><th>Related modules</th><th>Latest trip date</th></tr></thead><tbody>${customers.length ? customers.map((customer) => `<tr><td><strong>${escapeHtml(customer.name)}</strong></td><td>${escapeHtml(customer.phone || '—')}</td><td>${escapeHtml(customer.email || '—')}</td><td>${escapeHtml(customer.sources)}</td><td>${escapeHtml(customer.latestDate ? formatDate(customer.latestDate) : '—')}</td></tr>`).join('') : '<tr><td colspan="5" class="empty-state">No customer records found.</td></tr>'}</tbody></table></div></div></div>`;
+}
+
+function renderAssignmentBoard(host = document.getElementById('page-trips')) {
+  const page = host;
   if (!page) return;
   let board = page.querySelector('[data-assignment-board]');
   if (!board) {
     board = document.createElement('div');
     board.className = 'card assignment-board';
     board.dataset.assignmentBoard = 'true';
-    page.querySelector('.record-form').after(board);
+    const insertionPoint = page.querySelector('.record-form');
+    if (insertionPoint) insertionPoint.after(board);
+    else page.querySelector('.page-stack')?.appendChild(board);
   }
   const trips = sortedDispatchTrips();
   const daily = dailyOperationsSummary(trips);
