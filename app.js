@@ -1,5 +1,5 @@
 const STORE_KEY = 'rat_ops_v1_store';
-const STORE_VERSION = 18;
+const STORE_VERSION = 19;
 const MAINTENANCE_VESSELS = ['Reel Adventure Tours I', 'Reel Adventure Tours II'];
 const MAINTENANCE_STATUSES = ['Good', 'Due Soon', 'Overdue', 'Needs Review', 'Out of Service'];
 
@@ -234,7 +234,7 @@ function migrateStore(existing = {}) {
   next.auditTrail = Array.isArray(next.auditTrail) ? next.auditTrail : [];
   next.expenses = Array.isArray(next.expenses) ? next.expenses : [];
   next.fuelRecords = Array.isArray(next.fuelRecords) ? next.fuelRecords : [];
-  next.incidentReports = Array.isArray(next.incidentReports) ? next.incidentReports : [];
+  next.incidentReports = (Array.isArray(next.incidentReports) ? next.incidentReports : []).map(normalizeIncidentRecord);
   next.checklistRecords = Array.isArray(next.checklistRecords) ? next.checklistRecords : [];
   next.invoices = Array.isArray(next.invoices) ? next.invoices : [];
   next.cruiseSchedule = Array.isArray(next.cruiseSchedule) ? next.cruiseSchedule : [];
@@ -460,8 +460,8 @@ function getOptions(kind) {
     expenseStatus: ['Submitted', 'Approved', 'Paid', 'Needs Review'],
     reimbursementStatus: ['Outstanding (not yet reimbursed)', 'Paid / Reimbursed', 'Track only'],
     incidentSeverity: ['Low', 'Medium', 'High', 'Critical'],
-    incidentCategories: ['Guest', 'Crew', 'Vessel', 'Weather', 'Injury', 'Equipment', 'Other'],
-    incidentStatus: ['Open', 'Needs Review', 'Resolved'],
+    incidentCategories: ['Vessel Damage', 'Customer Injury', 'Crew Injury', 'Guest Complaint', 'Mechanical Issue', 'Weather Event', 'Late Departure', 'Missed Departure', 'Fuel Issue', 'Safety Issue', 'Property Damage', 'Refund Issued', 'Other'],
+    incidentStatus: ['Open', 'Under Review', 'Resolved', 'Closed'],
     trips: store.trips.map((t) => `${t.id}|${formatDate(t.tripDate)} ${t.startTime || ''} ${t.customer || 'Trip'}`),
     bookings: store.bookings.map((b) => `${b.id}|${formatDate(b.date)} ${b.time || ''} ${b.customer || 'Booking'}`),
     paymentStatus: ['Deposit Due', 'Deposit Paid', 'Balance Due', 'Paid in Full', 'Refunded', 'Cancelled'],
@@ -601,6 +601,7 @@ function wireEvents() {
     if (event.target.matches('[data-calendar-month]')) updateCalendarDate('month', event.target.value);
     if (event.target.matches('[data-calendar-year]')) updateCalendarDate('year', event.target.value);
     if (event.target.matches('[data-photo-note-file]')) savePhotoNoteFile(event.target.dataset.photoNoteRoute, event.target.files[0]);
+    if (event.target.matches('[data-incident-media]')) attachIncidentMedia(event.target.files);
     if (event.target.matches('[data-chat-filter]')) { chatFilters[event.target.dataset.chatFilter] = event.target.value; renderChat(); }
     if (event.target.matches('[data-user-role]')) updateUserField(event.target.dataset.userRole, 'role', event.target.value);
     if (event.target.matches('[data-user-link-crew]')) updateUserField(event.target.dataset.userLinkCrew, 'linkedCrewProfileId', event.target.value);
@@ -661,7 +662,8 @@ function renderRoute(route) {
   page.classList.add('active');
   const nav = navItems.find(([key]) => key === route);
   document.getElementById('pageTitle').textContent = nav ? `${nav[1]} ${nav[2]}` : 'Legacy Tools';
-  if (crudConfig[route]) renderCrud(route);
+  if (route === 'incident-reports') renderIncidentLibrary();
+  else if (crudConfig[route]) renderCrud(route);
   else if (route === 'dashboard') renderDashboard();
   else if (route === 'dispatch') renderDispatch();
   else if (route === 'customers') renderCustomers();
@@ -1190,7 +1192,7 @@ function renderDashboard() {
   document.getElementById('page-dashboard').innerHTML = `
     <div class="page-stack dashboard-command-center" data-mobile-command-center>
       <div class="hero-command-card"><img class="dashboard-logo" src="Reel Adventure Tours Logo (2).jpg" alt="Reel Adventure Tours logo"><div><p class="eyebrow">Reel Adventure Tours</p><h1>Today’s Operations</h1></div></div>
-      ${weatherSummaryCards(metrics.scheduledTrips)}${renderWeatherAlertPanel(metrics.scheduledTrips)}${['Admin','Owner','Bookkeeper'].includes(activeRoleName()) ? renderFuelReports() : ''}<div class="grid dashboard-custom-grid">${cardMarkup}</div>${renderUploadZone('dashboard')}
+      ${renderIncidentDashboardSummary()}${weatherSummaryCards(metrics.scheduledTrips)}${renderWeatherAlertPanel(metrics.scheduledTrips)}${['Admin','Owner','Bookkeeper'].includes(activeRoleName()) ? renderFuelReports() : ''}<div class="grid dashboard-custom-grid">${cardMarkup}</div>${renderUploadZone('dashboard')}
     </div>`;
 }
 
@@ -1417,7 +1419,8 @@ function renderCrud(route) {
   renderForm(route);
   if (route === 'trips') { renderAssignmentBoard(); page.querySelector('.page-stack')?.insertAdjacentHTML('beforeend', renderFuelTrackingOverview()); page.querySelector('.page-stack')?.insertAdjacentHTML('beforeend', `<div class="card card-pad trip-weather-overview"><div class="card-header"><h3>Trip Weather Risk</h3><button class="btn btn-outline btn-small" data-route="weather">Manage Conditions</button></div>${weatherSummaryCards(store.trips)}${store.trips.map((trip) => `<div class="weather-trip-row"><strong>${escapeHtml(formatDate(trip.tripDate))} · ${escapeHtml(trip.customer || 'Trip')}</strong>${weatherRiskBadge(trip)}</div>`).join('') || '<p class="empty-state">No scheduled trips.</p>'}</div>`); }
   if (route === 'crew') renderCrewDashboard();
-  if (route === 'vessels') renderVesselManagementPanel();
+  if (route === 'vessels') { renderVesselManagementPanel(); renderEntityIncidentHistory('vessel'); }
+  if (route === 'crew') renderEntityIncidentHistory('crew');
   renderTable(route);
   if (route === 'invoices') renderInvoiceModule();
   if (route === 'cruise-schedule') renderCruiseScheduleModule();
@@ -1594,7 +1597,8 @@ function deleteRecord(route, id) {
   saveStore();
   if (route === 'trips') renderCrud(route);
   if (route === 'crew') renderCrewDashboard();
-  if (route === 'vessels') renderVesselManagementPanel();
+  if (route === 'vessels') { renderVesselManagementPanel(); renderEntityIncidentHistory('vessel'); }
+  if (route === 'crew') renderEntityIncidentHistory('crew');
   renderTable(route);
   if (route === 'invoices') renderInvoiceModule();
   if (route === 'cruise-schedule') renderCruiseScheduleModule();
@@ -1944,7 +1948,11 @@ function customerDirectoryRows() {
 
 function renderCustomers() {
   const customers = customerDirectoryRows();
-  document.getElementById('page-customers').innerHTML = `<div class="page-stack"><div class="card table-card"><div class="card-header"><h3>Customer Directory</h3><span class="badge blue">${customers.length} customers</span></div><div class="responsive-table-wrap"><table><thead><tr><th>Customer</th><th>Phone</th><th>Email</th><th>Related modules</th><th>Latest trip date</th></tr></thead><tbody>${customers.length ? customers.map((customer) => `<tr><td><strong>${escapeHtml(customer.name)}</strong></td><td>${escapeHtml(customer.phone || '—')}</td><td>${escapeHtml(customer.email || '—')}</td><td>${escapeHtml(customer.sources)}</td><td>${escapeHtml(customer.latestDate ? formatDate(customer.latestDate) : '—')}</td></tr>`).join('') : '<tr><td colspan="5" class="empty-state">No customer records found.</td></tr>'}</tbody></table></div></div></div>`;
+  const incidents = visibleIncidentRecords();
+  document.getElementById('page-customers').innerHTML = `<div class="page-stack"><div class="card table-card"><div class="card-header"><h3>Customer Directory & Customer Incidents</h3><span class="badge blue">${customers.length} customers</span></div><div class="customer-profile-list">${customers.length ? customers.map((customer) => {
+    const matches = incidents.filter((incident) => incident.customer === customer.name);
+    return `<details class="customer-profile-card app-accordion"><summary><div><strong>${escapeHtml(customer.name)}</strong><p>${escapeHtml(customer.phone || customer.email || 'No contact details')}</p></div><span class="badge ${matches.length ? 'gold' : 'green'}">${matches.length} incident${matches.length === 1 ? '' : 's'}</span></summary><div class="responsive-table-wrap"><table><thead><tr><th>Date</th><th>Trip</th><th>Issue</th><th>Status</th></tr></thead><tbody>${matches.length ? matches.map((incident) => `<tr><td>${escapeHtml(formatDate(incident.date))}</td><td>${escapeHtml(incidentTripLabel(incident))}</td><td>${escapeHtml(incident.category)} — ${escapeHtml(incident.description)}</td><td>${incidentStatusBadge(incident.status)}</td></tr>`).join('') : '<tr><td colspan="4" class="empty-state">No customer incidents.</td></tr>'}</tbody></table></div></details>`;
+  }).join('') : '<p class="empty-state">No customer records found.</p>'}</div></div></div>`;
 }
 
 function renderAssignmentBoard(host = document.getElementById('page-trips')) {
@@ -3598,3 +3606,85 @@ function generateMaintenanceNotifications() {
     candidates.forEach((item) => { const key=`maintenance-${record.vessel}-${item.key}`; if (!(store.notifications || []).some(n=>n.metadata?.maintenanceKey===key)) addNotification(item.title,item.message,item.level,{category:'Maintenance',vessel:record.vessel,maintenanceKey:key},'Admin','','Maintenance'); });
   });
 }
+
+/* Phase 6H: centralized Damage and Incident Library */
+const INCIDENT_CATEGORIES = ['Vessel Damage', 'Customer Injury', 'Crew Injury', 'Guest Complaint', 'Mechanical Issue', 'Weather Event', 'Late Departure', 'Missed Departure', 'Fuel Issue', 'Safety Issue', 'Property Damage', 'Refund Issued', 'Other'];
+const INCIDENT_SEVERITIES = ['Low', 'Medium', 'High', 'Critical'];
+const INCIDENT_STATUSES = ['Open', 'Under Review', 'Resolved', 'Closed'];
+let incidentFilters = { search: '', customer: '', vessel: '', captain: '', mate: '', category: '', severity: '', status: '', from: '', to: '' };
+let editingIncidentId = '';
+let pendingIncidentMedia = [];
+
+function normalizeIncidentRecord(record = {}) {
+  return { incidentNumber: '', date: '', time: '', tripId: '', customer: '', vessel: '', captain: '', mate: '', location: '', category: 'Other', severity: 'Low', description: '', immediateAction: '', followUpRequired: '', status: 'Open', createdBy: '', financialImpact: '', media: [], createdAt: '', updatedAt: '', ...record, immediateAction: record.immediateAction || record.actionsTaken || '', status: record.status === 'Needs Review' ? 'Under Review' : (record.status || 'Open'), createdBy: record.createdBy || record.reportedBy || '', media: Array.isArray(record.media) ? record.media : [] };
+}
+function nextIncidentNumber() {
+  const year = new Date().getFullYear();
+  const max = (store.incidentReports || []).reduce((value, incident) => Math.max(value, Number(String(incident.incidentNumber || '').match(/(\d+)$/)?.[1] || 0)), 0);
+  return `INC-${year}-${String(max + 1).padStart(4, '0')}`;
+}
+function severityColor(severity) { return { Low: 'green', Medium: 'gold', High: 'orange', Critical: 'red' }[severity] || 'gray'; }
+function incidentSeverityBadge(severity) { return `<span class="badge status-badge-large ${severityColor(severity)}">${escapeHtml(severity || 'Low')}</span>`; }
+function incidentStatusBadge(status) { return `<span class="badge status-badge-large ${status === 'Closed' || status === 'Resolved' ? 'green' : status === 'Under Review' ? 'gold' : 'red'}">${escapeHtml(status || 'Open')}</span>`; }
+function incidentTrip(incident) { return store.trips.find((trip) => trip.id === String(incident.tripId || '').split('|')[0]); }
+function incidentTripLabel(incident) { const trip = incidentTrip(incident); return trip ? `${formatDate(trip.tripDate)} · ${trip.customer || 'Trip'}` : '—'; }
+function incidentHasFinancialImpact(incident) { return Boolean(String(incident.financialImpact || '').trim()) || incident.category === 'Refund Issued'; }
+function visibleIncidentRecords() {
+  const role = activeRoleName(); const person = activeRolePerson(role);
+  return (store.incidentReports || []).map(normalizeIncidentRecord).filter((incident) => {
+    if (role === 'Admin') return true;
+    if (role === 'Bookkeeper') return incidentHasFinancialImpact(incident);
+    if (role === 'Owner') return ownerForVesselName(incident.vessel) === person;
+    if (role === 'Captain') return incident.captain === person;
+    if (role === 'Mate') return incident.mate === person;
+    return false;
+  });
+}
+function filteredIncidents() {
+  return visibleIncidentRecords().filter((incident) => {
+    const haystack = [incident.incidentNumber, incident.customer, incident.vessel, incident.captain, incident.mate, incident.category, incident.severity, incident.status, incident.description].join(' ').toLowerCase();
+    return (!incidentFilters.search || haystack.includes(incidentFilters.search.toLowerCase())) && ['customer','vessel','captain','mate','category','severity','status'].every((key) => !incidentFilters[key] || incident[key] === incidentFilters[key]) && (!incidentFilters.from || incident.date >= incidentFilters.from) && (!incidentFilters.to || incident.date <= incidentFilters.to);
+  }).sort((a,b) => String(b.date + b.time).localeCompare(String(a.date + a.time)));
+}
+function canManageIncidents() { return activeRoleName() === 'Admin'; }
+function optionList(values, selected = '') { return values.map((value) => `<option value="${escapeHtml(value)}" ${value === selected ? 'selected' : ''}>${escapeHtml(value)}</option>`).join(''); }
+function incidentFilterField(key, label, values) { return `<label>${label}<select onchange="setIncidentFilter('${key}',this.value)"><option value="">All</option>${optionList(values, incidentFilters[key])}</select></label>`; }
+function setIncidentFilter(key, value) { incidentFilters[key] = value; renderIncidentLibrary(); }
+function resetIncidentFilters() { incidentFilters = { search: '', customer: '', vessel: '', captain: '', mate: '', category: '', severity: '', status: '', from: '', to: '' }; renderIncidentLibrary(); }
+function renderIncidentLibrary() {
+  const page = document.getElementById('page-incident-reports'); const incidents = filteredIncidents(); const canManage = canManageIncidents();
+  page.innerHTML = `<div class="page-stack incident-library"><div class="incident-hero card card-pad"><div><p class="eyebrow">Permanent searchable history</p><h2>Damage and Incident Library</h2><p>Incidents, damage, customer and crew issues, injuries, weather, refunds, and operational events.</p></div>${canManage ? '<button class="btn btn-primary" onclick="openIncidentForm()">Create Incident Record</button>' : `<span class="badge blue">${escapeHtml(activeRoleName())} scoped view</span>`}</div>${renderIncidentDashboardSummary()}<details class="card incident-filter-card app-accordion" open><summary><h3>Search and Filters</h3><span class="chevron">⌄</span></summary><div class="incident-filter-grid"><label>Incident Number / keyword<input type="search" value="${escapeHtml(incidentFilters.search)}" oninput="setIncidentFilter('search',this.value)" placeholder="Search incident number, customer, vessel…"></label>${incidentFilterField('customer','Customer',[...new Set(visibleIncidentRecords().map(i=>i.customer).filter(Boolean))])}${incidentFilterField('vessel','Vessel',getOptions('vessels'))}${incidentFilterField('captain','Captain',getOptions('crew'))}${incidentFilterField('mate','Mate',getOptions('crew'))}${incidentFilterField('category','Category',INCIDENT_CATEGORIES)}${incidentFilterField('severity','Severity',INCIDENT_SEVERITIES)}${incidentFilterField('status','Status',INCIDENT_STATUSES)}<label>From<input type="date" value="${incidentFilters.from}" onchange="setIncidentFilter('from',this.value)"></label><label>To<input type="date" value="${incidentFilters.to}" onchange="setIncidentFilter('to',this.value)"></label><button class="btn btn-outline" onclick="resetIncidentFilters()">Clear Filters</button></div></details><div data-incident-form></div><div class="incident-card-grid">${incidents.length ? incidents.map(renderIncidentCard).join('') : '<div class="card card-pad empty-state">No incidents match the current role visibility and filters.</div>'}</div>${renderIncidentReportsSection()}</div>`;
+  if (editingIncidentId || pendingIncidentMedia.length) openIncidentForm(editingIncidentId, false);
+}
+function renderIncidentCard(incident) {
+  return `<details class="card incident-card app-accordion"><summary><div><span class="incident-number">${escapeHtml(incident.incidentNumber)}</span><h3>${escapeHtml(incident.category)}</h3><p>${escapeHtml(formatDate(incident.date))} ${escapeHtml(formatTime(incident.time))} · ${escapeHtml(incident.vessel || incident.customer || 'Operations')}</p></div><div class="incident-badge-stack">${incidentSeverityBadge(incident.severity)}${incidentStatusBadge(incident.status)}</div></summary><div class="incident-card-body"><div class="incident-detail-grid"><span><small>Trip</small><strong>${escapeHtml(incidentTripLabel(incident))}</strong></span><span><small>Customer</small><strong>${escapeHtml(incident.customer || '—')}</strong></span><span><small>Captain</small><strong>${escapeHtml(incident.captain || '—')}</strong></span><span><small>Mate</small><strong>${escapeHtml(incident.mate || '—')}</strong></span><span><small>Location</small><strong>${escapeHtml(incident.location || '—')}</strong></span><span><small>Created By</small><strong>${escapeHtml(incident.createdBy || '—')}</strong></span></div><div class="incident-timeline"><div><b>Description</b><p>${escapeHtml(incident.description || '—')}</p></div><div><b>Immediate Action Taken</b><p>${escapeHtml(incident.immediateAction || '—')}</p></div><div><b>Follow Up Action Required</b><p>${escapeHtml(incident.followUpRequired || 'None')}</p></div>${incident.financialImpact ? `<div><b>Financial Impact</b><p>${escapeHtml(incident.financialImpact)}</p></div>` : ''}</div>${renderIncidentMediaGallery(incident.media)}${canManageIncidents() ? `<div class="form-actions"><button class="btn btn-primary btn-small" onclick="openIncidentForm('${incident.id}')">Edit Incident</button><button class="btn btn-danger btn-small" onclick="deleteIncident('${incident.id}')">Delete Incident</button></div>` : ''}</div></details>`;
+}
+function openIncidentForm(id = '', scroll = true) {
+  if (!canManageIncidents()) return toast('Only Admin can create or edit incident records.');
+  editingIncidentId = id; const existing = id ? store.incidentReports.find((item) => item.id === id) : null; const incident = normalizeIncidentRecord(existing || { incidentNumber: nextIncidentNumber(), date: new Date().toISOString().slice(0,10), time: new Date().toTimeString().slice(0,5), createdBy: currentUserLabel(), status: 'Open' });
+  pendingIncidentMedia = id && !pendingIncidentMedia.length ? [...incident.media] : pendingIncidentMedia;
+  const host = document.querySelector('[data-incident-form]'); if (!host) return;
+  host.innerHTML = `<form class="card incident-form" onsubmit="saveIncident(event)"><div class="card-header"><h3>${id ? 'Edit' : 'Create'} Incident Record</h3>${incidentSeverityBadge(incident.severity)}</div><div class="form-grid"><label>Incident Number<input name="incidentNumber" value="${escapeHtml(incident.incidentNumber)}" readonly></label><label>Date<input name="date" type="date" required value="${escapeHtml(incident.date)}"></label><label>Time<input name="time" type="time" required value="${escapeHtml(incident.time)}"></label><label>Trip<select name="tripId" onchange="populateIncidentTrip(this.value)"><option value="">— Select —</option>${optionList(store.trips.map(t=>`${t.id}|${formatDate(t.tripDate)} ${t.customer || 'Trip'}`), incident.tripId)}</select></label><label>Customer<input name="customer" value="${escapeHtml(incident.customer)}"></label><label>Vessel<select name="vessel"><option value="">— Select —</option>${optionList(getOptions('vessels'),incident.vessel)}</select></label><label>Captain<select name="captain"><option value="">— Select —</option>${optionList(getOptions('crew'),incident.captain)}</select></label><label>Mate<select name="mate"><option value="">— Select —</option>${optionList(getOptions('crew'),incident.mate)}</select></label><label>Location<input name="location" value="${escapeHtml(incident.location)}"></label><label>Category<select name="category" required>${optionList(INCIDENT_CATEGORIES,incident.category)}</select></label><label>Severity<select name="severity" required>${optionList(INCIDENT_SEVERITIES,incident.severity)}</select></label><label>Status<select name="status" required>${optionList(INCIDENT_STATUSES,incident.status)}</select></label><label class="field-wide">Description<textarea name="description" required>${escapeHtml(incident.description)}</textarea></label><label class="field-wide">Immediate Action Taken<textarea name="immediateAction">${escapeHtml(incident.immediateAction)}</textarea></label><label class="field-wide">Follow Up Action Required<textarea name="followUpRequired">${escapeHtml(incident.followUpRequired)}</textarea></label><label class="field-wide">Financial Impact / Refund<textarea name="financialImpact" placeholder="Complete this for bookkeeper visibility">${escapeHtml(incident.financialImpact)}</textarea></label></div><details class="incident-media-editor app-accordion" open><summary><h3>Photo and Video Evidence</h3><span class="chevron">⌄</span></summary><div class="incident-media-actions"><label class="btn btn-outline">Take Photo<input data-incident-media type="file" accept="image/*" capture="environment" hidden></label><label class="btn btn-outline">Upload Photo<input data-incident-media type="file" accept="image/*" multiple hidden></label><label class="btn btn-outline">Upload Video<input data-incident-media type="file" accept="video/*" multiple hidden></label></div>${renderIncidentMediaGallery(pendingIncidentMedia,true)}</details><div class="form-actions sticky-save-controls"><button class="btn btn-primary" type="submit">Save Incident</button><button class="btn btn-outline" type="button" onclick="cancelIncidentForm()">Cancel</button></div></form>`;
+  if (scroll) host.scrollIntoView({behavior:'smooth',block:'start'});
+}
+function populateIncidentTrip(value) { const trip = store.trips.find((item)=>item.id===String(value).split('|')[0]); const form=document.querySelector('.incident-form'); if (!trip||!form) return; ['customer','vessel','captain','mate'].forEach(key=>{form.elements[key].value=trip[key]||'';}); }
+function attachIncidentMedia(files) { [...files].forEach((file) => { if (file.size > 8*1024*1024) return toast(`${file.name} is over the 8 MB evidence limit.`); const reader=new FileReader(); reader.onload=()=>{pendingIncidentMedia.push({id:makeId('evidence'),name:file.name,type:file.type,dataUrl:String(reader.result||''),createdAt:new Date().toISOString()}); openIncidentForm(editingIncidentId,false);}; reader.readAsDataURL(file); }); }
+function renderIncidentMediaGallery(media=[],editable=false) { return `<div class="incident-media-gallery">${media.length ? media.map(item=>`<figure>${String(item.type).startsWith('video') ? `<video controls src="${escapeHtml(item.dataUrl)}"></video>` : `<img src="${escapeHtml(item.dataUrl)}" alt="${escapeHtml(item.name)}">`}<figcaption>${escapeHtml(item.name)}${editable?`<button class="btn btn-danger btn-small" type="button" onclick="removeIncidentMedia('${item.id}')">Delete Media</button>`:''}</figcaption></figure>`).join('') : '<p class="empty-state">No photo or video evidence attached.</p>'}</div>`; }
+function removeIncidentMedia(id) { pendingIncidentMedia=pendingIncidentMedia.filter(item=>item.id!==id); openIncidentForm(editingIncidentId,false); }
+function cancelIncidentForm() { editingIncidentId=''; pendingIncidentMedia=[]; renderIncidentLibrary(); }
+function saveIncident(event) {
+  event.preventDefault(); const data=Object.fromEntries(new FormData(event.currentTarget).entries()); const existing=editingIncidentId ? store.incidentReports.find(item=>item.id===editingIncidentId) : null; const previous=existing ? normalizeIncidentRecord({...existing,media:[...(existing.media||[])]}) : null; const now=new Date().toISOString(); const incident=normalizeIncidentRecord({...existing,...data,id:existing?.id||makeId('incident'),createdAt:existing?.createdAt||now,updatedAt:now,createdBy:existing?.createdBy||currentUserLabel(),media:pendingIncidentMedia});
+  if (existing) Object.assign(existing,incident); else store.incidentReports.unshift(incident);
+  notifyIncidentChange(incident,previous,existing ? 'updated' : 'created'); addAudit(existing?'updated':'created','Incident Library',`${incident.incidentNumber} ${existing?'updated':'created'}.`,{incidentId:incident.id}); editingIncidentId=''; pendingIncidentMedia=[]; saveStore(); renderIncidentLibrary(); toast(`Incident ${incident.incidentNumber} saved.`);
+}
+function notifyIncidentChange(incident, previous, action) {
+  const events=[action==='created'?'Incident created':null,previous&&previous.severity!==incident.severity?'Severity changed':null,incident.status==='Closed'&&previous?.status!=='Closed'?'Incident closed':null,incident.followUpRequired?'Follow up required':null].filter(Boolean); const recipients=[['Admin',''],['Owner',ownerForVesselName(incident.vessel)],['Captain',incident.captain],['Mate',incident.mate]];
+  events.forEach(title=>recipients.forEach(([role,name])=>addNotification(title,`${incident.incidentNumber}: ${incident.category} (${incident.severity})`,incident.severity==='Critical'?'critical':'warning',{category:'Incident',incidentId:incident.id,vessel:incident.vessel,tripId:String(incident.tripId).split('|')[0]},role,name,'Incident')));
+}
+function deleteIncident(id) { if(!canManageIncidents()||!confirm('Delete this incident record and its evidence?')) return; store.incidentReports=store.incidentReports.filter(item=>item.id!==id); saveStore(); renderIncidentLibrary(); toast('Incident deleted.'); }
+function renderIncidentDashboardSummary() { const incidents=visibleIncidentRecords(); const month=new Date().toISOString().slice(0,7); return `<div class="grid kpi-grid incident-kpis">${kpi('Open Incidents',incidents.filter(i=>i.status==='Open').length,'Requires action')}${kpi('Critical Incidents',incidents.filter(i=>i.severity==='Critical'&&!['Resolved','Closed'].includes(i.status)).length,'Active critical')}${kpi('Incidents Under Review',incidents.filter(i=>i.status==='Under Review').length,'Review queue')}${kpi('Resolved This Month',incidents.filter(i=>i.status==='Resolved'&&String(i.updatedAt||i.date).slice(0,7)===month).length,'Monthly resolution')}</div>`; }
+function incidentGroupRows(key) { const grouped=visibleIncidentRecords().reduce((acc,item)=>{const label=item[key]||'Unassigned';acc[label]=(acc[label]||0)+1;return acc;},{}); return Object.entries(grouped).sort((a,b)=>b[1]-a[1]).map(([label,count])=>`<div class="stat-row"><span>${escapeHtml(label)}</span><strong>${count}</strong></div>`).join('')||'<p class="empty-state">No incident data.</p>'; }
+function renderIncidentReportsSection() { const monthly=visibleIncidentRecords().reduce((acc,item)=>{const key=String(item.date||'Unknown').slice(0,7);acc[key]=(acc[key]||0)+1;return acc;},{}); return `<details class="card incident-reports-section app-accordion" open><summary><h3>Incident Reports</h3><span class="chevron">⌄</span></summary><div class="grid dashboard-grid"><div><h4>Incidents by Vessel</h4>${incidentGroupRows('vessel')}</div><div><h4>Incidents by Captain</h4>${incidentGroupRows('captain')}</div><div><h4>Incidents by Mate</h4>${incidentGroupRows('mate')}</div><div><h4>Incidents by Category</h4>${incidentGroupRows('category')}</div><div><h4>Incidents by Severity</h4>${incidentGroupRows('severity')}</div><div><h4>Monthly Incident Trends</h4>${Object.entries(monthly).sort().map(([label,count])=>`<div class="stat-row"><span>${escapeHtml(label)}</span><strong>${count}</strong></div>`).join('')||'<p class="empty-state">No trend data.</p>'}</div></div></details>`; }
+function renderEntityIncidentHistory(type) { const page=document.getElementById(type==='vessel'?'page-vessels':'page-crew'); const table=page?.querySelector('.table-card'); if(!table)return; const names=type==='vessel'?getOptions('vessels'):getOptions('crew'); const title=type==='vessel'?'Damage History':'Crew Incidents'; const html=`<details class="card entity-incident-history app-accordion" open><summary><h3>${title}</h3><span class="chevron">⌄</span></summary><div class="entity-history-filter"><input type="search" placeholder="Filter ${title.toLowerCase()} by vessel, crew, incident, severity, or status" oninput="filterEntityIncidentHistory(this.value)"></div><div class="entity-history-grid">${names.map(name=>{const matches=visibleIncidentRecords().filter(i=>type==='vessel'?i.vessel===name:i.captain===name||i.mate===name);return `<details class="entity-history-card"><summary><strong>${escapeHtml(name)}</strong><span class="badge ${matches.length?'gold':'green'}">${matches.length}</span></summary><div class="responsive-table-wrap"><table><thead><tr><th>Date</th><th>Incident Number</th>${type==='crew'?'<th>Trip</th><th>Category</th>':''}<th>Severity</th><th>Status</th><th>Description</th></tr></thead><tbody>${matches.length?matches.map(i=>`<tr><td>${escapeHtml(formatDate(i.date))}</td><td>${escapeHtml(i.incidentNumber)}</td>${type==='crew'?`<td>${escapeHtml(incidentTripLabel(i))}</td><td>${escapeHtml(i.category)}</td>`:''}<td>${incidentSeverityBadge(i.severity)}</td><td>${incidentStatusBadge(i.status)}</td><td>${escapeHtml(i.description)}</td></tr>`).join(''):`<tr><td colspan="7" class="empty-state">No ${title.toLowerCase()}.</td></tr>`}</tbody></table></div></details>`;}).join('')}</div></details>`; table.insertAdjacentHTML('afterend',html); }
+
+function filterEntityIncidentHistory(value) { const query=String(value||'').toLowerCase(); document.querySelectorAll('.entity-history-card').forEach(card=>{card.hidden=query&&!card.textContent.toLowerCase().includes(query);}); }

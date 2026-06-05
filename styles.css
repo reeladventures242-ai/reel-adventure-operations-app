@@ -1226,3 +1226,39 @@ body { background: radial-gradient(circle at 100% 0, rgba(82,210,211,.12), trans
   .fuel-receipt-preview img { width: 88px; height: 88px; }
   input[name="fuelStartLevel"], input[name="fuelEndLevel"], input[name="gallonsUsed"], input[name="fuelPricePerGallon"], input[name="totalFuelCost"] { min-height: 54px; font-size: 1.2rem; font-weight: 850; }
 }
+
+/* Phase 6H: Damage and Incident Library */
+.incident-hero { display:flex; justify-content:space-between; align-items:center; gap:18px; background:linear-gradient(135deg,#f6fbfd,#eaf7f4); }
+.incident-hero h2,.incident-hero p { margin:4px 0; }
+.incident-filter-card > summary,.incident-card > summary,.incident-reports-section > summary,.entity-incident-history > summary,.customer-profile-card > summary,.entity-history-card > summary,.incident-media-editor > summary { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:16px; cursor:pointer; }
+.incident-filter-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; padding:16px; border-top:1px solid var(--line); }
+.incident-filter-grid label,.incident-form label { display:grid; gap:6px; font-weight:800; color:var(--muted); }
+.incident-card-grid,.entity-history-grid,.customer-profile-list { display:grid; gap:14px; }
+.incident-card { overflow:hidden; border-left:6px solid var(--aqua); }
+.incident-card > summary p { margin:5px 0 0; color:var(--muted); }
+.incident-number { color:var(--muted); font-size:.78rem; font-weight:900; letter-spacing:.06em; }
+.incident-badge-stack { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:7px; }
+.badge.orange { background:#fff0e5; color:#b45309; }
+.incident-card-body,.incident-reports-section > .grid,.entity-incident-history > .entity-history-grid,.customer-profile-card > div,.entity-history-card > div { padding:16px; border-top:1px solid var(--line); }
+.incident-detail-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; }
+.incident-detail-grid span { display:grid; gap:4px; padding:10px; background:#f3f8fa; border-radius:12px; }
+.incident-detail-grid small { color:var(--muted); font-weight:850; }
+.incident-timeline { display:grid; gap:0; margin:16px 0; border-left:3px solid var(--aqua); }
+.incident-timeline div { position:relative; padding:4px 14px 14px; }
+.incident-timeline div:before { content:''; position:absolute; width:9px; height:9px; border-radius:50%; background:var(--aqua); left:-6px; top:8px; }
+.incident-timeline p { margin:4px 0; color:var(--muted); white-space:pre-wrap; }
+.incident-form { padding:18px; }
+.incident-form .card-header { padding:0 0 16px; }
+.incident-media-editor { margin:16px 0; border:1px solid var(--line); border-radius:14px; }
+.incident-media-actions { display:flex; flex-wrap:wrap; gap:8px; padding:14px; border-top:1px solid var(--line); }
+.incident-media-gallery { display:grid; grid-template-columns:repeat(auto-fill,minmax(160px,1fr)); gap:12px; padding:14px; }
+.incident-media-gallery figure { margin:0; padding:8px; border:1px solid var(--line); border-radius:12px; background:#f8fcfd; }
+.incident-media-gallery img,.incident-media-gallery video { width:100%; height:140px; object-fit:cover; border-radius:8px; background:#071a2e; }
+.incident-media-gallery figcaption { display:grid; gap:7px; padding-top:7px; overflow-wrap:anywhere; font-size:.8rem; font-weight:800; }
+.customer-profile-card,.entity-history-card { border:1px solid var(--line); border-radius:14px; background:#fff; }
+.customer-profile-card summary p { margin:4px 0 0; color:var(--muted); }
+.incident-kpis { margin:0; }
+@media (max-width:900px){.incident-filter-grid{grid-template-columns:repeat(2,minmax(0,1fr));}.incident-detail-grid{grid-template-columns:repeat(2,minmax(0,1fr));}}
+@media (max-width:600px){.incident-hero{align-items:flex-start;flex-direction:column}.incident-hero .btn{width:100%}.incident-filter-grid,.incident-detail-grid{grid-template-columns:1fr}.incident-card > summary{align-items:flex-start}.incident-badge-stack{flex-direction:column}.incident-media-actions .btn{width:100%;justify-content:center}.incident-media-gallery{grid-template-columns:repeat(2,minmax(0,1fr));padding:10px}.incident-media-gallery img,.incident-media-gallery video{height:110px}.status-badge-large{font-size:.78rem;padding:7px 9px}.incident-form{padding:12px}}
+.entity-history-filter { padding: 0 16px 16px; }
+.entity-history-filter input { width: 100%; }
