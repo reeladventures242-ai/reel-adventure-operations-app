@@ -614,6 +614,37 @@ def validate_phase_6g_fuel_tracking() -> tuple[bool, str]:
         return False, "FAIL — " + "; ".join(f"missing {label}" for label in failures)
     return True, "PASS — Phase 6G fuel fields, calculations, receipts, expenses, profitability, reports, roles, and mobile controls are present"
 
+
+def validate_phase_6j_gmail_import() -> tuple[bool, str]:
+    combined = (ROOT / "app.js").read_text() + (ROOT / "index.html").read_text() + (ROOT / "styles.css").read_text()
+    required_tokens = {
+        "gmail import route": 'id="page-gmail-import"',
+        "manual paste import": "Paste Email Text",
+        "email screenshot upload": "Upload Email Screenshot",
+        "pdf confirmation upload": "Upload PDF Confirmation",
+        "source detection": "function detectGmailImportSource",
+        "review screen": "function gmailReviewMarkup",
+        "duplicate detection": "function gmailDuplicateMatches",
+        "booking conversion": "createBookingFromUpload(mapped)",
+        "trip and calendar conversion": "createTripFromUpload(mapped, action === 'Add to Calendar')",
+        "crm linking": "function linkGmailImportCustomer",
+        "whatsapp drafts": "function createGmailWhatsAppDraft",
+        "future oauth status": "gmailOAuthStatus",
+        "future sync cursor": "syncCursor",
+        "gmail settings": "function gmailImportSettingsMarkup",
+        "required review default": "reviewRequiredBeforeSave: true",
+        "no live gmail api statement": "No live Gmail API",
+        "mobile gmail layout": "@media(max-width:700px){.gmail-import-hero",
+    }
+    failures = [label for label, token in required_tokens.items() if token not in combined]
+    if failures:
+        return False, "FAIL — " + "; ".join(f"missing {label}" for label in failures)
+    forbidden = ["gmail.googleapis.com", "accounts.google.com/o/oauth", "gapi.client.gmail"]
+    live_calls = [token for token in forbidden if token in combined]
+    if live_calls:
+        return False, "FAIL — live Gmail/OAuth hooks found: " + ", ".join(live_calls)
+    return True, "PASS — Phase 6J manual Gmail import, review, duplicate handling, conversions, CRM/WhatsApp links, future placeholders, settings, and no-live-API guardrails are present"
+
 def main() -> int:
     checks = [
         ("JavaScript syntax", validate_javascript),
@@ -632,6 +663,7 @@ def main() -> int:
         ("Phase 6D weather intelligence checks", validate_phase_6d_weather_intelligence),
         ("Phase 6F limited maintenance checks", validate_phase_6f_limited_maintenance),
         ("Phase 6G fuel tracking checks", validate_phase_6g_fuel_tracking),
+        ("Phase 6J Gmail import checks", validate_phase_6j_gmail_import),
     ]
     all_passed = True
     for label, check in checks:

@@ -1,11 +1,11 @@
 const STORE_KEY = 'rat_ops_v1_store';
-const STORE_VERSION = 20;
+const STORE_VERSION = 21;
 const MAINTENANCE_VESSELS = ['Reel Adventure Tours I', 'Reel Adventure Tours II'];
 const MAINTENANCE_STATUSES = ['Good', 'Due Soon', 'Overdue', 'Needs Review', 'Out of Service'];
 
 const navItems = [
   ['dashboard', '🏠', 'Dashboard'], ['dispatch', '📍', 'Dispatch'], ['calendar', '📅', 'Calendar'], ['weather', '🌦️', 'Weather / Conditions'],
-  ['bookings', '📘', 'Bookings'], ['chat', '💬', 'Chat'], ['whatsapp', '🟢', 'WhatsApp'], ['customers', '🪪', 'Customers'],
+  ['bookings', '📘', 'Bookings'], ['chat', '💬', 'Chat'], ['whatsapp', '🟢', 'WhatsApp'], ['gmail-import', '📨', 'Gmail Import'], ['customers', '🪪', 'Customers'],
   ['invoices', '🧾', 'Invoice / Quote'], ['trips', '🧭', 'Trips'], ['vessels', '⛵', 'Vessels'], ['maintenance', '🛠️', 'Maintenance'], ['crew', '👥', 'Crew'],
   ['captain-dashboard', '🧢', 'Captain Dashboard'], ['mate-dashboard', '⚓', 'Mate Dashboard'], ['owner-dashboard', '👑', 'Owner Dashboard'],
   ['payroll', '💸', 'Payroll'], ['expenses', '💳', 'Expenses'], ['inventory', '📦', 'Inventory'], ['incident-reports', '🚨', 'Incident Reports'],
@@ -111,6 +111,15 @@ const seedData = {
   whatsappTemplates: [],
   whatsappQueue: [],
   whatsappSettings: { defaultCountryCode: '1', companyWhatsAppNumber: '', enableCustomerActions: true, enableCrewActions: true },
+  gmailImports: [],
+  customerProfiles: [],
+  gmailOAuthStatus: 'Not Connected',
+  gmailConnectedAccount: '',
+  lastSyncTime: '',
+  syncCursor: '',
+  importRules: [],
+  sourceRules: [],
+  gmailImportSettings: { enabled: false, allowedSources: ['Viator','GetYourGuide','Tripadvisor','Airbnb Experiences','Website Contact Form','Direct Customer Email','Unknown'], defaultImportAction: 'Save as Draft', duplicateDetectionStrictness: 'Standard', reviewRequiredBeforeSave: true },
   activeUserId: ''
 };
 
@@ -259,6 +268,16 @@ function migrateStore(existing = {}) {
   next.whatsappTemplates = normalizeWhatsAppTemplates(next.whatsappTemplates);
   next.whatsappQueue = Array.isArray(next.whatsappQueue) ? next.whatsappQueue : [];
   next.whatsappSettings = { defaultCountryCode: '1', companyWhatsAppNumber: '', enableCustomerActions: true, enableCrewActions: true, ...(next.whatsappSettings || {}) };
+  next.gmailImports = Array.isArray(next.gmailImports) ? next.gmailImports : [];
+  next.customerProfiles = Array.isArray(next.customerProfiles) ? next.customerProfiles : [];
+  next.gmailOAuthStatus = next.gmailOAuthStatus || 'Not Connected';
+  next.gmailConnectedAccount = next.gmailConnectedAccount || '';
+  next.lastSyncTime = next.lastSyncTime || '';
+  next.syncCursor = next.syncCursor || '';
+  next.importRules = Array.isArray(next.importRules) ? next.importRules : [];
+  next.sourceRules = Array.isArray(next.sourceRules) ? next.sourceRules : [];
+  next.gmailImportSettings = { enabled: false, allowedSources: ['Viator','GetYourGuide','Tripadvisor','Airbnb Experiences','Website Contact Form','Direct Customer Email','Unknown'], defaultImportAction: 'Save as Draft', duplicateDetectionStrictness: 'Standard', reviewRequiredBeforeSave: true, ...(next.gmailImportSettings || {}) };
+  next.gmailImportSettings.reviewRequiredBeforeSave = true;
   next.expenses = Array.isArray(next.expenses) ? next.expenses : [];
   next.fuelRecords = Array.isArray(next.fuelRecords) ? next.fuelRecords : [];
   next.incidentReports = (Array.isArray(next.incidentReports) ? next.incidentReports : []).map(normalizeIncidentRecord);
@@ -698,6 +717,7 @@ function renderRoute(route) {
   else if (route === 'weather') renderWeather();
   else if (route === 'chat') renderChat();
   else if (route === 'whatsapp') renderWhatsApp();
+  else if (route === 'gmail-import') renderGmailImport();
   else if (route === 'payroll') renderPayroll();
   else if (route === 'inventory') renderInventory();
   else if (route === 'captain-dashboard') renderCrewRoleDashboard('captain');
@@ -1964,7 +1984,8 @@ function customerDirectoryRows() {
   const records = [
     ...store.bookings.map((item) => ({ name: item.customer, phone: item.phone, email: item.email, source: 'Booking', date: item.date })),
     ...store.trips.map((item) => ({ name: item.customer, phone: item.phone, email: item.email, source: 'Trip', date: item.tripDate })),
-    ...store.invoices.map((item) => ({ name: item.customerName, phone: item.phone, email: item.email, source: 'Invoice / Quote', date: item.tripDate }))
+    ...store.invoices.map((item) => ({ name: item.customerName, phone: item.phone, email: item.email, source: 'Invoice / Quote', date: item.tripDate })),
+    ...(store.customerProfiles || []).map((item) => ({ name: item.name, phone: item.phone, email: item.email, source: 'CRM Profile', date: item.updatedAt?.slice(0,10) || '' }))
   ].filter((item) => item.name);
   return Object.values(records.reduce((customers, item) => {
     const key = `${item.name}|${item.email || ''}|${item.phone || ''}`.toLowerCase();
@@ -3550,7 +3571,7 @@ function renderLegacyAuditSummary() {
 }
 
 function settingsMarkup() {
-  return `<div class="grid settings-grid" style="margin-top:18px">${renderUserSettings()}${renderRoleSettings()}${renderChatPreferences()}<div class="legacy-tool dashboard-preferences-settings"><h3>Dashboard Preferences</h3>${renderDashboardCustomizer()}</div><div class="legacy-tool"><h3>Seed data</h3><p>${store.vessels.length} vessels, ${store.crew.length} crew members, and ${store.users.length} users loaded.</p></div><div class="legacy-tool"><h3>Local data</h3><div class="legacy-actions"><button class="btn btn-outline" data-export-store>Export JSON</button><label class="btn btn-outline" for="importStoreFile">Import JSON<input id="importStoreFile" data-import-store type="file" accept="application/json" hidden></label><button class="btn btn-danger" data-reset-store>Reset seed data</button></div></div><div class="legacy-tool archived-legacy-tools"><h3>Archived Legacy Tools</h3><p>Legacy tools are retained for reference only. Active operations should be completed through the main application tabs.</p><div class="legacy-list">${legacyTools.map((tool) => `<div class="legacy-tool"><h3>${tool.title}</h3><p>${tool.desc}</p><div class="legacy-actions"><a class="btn btn-outline btn-small" href="${tool.file}" target="_blank" rel="noopener">Open reference</a></div></div>`).join('')}</div></div></div>`;
+  return `<div class="grid settings-grid" style="margin-top:18px">${gmailImportSettingsMarkup()}${renderUserSettings()}${renderRoleSettings()}${renderChatPreferences()}<div class="legacy-tool dashboard-preferences-settings"><h3>Dashboard Preferences</h3>${renderDashboardCustomizer()}</div><div class="legacy-tool"><h3>Seed data</h3><p>${store.vessels.length} vessels, ${store.crew.length} crew members, and ${store.users.length} users loaded.</p></div><div class="legacy-tool"><h3>Local data</h3><div class="legacy-actions"><button class="btn btn-outline" data-export-store>Export JSON</button><label class="btn btn-outline" for="importStoreFile">Import JSON<input id="importStoreFile" data-import-store type="file" accept="application/json" hidden></label><button class="btn btn-danger" data-reset-store>Reset seed data</button></div></div><div class="legacy-tool archived-legacy-tools"><h3>Archived Legacy Tools</h3><p>Legacy tools are retained for reference only. Active operations should be completed through the main application tabs.</p><div class="legacy-list">${legacyTools.map((tool) => `<div class="legacy-tool"><h3>${tool.title}</h3><p>${tool.desc}</p><div class="legacy-actions"><a class="btn btn-outline btn-small" href="${tool.file}" target="_blank" rel="noopener">Open reference</a></div></div>`).join('')}</div></div></div>`;
 }
 
 function toast(message) {
@@ -3783,3 +3804,87 @@ function whatsappSettingsMarkup(){const s=store.whatsappSettings;return `<detail
 function whatsappRouteCategory(route){return ({bookings:'Customer Booking Confirmation',invoices:'Invoice / Payment Reminder',trips:'Trip Reminder',dispatch:'Captain Assignment',calendar:'Trip Reminder','captain-dashboard':'Trip Reminder','mate-dashboard':'Trip Reminder','owner-dashboard':'Owner Assignment Alert',payroll:'Owner Payout Statement','pre-trip-checklist':'Pre Trip Checklist Reminder','post-trip-checklist':'Post Trip Checklist Reminder','incident-reports':'Incident Alert',weather:'Weather Alert','cruise-schedule':'Cruise Timing Alert'})[route];}
 function openWhatsAppComposer(category,tripId='',invoiceId=''){renderRoute('whatsapp');whatsappComposer(category,tripId,invoiceId);}
 function appendWhatsAppIntegrationActions(route){if(route==='whatsapp')return;const page=document.getElementById(`page-${route}`);if(!page)return;if(route==='settings'){page.insertAdjacentHTML('beforeend',whatsappSettingsMarkup());return;}const category=whatsappRouteCategory(route);if(!category)return;const role=activeRoleName(),person=activeRolePerson(role),trip=store.trips.find(t=>role==='Captain'?t.captain===person:role==='Mate'?t.mate===person:true)||store.trips[0]||{},invoice=store.invoices[0]||{};if(!whatsAppRoleCanCreate(category,trip))return;page.insertAdjacentHTML('afterbegin',`<div class="card whatsapp-action-strip"><div><strong>WhatsApp action</strong><span>${escapeHtml(category)} · manual preview required</span></div><button class="btn btn-primary" onclick="openWhatsAppComposer('${category}','${trip.id||''}','${route==='invoices'?(invoice.id||''):''}')">Preview WhatsApp Message</button></div>`);}
+
+/* Phase 6J: Gmail Import Framework — local/manual review only; no Gmail API or OAuth calls. */
+const GMAIL_IMPORT_SOURCES = ['Viator','GetYourGuide','Tripadvisor','Airbnb Experiences','Website Contact Form','Direct Customer Email','Unknown'];
+const GMAIL_IMPORT_STATUSES = ['New','Reviewed','Converted to Booking','Converted to Trip','Ignored','Needs Review'];
+const GMAIL_REVIEW_FIELDS = [
+  ['source','Detected Source'],['sender','Sender'],['subject','Subject'],['receivedDate','Received Date'],['customerName','Customer Name'],['phone','Phone'],['email','Email'],['tourType','Tour Type'],['tourDate','Tour Date'],['startTime','Start Time'],['duration','Duration'],['guestCount','Guest Count'],['totalPrice','Total Price'],['deposit','Deposit'],['balance','Balance'],['paymentStatus','Payment Status'],['bookingReference','Booking Reference']
+];
+let activeGmailImportId = '';
+
+function detectGmailImportSource(text = '', sender = '', subject = '') {
+  const value = `${sender} ${subject} ${text}`.toLowerCase();
+  if (/viator|tripadvisor experiences|merchantapi@viator/.test(value)) return 'Viator';
+  if (/getyourguide|get your guide|gyg/.test(value)) return 'GetYourGuide';
+  if (/tripadvisor|trip advisor/.test(value)) return 'Tripadvisor';
+  if (/airbnb|experiences by airbnb/.test(value)) return 'Airbnb Experiences';
+  if (/contact form|website inquiry|reeladventuretours\.com|website lead/.test(value)) return 'Website Contact Form';
+  if (/from:|sender:|reply-to:|@/.test(value)) return 'Direct Customer Email';
+  return 'Unknown';
+}
+
+function parseGmailImportText(text = '', fileName = '') {
+  const base = parseQuoteInvoiceText(text, fileName);
+  const pick = (...patterns) => patterns.map((pattern) => String(text).match(pattern)?.[1]?.trim()).find(Boolean) || '';
+  const sender = pick(/(?:from|sender|reply-to)\s*:\s*([^\n]+)/i);
+  const subject = pick(/subject\s*:\s*([^\n]+)/i) || fileName;
+  const source = detectGmailImportSource(text, sender, subject);
+  const totalPrice = base.tourPrice || pick(/(?:total price|total|amount)\s*[:#-]?\s*\$?([\d,.]+)/i);
+  const deposit = base.depositPaid || pick(/deposit(?: paid)?\s*[:#-]?\s*\$?([\d,.]+)/i);
+  const balance = base.balanceDue || pick(/balance(?: due)?\s*[:#-]?\s*\$?([\d,.]+)/i);
+  const fields = {
+    source, sender, subject, receivedDate: pick(/(?:received|sent|date)\s*:\s*([^\n]+)/i), customerName: base.customerName || '', phone: base.phone || '', email: base.email || '', tourType: base.tourType || '', tourDate: base.tripDate || '', startTime: base.startTime || base.departureTime || '', duration: base.duration || '', guestCount: base.guestCount || '', totalPrice, deposit, balance, paymentStatus: base.paymentStatus || '', bookingReference: base.invoiceNumber || base.quoteNumber || pick(/(?:booking|reservation|confirmation)(?: reference| number| id| #)?\s*[:#-]?\s*([A-Z0-9-]+)/i)
+  };
+  const confidenceScores = Object.fromEntries(GMAIL_REVIEW_FIELDS.map(([key]) => [key, fields[key] ? (['source','sender','subject','bookingReference'].includes(key) ? 'High' : 'Medium') : 'Low']));
+  const completed = Object.values(fields).filter(Boolean).length;
+  return { fields, confidenceScores, confidenceScore: Math.round(completed / Object.keys(fields).length * 100) };
+}
+
+function gmailDuplicateMatches(item) {
+  const strictness = store.gmailImportSettings.duplicateDetectionStrictness;
+  const normalize = (value) => String(value || '').toLowerCase().trim();
+  const records = [
+    ...store.bookings.map((record) => ({ id: record.id, type: 'Booking', name: record.customer, phone: record.phone, email: record.email, date: record.date, time: record.time, reference: record.order })),
+    ...store.trips.map((record) => ({ id: record.id, type: 'Trip', name: record.customer, phone: record.phone, email: record.email, date: record.tripDate, time: record.startTime, reference: record.bookingReference }))
+  ];
+  return records.map((record) => {
+    const checks = [normalize(item.customerName) && normalize(item.customerName) === normalize(record.name), normalize(item.phone) && normalizePhoneNumber(item.phone) === normalizePhoneNumber(record.phone), normalize(item.email) && normalize(item.email) === normalize(record.email), item.tourDate && item.tourDate === record.date, item.startTime && item.startTime === record.time, normalize(item.bookingReference) && normalize(item.bookingReference) === normalize(record.reference)];
+    return { ...record, matchCount: checks.filter(Boolean).length };
+  }).filter((record) => record.matchCount >= (strictness === 'Strict' ? 1 : strictness === 'Relaxed' ? 3 : 2));
+}
+
+function missingGmailImportFields(item) { return [['customerName','Customer Name'],['tourDate','Tour Date'],['startTime','Start Time'],['guestCount','Guest Count'],['tourType','Tour Type']].filter(([key]) => !item[key]).map(([,label]) => label); }
+function gmailImportFieldInput(key, label, item) { const type = key === 'tourDate' ? 'date' : key === 'startTime' ? 'time' : ['guestCount','totalPrice','deposit','balance'].includes(key) ? 'number' : key === 'receivedDate' ? 'text' : 'text'; return `<label class="gmail-review-field"><span>${escapeHtml(label)} <small>${escapeHtml(item.confidenceScores?.[key] || 'Low')} confidence</small></span><input name="${key}" type="${type}" value="${escapeHtml(item[key] || '')}"></label>`; }
+
+function renderGmailImport() {
+  const page = document.getElementById('page-gmail-import');
+  const imports = store.gmailImports || [];
+  page.innerHTML = `<div class="page-stack gmail-import-page"><section class="card gmail-import-hero"><div><p class="eyebrow">Manual framework · Gmail API disconnected</p><h2>Gmail Booking Import</h2><p>Paste or upload a confirmation, review every detected field, then choose what to create. Nothing is automatically read from Gmail or saved as an operational record.</p></div><span class="badge gold">${escapeHtml(store.gmailOAuthStatus)}</span></section>
+  <details class="card app-accordion gmail-import-card" open><summary><div><h3>1. Manual Import</h3><p>Paste email text or use existing local OCR / PDF intake.</p></div><span class="chevron">⌄</span></summary><form class="gmail-paste-form" onsubmit="parseManualGmailImport(event)"><label><strong>Paste Email Text</strong><textarea name="emailText" rows="12" placeholder="Paste sender, subject, booking confirmation, customer details, date, time, guests, and payment details here…" required></textarea></label><button class="btn btn-primary">Parse & Review</button></form><div class="gmail-upload-actions"><label class="btn btn-outline">Upload Email Screenshot<input type="file" accept="image/png,image/jpeg" capture="environment" onchange="handleGmailImportFile(event,'Email Screenshot')" hidden></label><label class="btn btn-outline">Upload PDF Confirmation<input type="file" accept="application/pdf,.pdf" onchange="handleGmailImportFile(event,'PDF Confirmation')" hidden></label></div></details>
+  <div id="gmailReviewHost">${activeGmailImportId ? gmailReviewMarkup(imports.find((item) => item.id === activeGmailImportId)) : ''}</div>
+  <details class="card app-accordion gmail-import-card" open><summary><div><h3>Import Queue</h3><p>${imports.length} local email review record${imports.length === 1 ? '' : 's'}</p></div><span class="chevron">⌄</span></summary><div class="gmail-import-list">${imports.length ? imports.map((item) => `<article class="gmail-import-row"><div><span class="badge ${item.importStatus === 'Needs Review' ? 'gold' : item.importStatus.startsWith('Converted') ? 'green' : 'blue'}">${escapeHtml(item.importStatus)}</span><h4>${escapeHtml(item.customerName || item.subject || 'Untitled email')}</h4><p>${escapeHtml(item.source)} · ${escapeHtml(item.tourDate || 'Date missing')} · ${item.confidenceScore || 0}% confidence</p></div><button class="btn btn-outline btn-small" onclick="openGmailImportReview('${item.id}')">Review</button></article>`).join('') : '<p class="empty-state">No manual email imports yet.</p>'}</div></details></div>`;
+}
+
+function parseManualGmailImport(event) { event.preventDefault(); createGmailImportReview(new FormData(event.target).get('emailText'), 'Pasted Email Text', 'Manual paste'); }
+async function handleGmailImportFile(event, inputType) { const file = event.target.files?.[0]; if (!file) return; const extension = (file.name.split('.').pop() || '').toLowerCase(); try { toast('Reading file with local intake tools…'); const result = await extractUploadText(file, extension); createGmailImportReview(result.text, file.name, `${inputType} · ${result.method}`, result.warning); } catch (error) { toast('Could not parse file.'); } event.target.value = ''; }
+function createGmailImportReview(text, fileName, extractionMethod, warning = '') { const parsed = parseGmailImportText(text, fileName); const item = { id: makeId('gmail-email'), emailId: makeId('email'), ...parsed.fields, rawMessagePreview: String(text || '').slice(0,1200), importStatus: missingGmailImportFields(parsed.fields).length ? 'Needs Review' : 'New', confidenceScore: parsed.confidenceScore, confidenceScores: parsed.confidenceScores, extractionMethod, extractionWarning: warning, createdAt: new Date().toISOString(), reviewRequired: true }; item.possibleDuplicates = gmailDuplicateMatches(item).map(({id,type,matchCount}) => ({id,type,matchCount})); store.gmailImports.unshift(item); activeGmailImportId = item.id; addAudit('parsed','Gmail Import',`Manual email parsed from ${item.source}; review required before save.`,{emailId:item.emailId,source:item.source}); saveStore(); renderGmailImport(); toast('Email parsed. Review required before any action.'); }
+function openGmailImportReview(id) { activeGmailImportId = id; renderGmailImport(); document.getElementById('gmailReviewHost')?.scrollIntoView({behavior:'smooth'}); }
+
+function gmailReviewMarkup(item) { if (!item) return ''; const duplicates = gmailDuplicateMatches(item), missing = missingGmailImportFields(item); return `<section class="card gmail-review-screen"><div class="card-header"><div><p class="eyebrow">2. Review before save</p><h3>${escapeHtml(item.subject || item.source || 'Imported Email')}</h3></div><span class="badge blue">${item.confidenceScore || 0}% confidence</span></div><form onsubmit="saveGmailImportReview(event,'${item.id}')"><div class="gmail-review-summary"><div><small>Detected Source</small><strong>${escapeHtml(item.source)}</strong></div><div><small>Import Status</small><strong>${escapeHtml(item.importStatus)}</strong></div><div><small>Input Method</small><strong>${escapeHtml(item.extractionMethod)}</strong></div></div>${item.extractionWarning ? `<p class="notice warning">${escapeHtml(item.extractionWarning)}</p>` : ''}<details class="gmail-review-section" open><summary><strong>Extracted Fields</strong><span>${GMAIL_REVIEW_FIELDS.length} fields</span></summary><div class="gmail-review-grid">${GMAIL_REVIEW_FIELDS.map(([key,label]) => gmailImportFieldInput(key,label,item)).join('')}</div></details><details class="gmail-review-section" open><summary><strong>Possible Duplicates</strong><span>${duplicates.length}</span></summary>${duplicates.length ? `<div class="notice warning"><strong>Possible Duplicate Booking Found</strong>${duplicates.map((duplicate) => `<p>${escapeHtml(duplicate.type)} · ${escapeHtml(duplicate.name || 'Unnamed')} · ${duplicate.matchCount} matching fields</p>`).join('')}<label>Duplicate decision<select name="duplicateDecision"><option value="">Choose…</option><option>Update Existing</option><option>Create New</option><option>Cancel</option></select></label></div>` : '<p class="notice success">No possible duplicates detected.</p>'}</details><details class="gmail-review-section" open><summary><strong>Missing Fields</strong><span>${missing.length}</span></summary><p>${missing.length ? escapeHtml(missing.join(' · ')) : 'No core fields are missing.'}</p></details><details class="gmail-review-section"><summary><strong>Raw Message Preview</strong><span>Local only</span></summary><pre>${escapeHtml(item.rawMessagePreview)}</pre></details><div class="gmail-review-actions"><label>Action<select name="action" required><option value="">Choose action…</option><option>Create Booking</option><option>Create Trip</option><option>Create Invoice / Quote</option><option>Add to Calendar</option><option>Save as Draft</option><option>Ignore</option><option>Create WhatsApp confirmation draft</option><option>Create payment reminder draft</option><option>Create meeting point message draft</option></select></label><button class="btn btn-primary">Confirm Reviewed Action</button></div></form></section>`; }
+function gmailImportToUploadData(item) { return { customerName:item.customerName, phone:item.phone, email:item.email, bookingSource:item.source, tripDate:item.tourDate, startTime:item.startTime, duration:item.duration, guestCount:item.guestCount, tourType:item.tourType, tourPrice:item.totalPrice, depositPaid:item.deposit, balanceDue:item.balance, paymentStatus:item.paymentStatus, invoiceNumber:item.bookingReference, quoteNumber:item.bookingReference, notes:`Imported from ${item.source} email ${item.emailId}.` }; }
+function linkGmailImportCustomer(item) { const norm = (value) => String(value || '').toLowerCase().trim(); let profile = (store.customerProfiles || []).find((customer) => (item.email && norm(customer.email) === norm(item.email)) || (item.phone && normalizePhoneNumber(customer.phone) === normalizePhoneNumber(item.phone)) || (item.customerName && norm(customer.name) === norm(item.customerName))); if (!profile) { profile = { id:makeId('customer'), name:item.customerName || 'Imported Customer', phone:item.phone || '', email:item.email || '', source:item.source, createdAt:new Date().toISOString(), updatedAt:new Date().toISOString() }; store.customerProfiles.push(profile); } else { Object.assign(profile,{name:item.customerName || profile.name,phone:item.phone || profile.phone,email:item.email || profile.email,updatedAt:new Date().toISOString()}); } item.customerProfileId = profile.id; return profile; }
+function createGmailWhatsAppDraft(item, category) { const labels = { confirmation:'Customer Booking Confirmation', payment:'Invoice / Payment Reminder', meeting:'Meeting Point Message' }; const bodies = { confirmation:`Hi ${item.customerName || 'there'}, your ${item.tourType || 'tour'} is being reviewed for ${item.tourDate || 'your requested date'} at ${item.startTime || 'the requested time'}.`, payment:`Hi ${item.customerName || 'there'}, this is a payment reminder for your ${item.tourType || 'tour'}. Balance due: ${money(item.balance)}.`, meeting:`Hi ${item.customerName || 'there'}, we will confirm the meeting point for your ${item.tourType || 'tour'} on ${item.tourDate || 'your tour date'} shortly.` }; store.whatsappQueue.unshift({ id:makeId('wa-message'), category:labels[category], recipientName:item.customerName || 'Customer', recipientRole:'Customer', phoneNumber:item.phone || '', messageBody:bodies[category], status:'Draft', createdAt:new Date().toISOString(), createdBy:currentUserLabel(), linkedGmailImportId:item.id }); addNotification('WhatsApp draft created',`${labels[category]} created from reviewed email import.`, 'success',{category:'WhatsApp',emailId:item.emailId}); }
+function saveGmailImportReview(event, id) { event.preventDefault(); const item = store.gmailImports.find((record) => record.id === id); if (!item) return; const data = Object.fromEntries(new FormData(event.target).entries()); const action = data.action; delete data.action; const duplicateDecision = data.duplicateDecision || ''; delete data.duplicateDecision; Object.assign(item,data); const duplicates = gmailDuplicateMatches(item); if (duplicates.length && !duplicateDecision) return toast('Possible Duplicate Booking Found. Choose Update Existing, Create New, or Cancel.'); if (duplicateDecision === 'Cancel') return toast('Import action cancelled.'); item.possibleDuplicates = duplicates.map(({id,type,matchCount}) => ({id,type,matchCount})); item.reviewedAt = new Date().toISOString(); item.reviewedBy = currentUserLabel(); item.importStatus = 'Reviewed'; const mapped = gmailImportToUploadData(item); linkGmailImportCustomer(item);
+  if (action === 'Create Booking') { createBookingFromUpload(mapped); item.importStatus = 'Converted to Booking'; }
+  else if (action === 'Create Trip' || action === 'Add to Calendar') { const previous = pendingDuplicateAction; pendingDuplicateAction = duplicateDecision === 'Update Existing' ? 'update' : 'new'; createTripFromUpload(mapped, action === 'Add to Calendar'); pendingDuplicateAction = previous; item.importStatus = 'Converted to Trip'; }
+  else if (action === 'Create Invoice / Quote') { createInvoiceFromUpload({ ...mapped, documentType:'Quote' }, true); }
+  else if (action === 'Save as Draft') item.importStatus = 'Reviewed';
+  else if (action === 'Ignore') item.importStatus = 'Ignored';
+  else if (action === 'Create WhatsApp confirmation draft') createGmailWhatsAppDraft(item,'confirmation');
+  else if (action === 'Create payment reminder draft') createGmailWhatsAppDraft(item,'payment');
+  else if (action === 'Create meeting point message draft') createGmailWhatsAppDraft(item,'meeting');
+  addAudit('reviewed','Gmail Import',`${action} confirmed after manual email review.`,{emailId:item.emailId,source:item.source,customerProfileId:item.customerProfileId}); addNotification('Gmail import action completed',`${action} completed for ${item.customerName || item.subject || 'imported email'}.`,'success',{category:'Gmail Import',emailId:item.emailId}); saveStore(); renderGmailImport(); toast(`${action} completed after review.`); }
+
+function saveGmailImportSettings(event) { event.preventDefault(); const data = new FormData(event.target); store.gmailImportSettings = { enabled:data.get('enabled') === 'on', allowedSources:data.getAll('allowedSources'), defaultImportAction:data.get('defaultImportAction'), duplicateDetectionStrictness:data.get('duplicateDetectionStrictness'), reviewRequiredBeforeSave:true }; addAudit('updated','Gmail Import Settings','Gmail import framework settings updated; review remains required.'); saveStore(); toast('Gmail Import settings saved. Review before save remains required.'); }
+function gmailImportSettingsMarkup() { const settings = store.gmailImportSettings; return `<details class="legacy-tool settings-span gmail-settings" open><summary><div><p class="eyebrow">Future API readiness · no live connection</p><h3>Gmail Import Settings</h3></div><span class="chevron">⌄</span></summary><form onsubmit="saveGmailImportSettings(event)"><div class="gmail-readiness-grid"><span><small>gmailOAuthStatus</small><strong>${escapeHtml(store.gmailOAuthStatus)}</strong></span><span><small>gmailConnectedAccount</small><strong>${escapeHtml(store.gmailConnectedAccount || 'None')}</strong></span><span><small>lastSyncTime</small><strong>${escapeHtml(store.lastSyncTime || 'Never')}</strong></span><span><small>syncCursor</small><strong>${escapeHtml(store.syncCursor || 'Not set')}</strong></span><span><small>importRules</small><strong>${store.importRules.length} placeholders</strong></span><span><small>sourceRules</small><strong>${store.sourceRules.length} placeholders</strong></span></div><div class="form-grid"><label class="toggle-row"><input name="enabled" type="checkbox" ${settings.enabled ? 'checked' : ''}> Enable Gmail Import framework</label><label>Default Import Action<select name="defaultImportAction">${['Save as Draft','Create Booking','Create Trip','Create Invoice / Quote','Add to Calendar'].map((value) => `<option ${settings.defaultImportAction === value ? 'selected' : ''}>${value}</option>`).join('')}</select></label><label>Duplicate Detection Strictness<select name="duplicateDetectionStrictness">${['Strict','Standard','Relaxed'].map((value) => `<option ${settings.duplicateDetectionStrictness === value ? 'selected' : ''}>${value}</option>`).join('')}</select></label><label class="toggle-row"><input type="checkbox" checked disabled> Review Required Before Save (always on)</label></div><fieldset><legend>Allowed Sources</legend><div class="gmail-source-options">${GMAIL_IMPORT_SOURCES.map((source) => `<label><input type="checkbox" name="allowedSources" value="${escapeHtml(source)}" ${settings.allowedSources.includes(source) ? 'checked' : ''}> ${escapeHtml(source)}</label>`).join('')}</div></fieldset><p class="notice warning"><strong>No live Gmail API:</strong> this framework does not request OAuth credentials, connect to Gmail, sync messages, or automatically read real emails.</p><button class="btn btn-primary">Save Gmail Import Settings</button></form></details>`; }
