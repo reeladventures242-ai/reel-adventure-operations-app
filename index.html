@@ -20,7 +20,8 @@
       <img class="login-logo" src="Reel Adventure Tours Logo (2).jpg" alt="Reel Adventure Tours logo">
       <p class="eyebrow">Reel Adventure Tours</p>
       <h1 id="loginTitle">Reel Adventure Tours Operations</h1>
-      <p class="login-copy">Select your demo user to open operations.</p>
+      <div class="pilot-mode-banner" role="status"><strong>Pilot Mode</strong><span>Live operations testing — not final production</span></div>
+      <p class="login-copy">Select your pilot user to open operations.</p>
       <label for="userSelect">User</label>
       <select id="userSelect"></select>
       <select id="roleSelect" hidden aria-hidden="true">
@@ -58,6 +59,7 @@
           <h2 id="pageTitle">Dashboard</h2>
         </div>
         <div class="topbar-actions">
+          <span class="pilot-mode-pill" title="Live operations testing — not final production">Pilot Mode</span>
           <span id="activeRole" class="role-pill">Owner / Admin</span>
           <button id="installBtn" class="btn btn-outline btn-small" hidden>Install</button>
         </div>

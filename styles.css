@@ -1332,3 +1332,39 @@ body { background: radial-gradient(circle at 100% 0, rgba(82,210,211,.12), trans
   [data-printable-invoice] td, [data-printable-invoice] th { padding: 3px 5px; }
   [data-printable-invoice] .document-page-estimate { display: none !important; }
 }
+
+/* Phase 7C: controlled live pilot readiness */
+.pilot-mode-banner { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 12px 0 18px; padding: 11px 13px; border: 1px solid #e0a72f; border-radius: 13px; background: #fff8df; color: #583b00; }
+.pilot-mode-banner strong, .pilot-mode-pill { text-transform: uppercase; letter-spacing: .07em; font-weight: 950; }
+.pilot-mode-banner span { font-size: .78rem; font-weight: 750; }
+.pilot-mode-pill { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; padding: 6px 10px; border: 1px solid #d99b1f; border-radius: 999px; background: #fff3c7; color: #624000; font-size: .7rem; white-space: nowrap; }
+.pilot-settings-intro { border-left: 6px solid #d99b1f; background: linear-gradient(135deg, #fff9e7, #fff); }
+.pilot-settings-intro h2, .pilot-section-heading h3 { margin: 0; }
+.pilot-settings-intro p, .pilot-section-heading p { margin: 5px 0 0; color: var(--muted); }
+.pilot-settings-grid { margin-top: 18px; }
+.pilot-settings-grid > .pilot-data-controls, .pilot-settings-grid > .pilot-feedback-card, .pilot-settings-grid > .pilot-checklist-card { grid-column: 1 / -1; }
+.pilot-section-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 14px; }
+.pilot-checklist { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 9px; }
+.pilot-checklist label { display: flex; align-items: center; gap: 9px; min-height: 44px; padding: 9px 11px; border: 1px solid var(--line); border-radius: 11px; background: #f8fbfc; font-weight: 800; cursor: pointer; }
+.pilot-checklist input { width: 18px; height: 18px; flex: 0 0 auto; accent-color: var(--aqua-dark); }
+.pilot-export-contents { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; margin: 14px 0; }
+.pilot-export-contents span { padding: 4px 8px; border-radius: 999px; background: #e9f6f8; color: #154e63; font-size: .72rem; font-weight: 850; }
+.pilot-data-actions { align-items: stretch; }
+.pilot-feedback-form { margin-bottom: 18px; padding: 14px; border: 1px solid var(--line); border-radius: 13px; background: #f8fbfc; }
+.pilot-feedback-card .responsive-table-wrap { max-width: 100%; }
+
+@media (max-width: 700px) {
+  .topbar-actions { gap: 5px; }
+  .topbar-actions .pilot-mode-pill { padding: 5px 7px; font-size: .61rem; }
+  .pilot-mode-banner, .pilot-section-heading { align-items: stretch; flex-direction: column; }
+  .pilot-mode-banner .pilot-mode-pill, .pilot-section-heading .pilot-mode-pill { align-self: flex-start; }
+  .pilot-checklist { grid-template-columns: 1fr; }
+  .pilot-data-actions { display: grid; grid-template-columns: 1fr; }
+  .pilot-data-actions .btn { width: 100%; justify-content: center; text-align: center; }
+  .pilot-feedback-form { padding: 10px; }
+  .pilot-feedback-card table { min-width: 760px; }
+  .page-stack, .card, .legacy-tool { min-width: 0; }
+  .module-actions, .form-actions, .legacy-actions { align-items: stretch; }
+  .module-actions .btn, .form-actions .btn, .legacy-actions .btn { min-height: 44px; }
+  .responsive-table-wrap { max-width: calc(100vw - 28px); overflow-x: auto; -webkit-overflow-scrolling: touch; }
+}

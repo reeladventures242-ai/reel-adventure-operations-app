@@ -1,5 +1,5 @@
 const STORE_KEY = 'rat_ops_v1_store';
-const STORE_VERSION = 23;
+const STORE_VERSION = 24;
 const STORE_BACKUP_KEY = `${STORE_KEY}_backup`;
 const STORE_RECOVERY_KEY = `${STORE_KEY}_recovery`;
 
@@ -12,6 +12,13 @@ const roleRouteVisibility = {
 };
 const MAINTENANCE_VESSELS = ['Reel Adventure Tours I', 'Reel Adventure Tours II'];
 const MAINTENANCE_STATUSES = ['Good', 'Due Soon', 'Overdue', 'Needs Review', 'Out of Service'];
+
+const PILOT_ROLE_CHECKLIST = ['Admin tested', 'Owner tested', 'Captain tested', 'Mate tested', 'Bookkeeper tested'];
+const PILOT_WORKFLOW_CHECKLIST = ['Create Booking', 'Create Invoice / Quote', 'Upload Tour Confirmation', 'Create Trip', 'Assign Crew', 'Captain Accepts', 'Mate Accepts', 'Pre Trip Checklist Complete', 'Post Trip Checklist Complete', 'Payroll Generated', 'Receipt Generated', 'Calendar Verified', 'Chat Tested', 'Mobile View Tested'];
+const PILOT_EXPORT_CONTENTS = ['Bookings', 'Trips', 'Customers', 'Invoices / Quotes', 'Payroll', 'Expenses', 'Checklists', 'Chat', 'Calendar', 'Settings'];
+const PILOT_RECORD_COLLECTIONS = ['bookings', 'trips', 'customerProfiles', 'invoices', 'payrollPayments', 'expenses', 'checklistRecords', 'chatMessages', 'cruiseSchedule', 'uploadReviews', 'gmailImports'];
+const PILOT_FEEDBACK_SEVERITIES = ['Low', 'Medium', 'High', 'Critical'];
+const PILOT_FEEDBACK_STATUSES = ['Open', 'Reviewing', 'Resolved', 'Deferred'];
 
 const navItems = [
   ['dashboard', '🏠', 'Dashboard'], ['operations-assistant', '✨', 'Ask Operations'], ['dispatch', '📍', 'Dispatch'], ['calendar', '📅', 'Calendar'], ['weather', '🌦️', 'Weather / Conditions'],
@@ -325,6 +332,11 @@ function migrateStore(existing = {}) {
   next.externalAiEnabled = false;
   next.lastAssistantSync = next.lastAssistantSync || '';
   next.assistantQueryLog = Array.isArray(next.assistantQueryLog) ? next.assistantQueryLog : [];
+  next.pilotReadiness = next.pilotReadiness && typeof next.pilotReadiness === 'object' && !Array.isArray(next.pilotReadiness) ? next.pilotReadiness : {};
+  next.pilotReadiness.roles = next.pilotReadiness.roles && typeof next.pilotReadiness.roles === 'object' ? next.pilotReadiness.roles : {};
+  next.pilotReadiness.workflows = next.pilotReadiness.workflows && typeof next.pilotReadiness.workflows === 'object' ? next.pilotReadiness.workflows : {};
+  next.pilotFeedback = Array.isArray(next.pilotFeedback) ? next.pilotFeedback : [];
+  next.lastPilotExportAt = next.lastPilotExportAt || '';
   next.expenses = Array.isArray(next.expenses) ? next.expenses : [];
   next.fuelRecords = Array.isArray(next.fuelRecords) ? next.fuelRecords : [];
   next.incidentReports = (Array.isArray(next.incidentReports) ? next.incidentReports : []).map(normalizeIncidentRecord);
@@ -662,7 +674,10 @@ function wireEvents() {
     const dispatchViewButton = event.target.closest('[data-dispatch-view]');
     if (dispatchViewButton) { assignmentViewMode = dispatchViewButton.dataset.dispatchView; renderAssignmentBoard(document.getElementById(currentRoute === 'dispatch' ? 'page-dispatch' : 'page-trips')); }
     if (event.target.closest('[data-export-store]')) exportStoreData();
-    if (event.target.closest('[data-reset-store]')) { addAudit('reset', 'Settings', 'Reset local data to seed defaults.'); localStorage.removeItem(STORE_KEY); store = seedStore({ auditTrail: store.auditTrail, notifications: store.notifications }); renderRoute(currentRoute); toast('Seed data restored.'); }
+    if (event.target.closest('[data-reset-store]')) resetDemoData();
+    if (event.target.closest('[data-clear-test-records]')) clearTestRecords();
+    const feedbackDelete = event.target.closest('[data-delete-pilot-feedback]');
+    if (feedbackDelete) deletePilotFeedback(feedbackDelete.dataset.deletePilotFeedback);
     if (event.target.closest('[data-mark-notices-read]')) markNotificationsRead();
     const markNotice = event.target.closest('[data-mark-notice-read]');
     if (markNotice) markNotificationRead(markNotice.dataset.markNoticeRead);
@@ -707,6 +722,8 @@ function wireEvents() {
     if (event.target.matches('[data-user-link-crew]')) updateUserField(event.target.dataset.userLinkCrew, 'linkedCrewProfileId', event.target.value);
     if (event.target.matches('[data-user-link-owner]')) updateUserField(event.target.dataset.userLinkOwner, 'linkedVesselOwnerProfileId', event.target.value);
     if (event.target.matches('[data-chat-preference]')) updateChatPreference(event.target.dataset.chatPreference, event.target.checked);
+    if (event.target.matches('[data-pilot-check]')) updatePilotChecklist(event.target.dataset.pilotCheck, event.target.dataset.pilotItem, event.target.checked);
+    if (event.target.matches('[data-pilot-feedback-status]')) updatePilotFeedbackStatus(event.target.dataset.pilotFeedbackStatus, event.target.value);
   });
   document.body.addEventListener('dragover', (event) => {
     const zone = event.target.closest('[data-upload-zone]');
@@ -722,7 +739,7 @@ function wireEvents() {
     zone.classList.remove('drag-over');
     handleUploadFiles(event.dataTransfer.files, zone.dataset.uploadRoute);
   });
-  document.body.addEventListener('submit', (event) => { if (event.target.matches('[data-chat-form]')) sendChatMessage(event); if (event.target.matches('[data-demo-pin-form]')) saveDemoPin(event); });
+  document.body.addEventListener('submit', (event) => { if (event.target.matches('[data-chat-form]')) sendChatMessage(event); if (event.target.matches('[data-demo-pin-form]')) saveDemoPin(event); if (event.target.matches('[data-pilot-feedback-form]')) savePilotFeedback(event); });
   document.body.addEventListener('input', (event) => { if (event.target.matches('[data-chat-search]')) { chatFilters.search = event.target.value; renderChat(); } });
   window.addEventListener('online', updateMobileChrome);
   window.addEventListener('offline', updateMobileChrome);
@@ -2974,7 +2991,8 @@ function filterTripsTable(value) { const input = document.querySelector('#page-t
 
 
 function exportStoreData() {
-  const payload = JSON.stringify({ exportedAt: new Date().toISOString(), store }, null, 2);
+  store.lastPilotExportAt = new Date().toISOString();
+  const payload = JSON.stringify({ exportedAt: store.lastPilotExportAt, pilotMode: true, includedData: PILOT_EXPORT_CONTENTS, store }, null, 2);
   const blob = new Blob([payload], { type: 'application/json' });
   const link = document.createElement('a');
   link.href = URL.createObjectURL(blob);
@@ -2989,6 +3007,8 @@ function exportStoreData() {
 
 function importStoreData(file) {
   if (!file) return;
+  if (!confirm('Import Backup Data will replace current local data. Export backup before continuing. Continue?')) return;
+  preserveLocalBackup('before-import');
   const reader = new FileReader();
   reader.onload = () => {
     try {
@@ -3654,8 +3674,93 @@ function renderLegacyAuditSummary() {
   return Object.entries(legacyFeatureAudit).map(([file, audit]) => `<details class="legacy-tool"><summary><strong>${escapeHtml(file)}</strong> · ${audit.sections.length} sections · ${audit.fields.length} fields/checks</summary><div class="placeholder-list"><p><strong>Sections:</strong> ${escapeHtml(audit.sections.join(', '))}</p><p><strong>Fields / checklist items:</strong> ${escapeHtml(audit.fields.join(', '))}</p><p><strong>Calculations:</strong> ${escapeHtml(audit.calculations.join(', '))}</p><p><strong>Alerts:</strong> ${escapeHtml(audit.alerts.join(', '))}</p><p><strong>Exports / workflows:</strong> ${escapeHtml(audit.exports.join(', '))}</p></div></details>`).join('');
 }
 
+function pilotChecklistMarkup(type, items, title, description) {
+  const complete = items.filter((item) => store.pilotReadiness[type]?.[item]).length;
+  return `<section class="legacy-tool pilot-checklist-card"><div class="pilot-section-heading"><div><h3>${title}</h3><p>${description}</p></div><span class="badge ${complete === items.length ? 'green' : 'blue'}">${complete} / ${items.length}</span></div><div class="pilot-checklist">${items.map((item) => `<label><input type="checkbox" data-pilot-check="${type}" data-pilot-item="${escapeHtml(item)}" ${store.pilotReadiness[type]?.[item] ? 'checked' : ''}><span>${escapeHtml(item)}</span></label>`).join('')}</div></section>`;
+}
+
+function pilotFeedbackMarkup() {
+  const rows = store.pilotFeedback.map((item) => `<tr><td><strong>${escapeHtml(item.issue)}</strong><br><small>${escapeHtml(formatDate(item.createdAt))}</small></td><td>${escapeHtml(item.page)}</td><td>${escapeHtml(item.userRole)}</td><td><span class="badge ${item.severity === 'Critical' || item.severity === 'High' ? 'red' : item.severity === 'Medium' ? 'yellow' : 'blue'}">${escapeHtml(item.severity)}</span></td><td>${escapeHtml(item.notes || '—')}</td><td><select data-pilot-feedback-status="${item.id}" aria-label="Status for ${escapeHtml(item.issue)}">${PILOT_FEEDBACK_STATUSES.map((status) => `<option ${item.status === status ? 'selected' : ''}>${status}</option>`).join('')}</select></td><td><button class="btn btn-outline btn-small" data-delete-pilot-feedback="${item.id}">Delete</button></td></tr>`).join('');
+  return `<section class="legacy-tool pilot-feedback-card"><div class="pilot-section-heading"><div><h3>Pilot Feedback Notes</h3><p>Log issues found by staff during live pilot workflows.</p></div><span class="badge blue">${store.pilotFeedback.length} notes</span></div><form class="pilot-feedback-form" data-pilot-feedback-form><div class="form-grid"><div class="field"><label>Issue</label><input name="issue" required></div><div class="field"><label>Page</label><input name="page" required placeholder="Bookings, Trips, Mobile…"></div><div class="field"><label>User Role</label><select name="userRole">${['Admin','Owner','Captain','Mate','Bookkeeper'].map((role) => `<option ${activeRoleName() === role ? 'selected' : ''}>${role}</option>`).join('')}</select></div><div class="field"><label>Severity</label><select name="severity">${PILOT_FEEDBACK_SEVERITIES.map((severity) => `<option>${severity}</option>`).join('')}</select></div><div class="field field-wide"><label>Notes</label><textarea name="notes" placeholder="Steps, expected result, and what happened"></textarea></div><div class="field"><label>Status</label><select name="status">${PILOT_FEEDBACK_STATUSES.map((status) => `<option>${status}</option>`).join('')}</select></div></div><div class="form-actions"><button class="btn btn-primary">Add Feedback Note</button></div></form><div class="responsive-table-wrap"><table><thead><tr><th>Issue</th><th>Page</th><th>User Role</th><th>Severity</th><th>Notes</th><th>Status</th><th></th></tr></thead><tbody>${rows || '<tr><td colspan="7" class="empty-state">No pilot feedback logged yet.</td></tr>'}</tbody></table></div></section>`;
+}
+
 function settingsMarkup() {
-  return `<div class="grid settings-grid" style="margin-top:18px">${gmailImportSettingsMarkup()}${renderUserSettings()}${renderRoleSettings()}${renderChatPreferences()}<div class="legacy-tool dashboard-preferences-settings"><h3>Dashboard Preferences</h3>${renderDashboardCustomizer()}</div><div class="legacy-tool"><h3>Seed data</h3><p>${store.vessels.length} vessels, ${store.crew.length} crew members, and ${store.users.length} users loaded.</p></div><div class="legacy-tool"><h3>Local data</h3><div class="legacy-actions"><button class="btn btn-outline" data-export-store>Export JSON</button><label class="btn btn-outline" for="importStoreFile">Import JSON<input id="importStoreFile" data-import-store type="file" accept="application/json" hidden></label><button class="btn btn-danger" data-reset-store>Reset seed data</button></div></div><div class="legacy-tool archived-legacy-tools"><h3>Archived Legacy Tools</h3><p>Legacy tools are retained for reference only. Active operations should be completed through the main application tabs.</p><div class="legacy-list">${legacyTools.map((tool) => `<div class="legacy-tool"><h3>${tool.title}</h3><p>${tool.desc}</p><div class="legacy-actions"><a class="btn btn-outline btn-small" href="${tool.file}" target="_blank" rel="noopener">Open reference</a></div></div>`).join('')}</div></div></div>`;
+  const exportStatus = store.lastPilotExportAt ? `Last export: ${formatDate(store.lastPilotExportAt)} ${formatTime(store.lastPilotExportAt)}` : 'No pilot backup exported yet.';
+  return `<div class="pilot-settings-intro card card-pad"><p class="eyebrow">Controlled live testing</p><div class="pilot-section-heading"><div><h2>Pilot Mode Readiness</h2><p>This app is being tested in real operations and is not yet final production.</p></div><span class="pilot-mode-pill">Pilot Mode</span></div></div><div class="grid settings-grid pilot-settings-grid">${pilotDataControlsMarkup()}${pilotChecklistMarkup('roles', PILOT_ROLE_CHECKLIST, 'Role Testing Checklist', 'Confirm each staff role has completed a pilot walkthrough.')}${pilotChecklistMarkup('workflows', PILOT_WORKFLOW_CHECKLIST, 'Launch Checklist', 'Track the core workflows required before launch.')}${pilotFeedbackMarkup()}${gmailImportSettingsMarkup()}${renderUserSettings()}${renderRoleSettings()}${renderChatPreferences()}<div class="legacy-tool dashboard-preferences-settings"><h3>Dashboard Preferences</h3>${renderDashboardCustomizer()}</div><div class="legacy-tool"><h3>Seed data</h3><p>${store.vessels.length} vessels, ${store.crew.length} crew members, and ${store.users.length} users loaded.</p><small>${exportStatus}</small></div><div class="legacy-tool archived-legacy-tools"><h3>Archived Legacy Tools</h3><p>Legacy tools are retained for reference only. Active operations should be completed through the main application tabs.</p><div class="legacy-list">${legacyTools.map((tool) => `<div class="legacy-tool"><h3>${tool.title}</h3><p>${tool.desc}</p><div class="legacy-actions"><a class="btn btn-outline btn-small" href="${tool.file}" target="_blank" rel="noopener">Open reference</a></div></div>`).join('')}</div></div></div>`;
+}
+
+function pilotDataControlsMarkup() {
+  return `<section class="legacy-tool pilot-data-controls"><div class="pilot-section-heading"><div><h3>Sample Data Controls</h3><p>Export Current Data before any reset, clear, or import action.</p></div><span class="badge yellow">Backup first</span></div><div class="notice warning"><strong>Export backup before continuing.</strong><br>Reset and import replace local records. Clear Test Records only removes records explicitly identified as test/demo records.</div><div class="pilot-export-contents"><strong>Export includes:</strong> ${PILOT_EXPORT_CONTENTS.map((item) => `<span>${item}</span>`).join('')}</div><div class="legacy-actions pilot-data-actions"><button class="btn btn-primary" data-export-store>Export Current Data</button><label class="btn btn-outline" for="importStoreFile">Import Backup Data<input id="importStoreFile" data-import-store type="file" accept="application/json" hidden></label><button class="btn btn-outline" data-clear-test-records>Clear Test Records</button><button class="btn btn-danger" data-reset-store>Reset Demo Data</button></div></section>`;
+}
+
+function updatePilotChecklist(type, item, checked) {
+  if (!['roles', 'workflows'].includes(type)) return;
+  store.pilotReadiness[type][item] = checked;
+  addAudit('updated', 'Pilot Readiness', `${item}: ${checked ? 'complete' : 'not complete'}.`, { type });
+  saveStore();
+  renderRoute('settings');
+}
+
+function savePilotFeedback(event) {
+  event.preventDefault();
+  const data = Object.fromEntries(new FormData(event.target).entries());
+  store.pilotFeedback.unshift({ id: makeId('pilot-feedback'), ...data, createdAt: new Date().toISOString(), createdBy: currentUserLabel() });
+  addAudit('created', 'Pilot Feedback', data.issue, { page: data.page, severity: data.severity });
+  saveStore();
+  renderRoute('settings');
+  toast('Pilot feedback note added.');
+}
+
+function updatePilotFeedbackStatus(id, status) {
+  const item = store.pilotFeedback.find((feedback) => feedback.id === id);
+  if (!item || !PILOT_FEEDBACK_STATUSES.includes(status)) return;
+  item.status = status;
+  item.updatedAt = new Date().toISOString();
+  saveStore();
+  toast('Feedback status updated.');
+}
+
+function deletePilotFeedback(id) {
+  const item = store.pilotFeedback.find((feedback) => feedback.id === id);
+  if (!item || !confirm(`Delete pilot feedback "${item.issue}"?`)) return;
+  store.pilotFeedback = store.pilotFeedback.filter((feedback) => feedback.id !== id);
+  addAudit('deleted', 'Pilot Feedback', item.issue);
+  saveStore();
+  renderRoute('settings');
+}
+
+function preserveLocalBackup(reason) {
+  localStorage.setItem(STORE_BACKUP_KEY, JSON.stringify(store));
+  localStorage.setItem(`${STORE_BACKUP_KEY}_reason`, JSON.stringify({ backedUpAt: new Date().toISOString(), reason }));
+}
+
+function resetDemoData() {
+  if (!confirm('Reset Demo Data will replace all current local records with demo data. Export backup before continuing. Continue?')) return;
+  preserveLocalBackup('before-reset-demo-data');
+  const auditTrail = [...(store.auditTrail || [])];
+  store = seedStore({ auditTrail, notifications: store.notifications });
+  addAudit('reset', 'Settings', 'Reset local data to demo defaults after confirmation.');
+  saveStore();
+  renderRoute('settings');
+  toast('Demo data restored. Previous local data preserved in browser backup storage.');
+}
+
+function isTestRecord(record = {}) {
+  if (record.isTest === true || record.testRecord === true || record.demoRecord === true) return true;
+  const markerText = [record.id, record.status, record.notes, record.name, record.customer, record.customerName, record.title, record.subject].filter(Boolean).join(' ').toLowerCase();
+  return /(^|[\s_-])(test|demo|sample)([\s_-]|$)/.test(markerText);
+}
+
+function clearTestRecords() {
+  const matches = PILOT_RECORD_COLLECTIONS.reduce((count, key) => count + (Array.isArray(store[key]) ? store[key].filter(isTestRecord).length : 0), 0);
+  if (!matches) { toast('No explicitly marked test or demo records found.'); return; }
+  if (!confirm(`Clear ${matches} explicitly marked test/demo record${matches === 1 ? '' : 's'}? Real records without a test/demo marker will remain. Export backup before continuing.`)) return;
+  preserveLocalBackup('before-clear-test-records');
+  PILOT_RECORD_COLLECTIONS.forEach((key) => { if (Array.isArray(store[key])) store[key] = store[key].filter((record) => !isTestRecord(record)); });
+  addAudit('cleared', 'Settings', `Cleared ${matches} explicitly marked test/demo records.`);
+  saveStore();
+  renderRoute('settings');
+  toast(`${matches} test/demo record${matches === 1 ? '' : 's'} cleared.`);
 }
 
 function toast(message) {

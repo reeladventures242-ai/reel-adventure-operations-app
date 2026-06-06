@@ -682,6 +682,30 @@ def validate_phase_6k_operations_assistant() -> tuple[bool, str]:
         return False, "FAIL — external AI hooks found: " + ", ".join(live_calls)
     return True, "PASS — Phase 6K local Operations Assistant, role-scoped queries, result actions, audit logging, future placeholders, and mobile cards are present"
 
+def validate_phase_7c_pilot_readiness() -> tuple[bool, str]:
+    combined = (ROOT / "app.js").read_text() + (ROOT / "index.html").read_text() + (ROOT / "styles.css").read_text()
+    required_tokens = {
+        "visible pilot indicator": "Pilot Mode",
+        "export current data": "Export Current Data",
+        "import backup data": "Import Backup Data",
+        "reset demo data": "Reset Demo Data",
+        "clear test records": "Clear Test Records",
+        "backup reminder": "Export backup before continuing.",
+        "reset confirmation": "Reset Demo Data will replace all current local records",
+        "safe test marker clear": "function isTestRecord",
+        "role checklist": "PILOT_ROLE_CHECKLIST",
+        "launch checklist": "PILOT_WORKFLOW_CHECKLIST",
+        "feedback log": "Pilot Feedback Notes",
+        "feedback status": "data-pilot-feedback-status",
+        "complete export contents": "PILOT_EXPORT_CONTENTS",
+        "mobile pilot controls": ".pilot-data-actions",
+    }
+    failures = [label for label, token in required_tokens.items() if token not in combined]
+    if failures:
+        return False, "FAIL — " + "; ".join(f"missing {label}" for label in failures)
+    return True, "PASS — Phase 7C pilot indicator, safe data controls, readiness checklists, feedback log, full local export, and mobile pilot controls are present"
+
+
 def main() -> int:
     checks = [
         ("JavaScript syntax", validate_javascript),
@@ -702,6 +726,7 @@ def main() -> int:
         ("Phase 6G fuel tracking checks", validate_phase_6g_fuel_tracking),
         ("Phase 6J Gmail import checks", validate_phase_6j_gmail_import),
         ("Phase 6K Operations Assistant checks", validate_phase_6k_operations_assistant),
+        ("Phase 7C pilot readiness checks", validate_phase_7c_pilot_readiness),
     ]
     all_passed = True
     for label, check in checks:
