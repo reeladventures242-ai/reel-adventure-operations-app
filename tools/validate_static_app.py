@@ -682,6 +682,33 @@ def validate_phase_6k_operations_assistant() -> tuple[bool, str]:
         return False, "FAIL — external AI hooks found: " + ", ".join(live_calls)
     return True, "PASS — Phase 6K local Operations Assistant, role-scoped queries, result actions, audit logging, future placeholders, and mobile cards are present"
 
+def validate_phase_7e_unified_bookings_trips() -> tuple[bool, str]:
+    app = (ROOT / "app.js").read_text()
+    styles = (ROOT / "styles.css").read_text()
+    required_tokens = {
+        "unified navigation label": "['bookings', '📘', 'Bookings / Trips']",
+        "dated booking auto-scheduling": "if (booking.date && booking.time) createTripFromBooking",
+        "quote remains quote": "if (!invoice || invoice.documentType === 'Quote') return null",
+        "invoice confirmation prompt": "confirm('Create Booking / Trip now?')",
+        "tour confirmation integration": "invoice.documentType === 'Tour Confirmation'",
+        "invoice conversion action": "Convert Quote to Booking / Trip",
+        "unified record cards": "function renderUnifiedWorkflowCard",
+        "status pipeline": "const WORKFLOW_PIPELINE",
+        "dispatch tree integration": "Scheduled booking/trip records only.",
+        "migration reconciliation": "function reconcileExistingWorkflow",
+        "migration report": "Bookings / Trips Migration Report",
+        "role-scoped unified records": "visibleRecordsForRoute('bookings'",
+        "mobile unified layout": "@media(max-width:760px){.unified-workflow-hero",
+    }
+    combined = app + styles
+    failures = [label for label, token in required_tokens.items() if token not in combined]
+    if "['trips', '🧭', 'Trips']" in app:
+        failures.append("separate Trips navigation still present")
+    if failures:
+        return False, "FAIL — " + "; ".join(f"missing {label}" for label in failures)
+    return True, "PASS — Phase 7E provides one mobile-first Bookings / Trips workflow, automatic scheduling/linking, quote safeguards, role scoping, Dispatch Tree integration, and non-destructive migration reporting"
+
+
 def main() -> int:
     checks = [
         ("JavaScript syntax", validate_javascript),
@@ -702,6 +729,7 @@ def main() -> int:
         ("Phase 6G fuel tracking checks", validate_phase_6g_fuel_tracking),
         ("Phase 6J Gmail import checks", validate_phase_6j_gmail_import),
         ("Phase 6K Operations Assistant checks", validate_phase_6k_operations_assistant),
+        ("Phase 7E unified Bookings / Trips checks", validate_phase_7e_unified_bookings_trips),
     ]
     all_passed = True
     for label, check in checks:

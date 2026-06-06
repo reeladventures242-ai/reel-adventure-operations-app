@@ -1,22 +1,22 @@
 const STORE_KEY = 'rat_ops_v1_store';
-const STORE_VERSION = 24;
+const STORE_VERSION = 25;
 const STORE_BACKUP_KEY = `${STORE_KEY}_backup`;
 const STORE_RECOVERY_KEY = `${STORE_KEY}_recovery`;
 
 const roleRouteVisibility = {
   Admin: null,
-  Owner: new Set(['dashboard','operations-assistant','dispatch','calendar','weather','chat','whatsapp','trips','vessels','maintenance','owner-dashboard','payroll','expenses','incident-reports','pre-trip-checklist','post-trip-checklist','cruise-schedule','reports','notifications','settings']),
-  Captain: new Set(['dashboard','operations-assistant','dispatch','calendar','weather','chat','whatsapp','trips','vessels','maintenance','captain-dashboard','payroll','incident-reports','pre-trip-checklist','post-trip-checklist','cruise-schedule','notifications','settings']),
-  Mate: new Set(['dashboard','operations-assistant','dispatch','calendar','weather','chat','whatsapp','trips','vessels','maintenance','mate-dashboard','payroll','incident-reports','pre-trip-checklist','post-trip-checklist','cruise-schedule','notifications','settings']),
-  Bookkeeper: new Set(['dashboard','operations-assistant','calendar','chat','whatsapp','gmail-import','customers','invoices','trips','payroll','expenses','reports','notifications','audit','settings'])
+  Owner: new Set(['dashboard','operations-assistant','dispatch','calendar','weather','chat','whatsapp','bookings','trips','vessels','maintenance','owner-dashboard','payroll','expenses','incident-reports','pre-trip-checklist','post-trip-checklist','cruise-schedule','reports','notifications','settings']),
+  Captain: new Set(['dashboard','operations-assistant','dispatch','calendar','weather','chat','whatsapp','bookings','trips','vessels','maintenance','captain-dashboard','payroll','incident-reports','pre-trip-checklist','post-trip-checklist','cruise-schedule','notifications','settings']),
+  Mate: new Set(['dashboard','operations-assistant','dispatch','calendar','weather','chat','whatsapp','bookings','trips','vessels','maintenance','mate-dashboard','payroll','incident-reports','pre-trip-checklist','post-trip-checklist','cruise-schedule','notifications','settings']),
+  Bookkeeper: new Set(['dashboard','operations-assistant','calendar','chat','whatsapp','gmail-import','customers','invoices','bookings','trips','payroll','expenses','reports','notifications','audit','settings'])
 };
 const MAINTENANCE_VESSELS = ['Reel Adventure Tours I', 'Reel Adventure Tours II'];
 const MAINTENANCE_STATUSES = ['Good', 'Due Soon', 'Overdue', 'Needs Review', 'Out of Service'];
 
 const navItems = [
   ['dashboard', '🏠', 'Dashboard'], ['operations-assistant', '✨', 'Ask Operations'], ['dispatch', '📍', 'Dispatch'], ['calendar', '📅', 'Calendar'], ['weather', '🌦️', 'Weather / Conditions'],
-  ['bookings', '📘', 'Bookings'], ['chat', '💬', 'Chat'], ['whatsapp', '🟢', 'WhatsApp'], ['gmail-import', '📨', 'Gmail Import'], ['customers', '🪪', 'Customers'],
-  ['invoices', '🧾', 'Invoice / Quote'], ['trips', '🧭', 'Trips'], ['vessels', '⛵', 'Vessels'], ['maintenance', '🛠️', 'Maintenance'], ['crew', '👥', 'Crew'],
+  ['bookings', '📘', 'Bookings / Trips'], ['chat', '💬', 'Chat'], ['whatsapp', '🟢', 'WhatsApp'], ['gmail-import', '📨', 'Gmail Import'], ['customers', '🪪', 'Customers'],
+  ['invoices', '🧾', 'Invoice / Quote'], ['vessels', '⛵', 'Vessels'], ['maintenance', '🛠️', 'Maintenance'], ['crew', '👥', 'Crew'],
   ['captain-dashboard', '🧢', 'Captain Dashboard'], ['mate-dashboard', '⚓', 'Mate Dashboard'], ['owner-dashboard', '👑', 'Owner Dashboard'],
   ['payroll', '💸', 'Payroll'], ['expenses', '💳', 'Expenses'], ['inventory', '📦', 'Inventory'], ['incident-reports', '🚨', 'Incident Reports'],
   ['pre-trip-checklist', '✅', 'Pre Trip Checklist'], ['post-trip-checklist', '🧽', 'Post Trip Checklist'],
@@ -141,7 +141,7 @@ const seedData = {
 
 const crudConfig = {
   bookings: {
-    title: 'Bookings', eyebrow: 'Reservation source of truth', summary: 'Enter customer, tour, and pricing details once. Confirmed bookings create and synchronize their linked invoice and operational trip.', collection: 'bookings', addLabel: 'Create booking',
+    title: 'Bookings / Trips', eyebrow: 'One reservation and dispatch workflow', summary: 'Enter customer, tour, schedule, payment, vessel, and crew details once. A dated booking automatically creates its linked operational trip.', collection: 'bookings', addLabel: 'Create booking / trip',
     fields: [['order','Order #','text'], ['customer','Customer name','text'], ['phone','Phone number','tel'], ['email','Email','email'], ['date','Tour date','date'], ['time','Tour time','time'], ['hours','Tour hours','number'], ['product','Tour type','text'], ['guests','Guest count','number'], ['pickupLocation','Pickup location','select:pickupLocations'], ['source','Booking source','select:bookingSources'], ['price','Price','number'], ['deposit','Deposit paid','number'], ['balance','Balance due','number'], ['depositRequired','Deposit required','number'], ['status','Booking status','select:bookingStatus'], ['notes','Special requests / notes','textarea']],
     columns: [['order','Order'], ['customer','Customer'], ['date','Date'], ['time','Time'], ['guests','Guests'], ['product','Tour type'], ['price','Price'], ['balance','Balance'], ['status','Status']]
   },
@@ -350,6 +350,7 @@ function migrateStore(existing = {}) {
   next.activeUserId = next.users.some((user) => user.id === next.activeUserId && user.active !== false) ? next.activeUserId : (next.users.find((user) => user.role === 'Admin' && user.active !== false)?.id || next.users.find((user) => user.active !== false)?.id || '');
   next.vessels = (Array.isArray(next.vessels) ? next.vessels : []).map((vessel) => ({ ...vessel, readinessStatus: vessel.readinessStatus || vessel.status || 'Operational' }));
   next.trips = (Array.isArray(next.trips) ? next.trips : []).map((trip) => normalizeTrip(trip));
+  reconcileExistingWorkflow(next);
   localStorage.setItem(STORE_KEY, JSON.stringify(next));
   return next;
 }
@@ -805,7 +806,7 @@ function renderRoute(route) {
   if (!page) return;
   page.classList.add('active');
   const nav = navItems.find(([key]) => key === route);
-  document.getElementById('pageTitle').textContent = nav ? `${nav[1]} ${nav[2]}` : 'Legacy Tools';
+  document.getElementById('pageTitle').textContent = nav ? `${nav[1]} ${nav[2]}` : route === 'trips' ? '📘 Bookings / Trips — Dispatch Editor' : 'Legacy Tools';
   if (route === 'incident-reports') renderIncidentLibrary();
   else if (crudConfig[route]) renderCrud(route);
   else if (route === 'dashboard') renderDashboard();
@@ -1182,12 +1183,12 @@ function nextBookingOrderNumber() {
 
 function createBookingFromUpload(data) {
   const booking = { id: makeId('bookings'), order: data.quoteNumber || data.invoiceNumber || nextBookingOrderNumber(), customer: data.customerName || '', date: data.tripDate || '', time: data.startTime || data.departureTime || '', guests: Number(data.guestCount || 0), product: data.tourType || '', source: data.bookingSource || '', balance: Number(data.balanceDue || 0), status: Number(data.balanceDue || 0) > 0 ? 'Balance due' : 'Inquiry', notes: [data.specialRequests, data.notes].filter(Boolean).join('\n') };
-  store.bookings.push(booking); addAudit('created', 'Smart Document Intake', `Booking created from reviewed upload for ${booking.customer || 'customer'}.`, { bookingId: booking.id }); addNotification('Booking created from uploaded invoice.', `${booking.customer || 'Customer'} booking was created after review.`, 'success', { category: 'Upload', bookingId: booking.id });
+  store.bookings.push(booking); synchronizeBookingWorkflow(booking); addAudit('created', 'Smart Document Intake', `Booking created from reviewed upload for ${booking.customer || 'customer'}.`, { bookingId: booking.id }); addNotification('Booking created from uploaded invoice.', `${booking.customer || 'Customer'} booking was created after review.`, 'success', { category: 'Upload', bookingId: booking.id });
 }
 function createInvoiceFromUpload(data, linkCustomer = false) {
   const linked = linkCustomer ? findRelatedCustomerRecord(data) : {};
   const invoice = { id: makeId('invoices'), invoiceNumber: data.invoiceNumber || data.quoteNumber || `INV-${Date.now()}`, documentType: data.documentType === 'Receipt' ? 'Invoice' : data.documentType || (data.invoiceNumber ? 'Invoice' : 'Quote'), customerName: data.customerName || '', phone: data.phone || '', email: data.email || '', tripDate: data.tripDate || '', startTime: data.startTime || data.departureTime || '', returnTime: data.returnTime || data.endTime || '', endTime: data.returnTime || data.endTime || '', duration: data.duration || '', tourType: data.tourType || '', guestCount: Number(data.guestCount || 0), pickupLocation: data.pickupLocation || '', cruiseShip: data.cruiseShip || '', vessel: data.vessel || '', captain: data.captain || '', mate: data.mate || '', bookingSource: data.bookingSource || '', baseTourPrice: Number(data.baseTourPrice || data.tourPrice || 0), tourPrice: Number(data.tourPrice || data.baseTourPrice || 0), depositPaid: Number(data.depositPaid || 0), balanceDue: Number(data.balanceDue || 0), paymentStatus: data.paymentStatus || (Number(data.balanceDue || 0) > 0 ? 'Balance Due' : 'Deposit Due'), paymentMethod: data.paymentMethod || '', bookingId: linked.bookingId || data.bookingId || '', tripId: linked.tripId || data.tripId || '', notes: [data.cruiseShip && `Cruise Ship: ${data.cruiseShip}`, data.specialRequests, data.notes].filter(Boolean).join('\n') };
-  store.invoices.push(invoice); addAudit('created', 'Smart Document Intake', `${linkCustomer ? invoice.documentType + ' created and linked' : invoice.documentType + ' created'} from reviewed upload for ${invoice.customerName || 'customer'}.`, { invoiceId: invoice.id, bookingId: invoice.bookingId, tripId: invoice.tripId }); addNotification(invoice.documentType === 'Quote' ? 'Quote created from upload.' : 'Invoice created from upload.', `${invoice.invoiceNumber} was created after review.`, 'success', { category: 'Upload', invoiceId: invoice.id });
+  store.invoices.push(invoice); if (invoice.documentType !== 'Quote' && (invoice.documentType === 'Tour Confirmation' || confirm('Create Booking / Trip now?'))) synchronizeInvoiceWorkflow(invoice, true); addAudit('created', 'Smart Document Intake', `${linkCustomer ? invoice.documentType + ' created and linked' : invoice.documentType + ' created'} from reviewed upload for ${invoice.customerName || 'customer'}.`, { invoiceId: invoice.id, bookingId: invoice.bookingId, tripId: invoice.tripId }); addNotification(invoice.documentType === 'Quote' ? 'Quote created from upload.' : 'Invoice created from upload.', `${invoice.invoiceNumber} was created after review.`, 'success', { category: 'Upload', invoiceId: invoice.id });
 }
 function createQuoteFromUpload(data) {
   createInvoiceFromUpload({ ...data, documentType: 'Quote', invoiceNumber: data.quoteNumber || data.invoiceNumber || `QUOTE-${Date.now()}` });
@@ -1604,6 +1605,7 @@ function renderCrud(route) {
 
   page.querySelector('.search-input').addEventListener('input', () => renderTable(route));
   renderForm(route);
+  if (route === 'bookings') renderUnifiedBookingsTrips();
   if (route === 'trips') { renderAssignmentBoard(); page.querySelector('.page-stack')?.insertAdjacentHTML('beforeend', renderFuelTrackingOverview()); page.querySelector('.page-stack')?.insertAdjacentHTML('beforeend', `<div class="card card-pad trip-weather-overview"><div class="card-header"><h3>Trip Weather Risk</h3><button class="btn btn-outline btn-small" data-route="weather">Manage Conditions</button></div>${weatherSummaryCards(store.trips)}${store.trips.map((trip) => `<div class="weather-trip-row"><strong>${escapeHtml(formatDate(trip.tripDate))} · ${escapeHtml(trip.customer || 'Trip')}</strong>${weatherRiskBadge(trip)}</div>`).join('') || '<p class="empty-state">No scheduled trips.</p>'}</div>`); }
   if (route === 'crew') renderCrewDashboard();
   if (route === 'vessels') { renderVesselManagementPanel(); renderEntityIncidentHistory('vessel'); }
@@ -1779,6 +1781,7 @@ function saveRecord(event, route) {
     if (owner) addRoleNotification('Owner', owner, 'Expense alert', `${data.category || 'Expense'} ${money(data.amount)} was saved for ${data.vessel}.`, 'warning', 'Expense', { route, vessel: data.vessel });
   }
   if (route === 'invoices') {
+    handleSavedInvoiceWorkflow(store.invoices.find((invoice) => invoice.id === savedId));
     addNotification('Invoice / Quote saved', `${data.invoiceNumber || 'Invoice'} for ${data.customerName || 'customer'} is ${data.paymentStatus}.`, 'success', { route, category: 'Invoice', invoiceId: savedId });
   }
   if (route === 'incident-reports') {
@@ -1815,6 +1818,7 @@ function deleteRecord(route, id) {
 function visibleRecordsForRoute(route, records = []) {
   const role = activeRoleName(); const person = activeRolePerson(role);
   if (route === 'trips') return records.filter((trip) => role === 'Admin' || role === 'Bookkeeper' || (role === 'Owner' && ownerForVesselName(trip.vessel) === person) || (role === 'Captain' && trip.captain === person) || (role === 'Mate' && trip.mate === person));
+  if (route === 'bookings' && ['Owner','Captain','Mate'].includes(role)) { const visibleBookingIds = new Set(visibleRecordsForRoute('trips', store.trips).filter((trip) => trip.tripDate && trip.startTime).map((trip) => trip.bookingId)); return records.filter((booking) => visibleBookingIds.has(booking.id)); }
   if (route === 'invoices' && role === 'Owner') return records.filter((invoice) => ownerForVesselName(invoice.vessel) === person);
   return records;
 }
@@ -1850,7 +1854,7 @@ function createTripFromBooking(bookingId, silent = false) {
   const booking = store.bookings.find((item) => item.id === bookingId);
   if (!booking) return toast('Booking not found.');
   let trip = store.trips.find((item) => item.bookingId === bookingId);
-  const invoice = generateInvoiceFromBooking(bookingId, true);
+  const invoice = store.invoices.find((item) => item.bookingId === bookingId);
   const snap = bookingSnapshot(booking);
   if (trip) Object.assign(trip, snap, { invoiceId: invoice?.id || trip.invoiceId, paymentStatus: invoice?.paymentStatus || trip.paymentStatus, dispatchReadinessStatus: calculateDispatchReadiness({ ...trip, ...snap }) });
   else {
@@ -1872,7 +1876,98 @@ function synchronizeBookingWorkflow(booking) {
   const existingTrip = store.trips.find((item) => item.bookingId === booking.id);
   if (existingInvoice) generateInvoiceFromBooking(booking.id, true);
   if (existingTrip) createTripFromBooking(booking.id, true);
-  if (['Confirmed', 'Scheduled', 'Completed'].includes(booking.status)) createTripFromBooking(booking.id, true);
+  if (booking.date && booking.time) createTripFromBooking(booking.id, true);
+}
+
+
+const WORKFLOW_PIPELINE = ['Quote','Invoice Sent','Deposit Due','Deposit Paid','Booked','Scheduled','Assigned','Ready','Completed','Closed Out','Cancelled'];
+
+function workflowPipelineStatus(booking, trip, invoice) {
+  if (booking?.status === 'Cancelled' || trip?.status === 'Cancelled') return 'Cancelled';
+  if (trip?.status === 'Completed') return trip.postTripChecklistStatus === 'Complete' ? 'Closed Out' : 'Completed';
+  if (trip && calculateDispatchReadiness(trip) === 'Ready') return 'Ready';
+  if (trip?.vessel && trip?.captain && trip?.mate) return 'Assigned';
+  if (trip?.tripDate && trip?.startTime) return 'Scheduled';
+  if (booking) return 'Booked';
+  if (invoice?.documentType === 'Quote') return 'Quote';
+  if (invoice?.paymentStatus === 'Deposit Paid') return 'Deposit Paid';
+  if (invoice?.paymentStatus === 'Deposit Due') return 'Deposit Due';
+  return 'Invoice Sent';
+}
+
+function workflowBadges(booking, trip, invoice) {
+  return [invoice?.documentType, booking && 'Booking', trip && 'Trip'].filter(Boolean).map((label) => `<span class="badge blue">${escapeHtml(label)}</span>`).join('');
+}
+
+function unifiedWorkflowRecords() {
+  const usedTrips = new Set(); const usedInvoices = new Set();
+  const records = store.bookings.map((booking) => {
+    const trip = store.trips.find((item) => item.bookingId === booking.id); const invoice = store.invoices.find((item) => item.bookingId === booking.id);
+    if (trip) usedTrips.add(trip.id); if (invoice) usedInvoices.add(invoice.id); return { booking, trip, invoice };
+  });
+  store.trips.filter((trip) => !usedTrips.has(trip.id)).forEach((trip) => records.push({ booking: null, trip, invoice: store.invoices.find((item) => item.tripId === trip.id) || null }));
+  store.invoices.filter((invoice) => !usedInvoices.has(invoice.id) && !invoice.tripId && invoice.documentType !== 'Quote').forEach((invoice) => records.push({ booking: null, trip: null, invoice }));
+  return records;
+}
+
+function renderUnifiedWorkflowCard({ booking, trip, invoice }) {
+  const base = trip || bookingSnapshot(booking || {}) || {}; const status = workflowPipelineStatus(booking, trip, invoice);
+  const customer = booking?.customer || trip?.customer || invoice?.customerName || 'Unnamed customer';
+  const date = booking?.date || trip?.tripDate || invoice?.tripDate || ''; const time = booking?.time || trip?.startTime || invoice?.startTime || '';
+  const fields = [['Tour Type', booking?.product || trip?.tourType || invoice?.tourType],['Return Time', invoice?.returnTime || calculateEndTime(time, trip?.hours || booking?.hours)],['Guests', booking?.guests ?? trip?.passengers ?? invoice?.guestCount],['Booking Source', booking?.source || trip?.bookingSource || invoice?.bookingSource],['Payment', invoice?.paymentStatus || (Number(booking?.balance ?? trip?.balanceDue ?? 0) ? 'Balance Due' : 'Paid in Full')],['Deposit', money(booking?.deposit ?? trip?.depositPaid ?? invoice?.depositPaid)],['Balance', money(booking?.balance ?? trip?.balanceDue ?? invoice?.balanceDue)],['Vessel', trip?.vessel || invoice?.vessel],['Captain', trip?.captain || invoice?.captain],['Mate', trip?.mate || invoice?.mate],['Dispatch', trip ? calculateDispatchReadiness(trip) : 'Not Scheduled'],['Checklist', trip ? `${trip.preTripChecklistStatus || 'Not Started'} / ${trip.postTripChecklistStatus || 'Not Started'}` : '—'],['Payroll', trip?.payroll ? 'Calculated' : 'Not calculated']];
+  return `<article class="card unified-workflow-card"><header><div><div class="linked-record-badges">${workflowBadges(booking,trip,invoice)}</div><h3>${escapeHtml(customer)}</h3><p>${escapeHtml(formatDate(date))} · ${escapeHtml(formatTime(time) || 'Unscheduled')}</p></div><span class="badge green">${escapeHtml(status)}</span></header><div class="pipeline-strip">${WORKFLOW_PIPELINE.map((step) => `<span class="${step === status ? 'current' : ''}">${escapeHtml(step)}</span>`).join('')}</div><div class="unified-record-grid">${fields.map(([label,value]) => `<div><span>${escapeHtml(label)}</span><strong>${escapeHtml(value === 0 ? '0' : value || '—')}</strong></div>`).join('')}</div><footer>${booking ? `<button class="btn btn-outline btn-small" onclick="showForm('bookings','${booking.id}')">Edit booking</button>` : ''}${trip ? `<button class="btn btn-outline btn-small" onclick="openCalendarTrip('${trip.id}')">Dispatch details</button>` : ''}${invoice ? `<button class="btn btn-outline btn-small" onclick="showForm('invoices','${invoice.id}')">Open ${escapeHtml(invoice.documentType || 'invoice')}</button>` : ''}</footer></article>`;
+}
+
+function renderMigrationReport() {
+  const report = store.workflowMigrationReport || { linkedRecords: [], unmatchedBookings: [], unmatchedTrips: [], duplicatesNeedingReview: [] };
+  return `<details class="card card-pad app-accordion migration-report"><summary><div><h3>Bookings / Trips Migration Report</h3><p class="muted-text">Existing data is preserved; exact customer/date/time matches are linked and ambiguous records remain marked Needs Review.</p></div><span class="chevron">⌄</span></summary><div class="migration-report-grid">${[['Linked Records',report.linkedRecords],['Unmatched Bookings',report.unmatchedBookings],['Unmatched Trips',report.unmatchedTrips],['Duplicates Needing Review',report.duplicatesNeedingReview]].map(([label,items]) => `<div><strong>${items.length}</strong><span>${label}</span></div>`).join('')}</div></details>`;
+}
+
+function renderUnifiedBookingsTrips() {
+  const page = document.getElementById('page-bookings'); if (!page) return;
+  const visibleBookings = new Set(visibleRecordsForRoute('bookings', store.bookings).map((booking) => booking.id)); const visibleTrips = new Set(visibleRecordsForRoute('trips', store.trips).map((trip) => trip.id));
+  const records = unifiedWorkflowRecords().filter(({ booking, trip }) => (booking && visibleBookings.has(booking.id)) || (trip && visibleTrips.has(trip.id)) || (!booking && !trip && ['Admin','Bookkeeper'].includes(activeRoleName()))); const scheduled = visibleRecordsForRoute('trips', store.trips).filter((trip) => trip.tripDate && trip.startTime);
+  const module = document.createElement('section'); module.className = 'unified-workflow'; module.innerHTML = `<div class="card card-pad unified-workflow-hero"><div><p class="eyebrow">Single source of truth</p><h2>Bookings / Trips</h2><p>Create the booking once; dated bookings become scheduled trips automatically. Assign crew and vessel, track payment, and prepare dispatch here.</p></div><div class="linked-record-badges"><span class="badge blue">${store.bookings.length} Bookings</span><span class="badge green">${scheduled.length} Scheduled Trips</span></div></div><div class="unified-workflow-list">${records.map(renderUnifiedWorkflowCard).join('') || '<p class="empty-state">No booking or trip records yet.</p>'}</div>${renderMigrationReport()}<details class="card app-accordion" open><summary><div><h3>Dispatch Tree</h3><p class="muted-text">Scheduled booking/trip records only.</p></div><span class="chevron">⌄</span></summary><div class="dispatch-tree unified-dispatch-tree">${renderDispatchTree(scheduled)}</div></details>`;
+  page.querySelector('.page-stack').prepend(module);
+}
+
+function invoiceToBookingSnapshot(invoice) {
+  return normalizeBooking({ customer: invoice.customerName, phone: invoice.phone, email: invoice.email, date: invoice.tripDate, time: invoice.startTime, product: invoice.tourType, guests: invoice.guestCount, source: invoice.bookingSource, pickupLocation: invoice.pickupLocation, price: invoice.tourPrice, deposit: invoice.depositPaid, balance: invoice.balanceDue, status: invoice.tripDate && invoice.startTime ? 'Scheduled' : 'Confirmed', notes: invoice.notes });
+}
+
+function handleSavedInvoiceWorkflow(invoice) {
+  if (!invoice || invoice.documentType === 'Quote') return;
+  if (invoice.bookingId) return synchronizeInvoiceWorkflow(invoice, true);
+  if (invoice.documentType === 'Tour Confirmation') return synchronizeInvoiceWorkflow(invoice, true);
+  if (invoice.documentType === 'Invoice' && confirm('Create Booking / Trip now?')) return synchronizeInvoiceWorkflow(invoice, true);
+}
+
+function convertDocumentToBookingTrip(invoiceId) {
+  const invoice = findInvoice(invoiceId); if (!invoice) return;
+  const originalType = invoice.documentType; invoice.documentType = originalType === 'Quote' ? 'Quote' : invoice.documentType;
+  let booking = store.bookings.find((item) => item.id === invoice.bookingId);
+  if (!booking) { booking = { id: makeId('bookings'), order: nextBookingOrderNumber(), ...invoiceToBookingSnapshot(invoice) }; store.bookings.push(booking); invoice.bookingId = booking.id; }
+  synchronizeBookingWorkflow(booking); const trip = store.trips.find((item) => item.bookingId === booking.id); if (trip) { trip.invoiceId = invoice.id; invoice.tripId = trip.id; }
+  addAudit('converted', 'Invoice / Quote', `${originalType || 'Document'} converted to linked booking${trip ? ' and trip' : ''}.`, { invoiceId, bookingId: booking.id, tripId: trip?.id || '' }); saveStore(); renderRoute('bookings'); toast(trip ? 'Booking and scheduled trip created.' : 'Booking created. Add date and time to schedule the trip.');
+}
+
+function synchronizeInvoiceWorkflow(invoice, silent = false) {
+  if (!invoice || invoice.documentType === 'Quote') return null;
+  let booking = store.bookings.find((item) => item.id === invoice.bookingId);
+  if (!booking) { booking = { id: makeId('bookings'), order: nextBookingOrderNumber(), ...invoiceToBookingSnapshot(invoice) }; store.bookings.push(booking); invoice.bookingId = booking.id; }
+  else Object.assign(booking, invoiceToBookingSnapshot(invoice), { id: booking.id, order: booking.order });
+  synchronizeBookingWorkflow(booking);
+  const trip = store.trips.find((item) => item.bookingId === booking.id); if (trip) { trip.invoiceId = invoice.id; invoice.tripId = trip.id; }
+  if (!silent) toast(trip ? 'Invoice linked to booking and scheduled trip.' : 'Invoice linked to booking. Add date and time to schedule a trip.');
+  return { booking, trip };
+}
+
+function reconcileExistingWorkflow(target) {
+  const linkedRecords = [], unmatchedBookings = [], unmatchedTrips = [], duplicatesNeedingReview = [], usedTrips = new Set();
+  const keyBooking = (b) => `${String(b.customer||'').trim().toLowerCase()}|${b.date||''}|${b.time||''}`; const keyTrip = (t) => `${String(t.customer||'').trim().toLowerCase()}|${t.tripDate||''}|${t.startTime||''}`;
+  target.bookings.forEach((booking) => { const linked = target.trips.find((trip) => trip.bookingId === booking.id); if (linked) { usedTrips.add(linked.id); linkedRecords.push({ bookingId: booking.id, tripId: linked.id }); return; } const matches = target.trips.filter((trip) => !trip.bookingId && keyTrip(trip) === keyBooking(booking) && booking.customer && booking.date && booking.time); if (matches.length === 1) { matches[0].bookingId = booking.id; usedTrips.add(matches[0].id); linkedRecords.push({ bookingId: booking.id, tripId: matches[0].id }); } else if (matches.length > 1) { booking.workflowReviewStatus = 'Needs Review'; matches.forEach((trip) => trip.workflowReviewStatus = 'Needs Review'); duplicatesNeedingReview.push({ bookingId: booking.id, tripIds: matches.map((trip) => trip.id) }); } else { booking.workflowReviewStatus ||= 'Needs Review'; unmatchedBookings.push(booking.id); } });
+  target.trips.filter((trip) => !trip.bookingId && !usedTrips.has(trip.id)).forEach((trip) => { trip.workflowReviewStatus ||= 'Needs Review'; unmatchedTrips.push(trip.id); });
+  target.workflowMigrationReport = { generatedAt: new Date().toISOString(), linkedRecords, unmatchedBookings, unmatchedTrips, duplicatesNeedingReview };
 }
 
 function renderTable(route) {
@@ -2646,7 +2741,7 @@ function renderInvoiceModule() {
   if (!page || page.querySelector('[data-invoice-module]')) return;
   const table = page.querySelector('.table-card');
   const invoices = store.invoices || [];
-  const cards = invoices.length ? invoices.map((invoice) => `<article class="invoice-card"><div class="card-header"><div><h3>${escapeHtml(invoiceDocumentTitle(invoice))}</h3><p>${escapeHtml(invoice.invoiceNumber || 'No document #')} · ${escapeHtml(invoice.customerName || 'Customer')} · ${escapeHtml(formatDate(invoice.tripDate))}</p></div>${readinessBadge(invoice.paymentStatus || 'Deposit Due')}</div><div class="assignment-card-metrics"><div><span>Total Booking Cost</span><strong>${money(invoice.tourPrice)}</strong></div><div><span>Deposit Paid</span><strong>${money(invoice.depositPaid)}</strong></div><div><span>Remaining Balance</span><strong>${money(invoice.balanceDue)}</strong></div><div><span>Payment Method</span><strong>${escapeHtml(invoice.paymentMethod || 'Not selected')}</strong></div></div><p class="muted-text">${escapeHtml(invoice.tourType || 'Tour package')} · ${escapeHtml(invoice.vessel || 'No vessel')} · ${escapeHtml(invoice.bookingSource || 'No source')}</p><div class="assignment-actions"><button class="btn btn-outline btn-small" onclick="showForm('invoices','${invoice.id}')">Edit Document</button><button class="btn btn-outline btn-small" onclick="previewInvoiceDocument('${invoice.id}')">Preview Document</button><button class="btn btn-outline btn-small" onclick="printInvoiceDocument('${invoice.id}')">Print to PDF</button><button class="btn btn-outline btn-small" onclick="downloadInvoiceDocument('${invoice.id}')">Download PDF / HTML</button><button class="btn btn-outline btn-small" onclick="sendInvoiceEmail('${invoice.id}')">Send by Email</button><button class="btn btn-outline btn-small" onclick="sendInvoiceWhatsApp('${invoice.id}')">Send by WhatsApp</button><button class="btn btn-outline btn-small" onclick="copyInvoiceShareMessage('${invoice.id}')">Copy Share Message</button><button class="btn btn-primary btn-small" onclick="markInvoicePaidInFull('${invoice.id}')">Mark Paid in Full</button></div></article>`).join('') : '<p class="empty-state">No Invoice / Quote records yet. Use Create Invoice / Quote to add a native customer-facing document.</p>';
+  const cards = invoices.length ? invoices.map((invoice) => `<article class="invoice-card"><div class="card-header"><div><h3>${escapeHtml(invoiceDocumentTitle(invoice))}</h3><p>${escapeHtml(invoice.invoiceNumber || 'No document #')} · ${escapeHtml(invoice.customerName || 'Customer')} · ${escapeHtml(formatDate(invoice.tripDate))}</p></div>${readinessBadge(invoice.paymentStatus || 'Deposit Due')}</div><div class="assignment-card-metrics"><div><span>Total Booking Cost</span><strong>${money(invoice.tourPrice)}</strong></div><div><span>Deposit Paid</span><strong>${money(invoice.depositPaid)}</strong></div><div><span>Remaining Balance</span><strong>${money(invoice.balanceDue)}</strong></div><div><span>Payment Method</span><strong>${escapeHtml(invoice.paymentMethod || 'Not selected')}</strong></div></div><p class="muted-text">${escapeHtml(invoice.tourType || 'Tour package')} · ${escapeHtml(invoice.vessel || 'No vessel')} · ${escapeHtml(invoice.bookingSource || 'No source')}</p><div class="assignment-actions"><button class="btn btn-outline btn-small" onclick="showForm('invoices','${invoice.id}')">Edit Document</button><button class="btn btn-outline btn-small" onclick="previewInvoiceDocument('${invoice.id}')">Preview Document</button><button class="btn btn-outline btn-small" onclick="printInvoiceDocument('${invoice.id}')">Print to PDF</button><button class="btn btn-outline btn-small" onclick="downloadInvoiceDocument('${invoice.id}')">Download PDF / HTML</button><button class="btn btn-outline btn-small" onclick="sendInvoiceEmail('${invoice.id}')">Send by Email</button><button class="btn btn-outline btn-small" onclick="sendInvoiceWhatsApp('${invoice.id}')">Send by WhatsApp</button><button class="btn btn-outline btn-small" onclick="copyInvoiceShareMessage('${invoice.id}')">Copy Share Message</button><button class="btn btn-primary btn-small" onclick="convertDocumentToBookingTrip('${invoice.id}')">${invoice.documentType === 'Quote' ? 'Convert Quote to Booking / Trip' : invoice.bookingId ? 'Open Linked Booking / Trip' : 'Create Booking / Trip'}</button><button class="btn btn-primary btn-small" onclick="markInvoicePaidInFull('${invoice.id}')">Mark Paid in Full</button></div></article>`).join('') : '<p class="empty-state">No Invoice / Quote records yet. Use Create Invoice / Quote to add a native customer-facing document.</p>';
   const module = document.createElement('details');
   module.className = 'card native-invoice-module app-accordion';
   module.dataset.invoiceModule = 'true';
