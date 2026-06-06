@@ -137,3 +137,24 @@ The required happy path should assert one booking, one linked invoice, one linke
 4. **Navigation simplification:** group desktop modules and retire accepted legacy screens.
 5. **Mobile/accessibility:** replace wide tables with cards and complete keyboard/screen-reader testing.
 6. **Performance/testing:** split domains, add indexed queries, and automate the full booking-to-payout acceptance path.
+
+## 2026 modernization audit and consolidation pass
+
+### Experience findings addressed
+
+- **Navigation hierarchy:** The desktop sidebar previously presented every authorized destination as one long, equally weighted list. It is now grouped into Command center, Sales & guests, Operations, Finance & insights, and Tools & administration. The role-aware visibility contract remains unchanged, and the focused mobile command bar still keeps the daily operating path one tap away.
+- **Dashboard prioritization:** The customizable dashboard contained useful detail but did not begin with a clear exception-oriented operating summary. It now opens with a live command hero, six operational KPI/exception cards, and quick actions for booking, dispatch, assignment, and payment workflows.
+- **Calendar dispatch workflow:** Calendar trips previously opened the full Trip edit form immediately, which made quick dispatch review inefficient. Trips now open in a slide-out dispatch panel that summarizes customer, vessel, crew, payment, readiness, notes, and conflicts before users choose to open the linked source records.
+- **Calendar filtering:** Calendar filtering was limited to trip status. Dispatchers can now combine status with Vessel, Captain, Mate, Tour Type, and Payment filters across monthly, weekly, daily, and agenda views.
+- **Mobile field operations:** The new command KPI layout, horizontally scrollable quick actions/filters, sticky view controls, bottom-sheet style trip detail panel, larger controls, and existing sticky form saves reduce navigation and scrolling during dockside use.
+- **Visual consistency:** A final design-system layer standardizes elevation, radii, focus states, spacing, navigation treatment, status colors, dashboard widgets, calendar cards, and responsive behavior without replacing or deleting existing module implementations.
+
+### Workflow and data integrity verification
+
+The source-of-truth hierarchy remains **Booking → Invoice → Trip → Calendar / Payroll / Owner Payout**. Confirmed bookings continue to synchronize exactly one linked invoice and trip through `bookingId`; the calendar remains derived from trips rather than creating duplicate calendar records; payroll and owner payouts remain derived from completed trips. No stored record shape was removed or renamed in this modernization pass, so existing browser data remains compatible.
+
+### Remaining platform constraints
+
+- The app remains a local-first static PWA. It does not provide a shared multi-user database, server-side authorization, or cross-device synchronization.
+- Legacy standalone invoice and trip creation remains available for backward compatibility. The preferred operating workflow is to create the booking first and use its linked workflow actions.
+- Native searchable select controls are used for crew and vessel assignment. A future server-backed release can enhance these with remote search and inline record creation without changing the relationship model.
