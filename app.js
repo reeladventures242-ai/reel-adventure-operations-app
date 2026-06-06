@@ -616,9 +616,19 @@ function canAccessRoute(route, role = activeRoleName()) {
 function visibleNavItems() { return navItems.filter(([route]) => canAccessRoute(route)); }
 
 function renderNav() {
-  document.getElementById('primaryNav').innerHTML = visibleNavItems().map(([route, icon, label]) => { const badge = route === 'chat' ? chatBadgeMarkup('nav-badge') : ''; return `
-    <button class="nav-link" data-route="${route}" aria-label="${label}"><span class="nav-icon" aria-hidden="true">${icon}</span><span class="nav-label">${label}</span>${badge}</button>
-  `; }).join('');
+  const groups = [
+    ['Command center', ['dashboard', 'operations-assistant', 'dispatch', 'calendar']],
+    ['Sales & guests', ['bookings', 'customers', 'invoices', 'gmail-import', 'whatsapp']],
+    ['Operations', ['trips', 'crew', 'vessels', 'maintenance', 'pre-trip-checklist', 'post-trip-checklist', 'incident-reports']],
+    ['Finance & insights', ['payroll', 'expenses', 'reports', 'owner-dashboard', 'captain-dashboard', 'mate-dashboard']],
+    ['Tools & administration', ['weather', 'chat', 'notifications', 'inventory', 'cruise-schedule', 'audit', 'settings']]
+  ];
+  const visible = new Map(visibleNavItems().map((item) => [item[0], item]));
+  document.getElementById('primaryNav').innerHTML = groups.map(([label, routes]) => {
+    const items = routes.map((route) => visible.get(route)).filter(Boolean);
+    if (!items.length) return '';
+    return `<section class="nav-group"><p class="nav-group-label">${label}</p>${items.map(([route, icon, itemLabel]) => { const badge = route === 'chat' ? chatBadgeMarkup('nav-badge') : ''; return `<button class="nav-link" data-route="${route}" aria-label="${itemLabel}"><span class="nav-icon" aria-hidden="true">${icon}</span><span class="nav-label">${itemLabel}</span>${badge}</button>`; }).join('')}</section>`;
+  }).join('');
   renderMobileNav();
 }
 
@@ -696,8 +706,11 @@ function wireEvents() {
     if (calDay) openCalendarDay(calDay.dataset.calendarDay);
     const calFilter = event.target.closest('[data-calendar-filter]');
     if (calFilter) setCalendarFilter(calFilter.dataset.calendarFilter);
+    if (event.target.closest('[data-close-dispatch-drawer]')) closeDispatchDrawer();
+    const drawerAction = event.target.closest('[data-dispatch-drawer-action]');
+    if (drawerAction) handleDispatchDrawerAction(drawerAction.dataset.dispatchDrawerAction, drawerAction.dataset.tripId);
     const calTrip = event.target.closest('[data-calendar-trip]');
-    if (calTrip) openCalendarTrip(calTrip.dataset.calendarTrip);
+    if (calTrip && !drawerAction) openCalendarTrip(calTrip.dataset.calendarTrip);
     const treeAction = event.target.closest('[data-tree-action]');
     if (treeAction && treeAction.tagName !== 'SUMMARY') handleTreeNodeAction(treeAction);
     const dashToggle = event.target.closest('[data-dashboard-card-toggle]');
@@ -720,6 +733,7 @@ function wireEvents() {
     if (event.target.matches('[data-calendar-date]')) updateCalendarDate('date', event.target.value);
     if (event.target.matches('[data-calendar-month]')) updateCalendarDate('month', event.target.value);
     if (event.target.matches('[data-calendar-year]')) updateCalendarDate('year', event.target.value);
+    if (event.target.matches('[data-calendar-advanced-filter]')) { calendarAdvancedFilters[event.target.dataset.calendarAdvancedFilter] = event.target.value; renderCalendar(); }
     if (event.target.matches('[data-photo-note-file]')) savePhotoNoteFile(event.target.dataset.photoNoteRoute, event.target.files[0]);
     if (event.target.matches('[data-incident-media]')) attachIncidentMedia(event.target.files);
     if (event.target.matches('[data-chat-filter]')) { chatFilters[event.target.dataset.chatFilter] = event.target.value; renderChat(); }
@@ -827,6 +841,7 @@ const uploadReviewFields = [
 let activeUploadReviewId = '';
 let pendingDuplicateAction = '';
 let calendarFilter = 'All';
+let calendarAdvancedFilters = { vessel: 'All', captain: 'All', mate: 'All', tourType: 'All', payment: 'All' };
 
 
 function renderPhotoNotePanel(route = currentRoute) {
@@ -1244,7 +1259,7 @@ function renderCalendar() {
   const today = new Date().toISOString().slice(0, 10);
   const selected = state.selectedDate || today;
   const role = activeRoleName();
-  const trips = visibleCalendarTrips();
+  const trips = filterCalendarTrips(visibleCalendarTrips());
   const financial = role === 'Admin' || role === 'Bookkeeper';
   page.innerHTML = `<div class="page-stack calendar-page"><div class="module-actions"><div class="calendar-view-tabs"><button class="btn ${state.view === 'month' ? 'btn-primary' : 'btn-outline'} btn-small" data-calendar-view="month">Month View</button><button class="btn ${state.view === 'week' ? 'btn-primary' : 'btn-outline'} btn-small" data-calendar-view="week">Week View</button><button class="btn ${state.view === 'day' ? 'btn-primary' : 'btn-outline'} btn-small" data-calendar-view="day">Day View</button><button class="btn ${state.view === 'agenda' ? 'btn-primary' : 'btn-outline'} btn-small" data-calendar-view="agenda">Agenda View</button></div></div>${renderCalendarDateControls(selected)}${renderUploadZone('calendar')}<div class="calendar-role-note card card-pad"><strong>${escapeHtml(role)} permissions</strong><p>${calendarPermissionCopy(role)}</p>${financial ? `<p><strong>Bookkeeper financial calendar view:</strong> ${money(trips.reduce((sum, trip) => sum + Number(trip.balanceDue || 0), 0))} outstanding across visible trips.</p>` : ''}<p><strong>Unassigned Trips:</strong> ${trips.filter((trip) => calendarTripStatus(trip) === 'Unassigned').length} schedule entries need vessel, captain, or mate assignment.</p></div>${renderCalendarFilters()}${state.view === 'month' ? renderMonthView(selected, trips) : state.view === 'week' ? renderWeekView(selected, trips) : state.view === 'day' ? renderDaySchedule(selected, trips) : renderAgendaView(trips)}</div>`;
   renderVoiceCommandPanel('calendar');
@@ -1270,7 +1285,8 @@ function updateCalendarDate(part, value) {
 
 function renderCalendarFilters() {
   const filters = ['All', 'Ready', 'Not Ready', 'Unassigned', 'Balance Due', 'Completed', 'Cancelled'];
-  return `<div class="quick-filter-row">${filters.map((filter) => `<button class="btn ${calendarFilter === filter ? 'btn-primary' : 'btn-outline'} btn-small" data-calendar-filter="${filter}">${filter}</button>`).join('')}</div>`;
+  const select = (key, label, values) => `<label><span>${label}</span><select data-calendar-advanced-filter="${key}"><option>All</option>${values.map((value) => `<option ${calendarAdvancedFilters[key] === value ? 'selected' : ''}>${escapeHtml(value)}</option>`).join('')}</select></label>`;
+  return `<section class="calendar-filter-panel card"><div class="quick-filter-row">${filters.map((filter) => `<button class="btn ${calendarFilter === filter ? 'btn-primary' : 'btn-outline'} btn-small" data-calendar-filter="${filter}">${filter}</button>`).join('')}</div><div class="calendar-resource-filters">${select('vessel', 'Vessel', getOptions('vessels'))}${select('captain', 'Captain', getOptions('captains'))}${select('mate', 'Mate', getOptions('mates'))}${select('tourType', 'Tour type', [...new Set(store.trips.map((trip) => trip.tourType).filter(Boolean))])}${select('payment', 'Payment', ['Paid', 'Balance Due'])}</div></section>`;
 }
 function monthDates(selected) {
   const base = new Date(`${selected}T00:00:00`);
@@ -1290,8 +1306,16 @@ function renderWeekView(selected, trips) {
   return `<div class="calendar-grid week-view">${dates.map((date) => renderCalendarDayCell(date, trips)).join('')}</div>`;
 }
 function filterCalendarTrips(trips) {
-  if (calendarFilter === 'All') return trips;
-  return trips.filter((trip) => calendarTripStatus(trip) === calendarFilter);
+  return trips.filter((trip) => {
+    if (calendarFilter !== 'All' && calendarTripStatus(trip) !== calendarFilter) return false;
+    if (calendarAdvancedFilters.vessel !== 'All' && trip.vessel !== calendarAdvancedFilters.vessel) return false;
+    if (calendarAdvancedFilters.captain !== 'All' && trip.captain !== calendarAdvancedFilters.captain) return false;
+    if (calendarAdvancedFilters.mate !== 'All' && trip.mate !== calendarAdvancedFilters.mate) return false;
+    if (calendarAdvancedFilters.tourType !== 'All' && trip.tourType !== calendarAdvancedFilters.tourType) return false;
+    if (calendarAdvancedFilters.payment === 'Paid' && Number(trip.balanceDue || 0) > 0) return false;
+    if (calendarAdvancedFilters.payment === 'Balance Due' && Number(trip.balanceDue || 0) <= 0) return false;
+    return true;
+  });
 }
 function renderDaySchedule(date, trips = visibleCalendarTrips()) {
   const summary = calendarDaySummary(date, trips); const visible = filterCalendarTrips(summary.dayTrips);
@@ -1309,7 +1333,14 @@ function renderCalendarTripCard(trip) {
 function setCalendarView(view) { store.calendarState = { ...(store.calendarState || {}), view }; saveStore(); renderCalendar(); }
 function openCalendarDay(date) { store.calendarState = { ...(store.calendarState || {}), selectedDate: date, view: 'day' }; saveStore(); renderCalendar(); }
 function setCalendarFilter(filter) { calendarFilter = filter; renderCalendar(); }
-function openCalendarTrip(id) { if (activeRoleName() === 'Bookkeeper') { toast('Bookkeeper calendar is read-only for dispatch assignments unless admin is active.'); return; } renderRoute('trips'); showForm('trips', id); }
+function openCalendarTrip(id) {
+  const trip = store.trips.find((item) => item.id === id); if (!trip) return;
+  document.querySelector('.dispatch-drawer')?.remove(); document.querySelector('.dispatch-drawer-backdrop')?.remove();
+  const readiness = readinessChecklist(trip); const conflicts = assignmentConflictWarnings(trip, trip.id);
+  document.body.insertAdjacentHTML('beforeend', `<button class="dispatch-drawer-backdrop" data-close-dispatch-drawer aria-label="Close trip details"></button><aside class="dispatch-drawer" aria-label="Trip dispatch details"><header><div><p class="eyebrow">${escapeHtml(formatDate(trip.tripDate))} · ${escapeHtml(formatTime(trip.startTime))}</p><h2>${escapeHtml(trip.customer || 'Unnamed party')}</h2><p>${Number(trip.passengers || 0)} guests · ${escapeHtml(trip.tourType || 'Tour')}</p></div><button class="icon-btn drawer-close" data-close-dispatch-drawer aria-label="Close">×</button></header><div class="dispatch-drawer-body"><div class="drawer-status-row">${statusBadge(calendarTripStatus(trip))}${readinessBadge(calculateDispatchReadiness(trip))}${statusBadge(Number(trip.balanceDue || 0) > 0 ? 'Payment Pending' : 'Payment Complete')}</div>${conflicts.length ? `<div class="drawer-alert"><strong>Action required</strong>${conflicts.map((item) => `<span>${escapeHtml(item.type)}: ${escapeHtml(item.message)}</span>`).join('')}</div>` : ''}<section class="drawer-detail-grid"><div><span>Customer</span><strong>${escapeHtml(trip.customer || 'Not provided')}</strong><small>${escapeHtml(trip.phone || trip.email || 'No contact details')}</small></div><div><span>Vessel</span><strong>${escapeHtml(trip.vessel || 'Needs assignment')}</strong></div><div><span>Captain</span><strong>${escapeHtml(trip.captain || 'Needs assignment')}</strong></div><div><span>Mate</span><strong>${escapeHtml(trip.mate || 'Needs assignment')}</strong></div><div><span>Payment</span><strong>${money(trip.balanceDue || 0)} due</strong></div><div><span>Trip status</span><strong>${escapeHtml(trip.status || 'Scheduled')}</strong></div></section><section><p class="drawer-section-label">Dispatch readiness</p><div class="drawer-readiness-list">${Object.entries(readiness).filter(([key]) => !['vesselStatus', 'hasConflicts'].includes(key)).map(([key, complete]) => `<div><span class="readiness-dot ${complete ? 'complete' : ''}"></span><span>${escapeHtml(key.replace(/([A-Z])/g, ' $1').replace(/^./, (letter) => letter.toUpperCase()))}</span><strong>${complete ? 'Ready' : 'Needed'}</strong></div>`).join('')}</div></section><section><p class="drawer-section-label">Special notes</p><p class="drawer-notes">${escapeHtml(trip.notes || 'No special notes for this trip.')}</p></section></div><footer><button class="btn btn-primary" data-dispatch-drawer-action="trip" data-trip-id="${trip.id}">Open trip</button>${trip.bookingId ? `<button class="btn btn-outline" data-dispatch-drawer-action="booking" data-trip-id="${trip.id}">Booking</button>` : ''}${trip.invoiceId ? `<button class="btn btn-outline" data-dispatch-drawer-action="invoice" data-trip-id="${trip.id}">Invoice</button>` : ''}</footer></aside>`);
+}
+function closeDispatchDrawer() { document.querySelector('.dispatch-drawer')?.remove(); document.querySelector('.dispatch-drawer-backdrop')?.remove(); }
+function handleDispatchDrawerAction(action, tripId) { const trip = store.trips.find((item) => item.id === tripId); if (!trip) return; closeDispatchDrawer(); if (action === 'trip') { renderRoute('trips'); showForm('trips', trip.id); } if (action === 'booking' && trip.bookingId) { renderRoute('bookings'); showForm('bookings', trip.bookingId); } if (action === 'invoice' && trip.invoiceId) { renderRoute('invoices'); showForm('invoices', trip.invoiceId); } }
 
 function renderDashboard() {
   store.dashboardPreferences = normalizeDashboardPreferences(store.dashboardPreferences);
@@ -1319,9 +1350,25 @@ function renderDashboard() {
     .map((key) => renderDashboardCustomCard(key, metrics)).join('');
   document.getElementById('page-dashboard').innerHTML = `
     <div class="page-stack dashboard-command-center" data-mobile-command-center>
-      <div class="hero-command-card"><img class="dashboard-logo" src="Reel Adventure Tours Logo (2).jpg" alt="Reel Adventure Tours logo"><div><p class="eyebrow">Reel Adventure Tours</p><h1>Today’s Operations</h1></div></div>
+      <div class="hero-command-card"><div class="hero-command-copy"><p class="eyebrow">Live operations · ${escapeHtml(new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' }))}</p><h1>Good ${new Date().getHours() < 12 ? 'morning' : new Date().getHours() < 17 ? 'afternoon' : 'evening'}, ${escapeHtml(currentUser().name.split(' ')[0])}.</h1><p>Everything your team needs to launch safe, paid, on-time charters.</p></div><div class="hero-live-pill"><span></span> Operations live</div></div>${renderOperationsSnapshot(metrics)}<div class="quick-action-dock"><button class="btn btn-primary" data-route="bookings">＋ New booking</button><button class="btn btn-outline" data-route="calendar">Open dispatch calendar</button><button class="btn btn-outline" data-route="trips">Assign crew & vessel</button><button class="btn btn-outline" data-route="invoices">Record payment</button></div>
       ${renderIncidentDashboardSummary()}${weatherSummaryCards(metrics.scheduledTrips)}${renderWeatherAlertPanel(metrics.scheduledTrips)}${['Admin','Owner','Bookkeeper'].includes(activeRoleName()) ? renderFuelReports() : ''}<div class="grid dashboard-custom-grid">${cardMarkup}</div>${renderUploadZone('dashboard')}
     </div>`;
+}
+
+function renderOperationsSnapshot(metrics) {
+  const missingCrew = metrics.scheduledTrips.filter((trip) => !trip.captain || !trip.mate).length;
+  const missingVessel = metrics.scheduledTrips.filter((trip) => !trip.vessel).length;
+  const missingPayment = metrics.scheduledTrips.filter((trip) => Number(trip.balanceDue || 0) > 0).length;
+  const conflicts = metrics.scheduledTrips.filter((trip) => assignmentConflictWarnings(trip, trip.id).length).length;
+  const cards = [
+    ['Today’s trips', metrics.todayTrips.length, `${metrics.readyTrips.filter((trip) => trip.tripDate === new Date().toISOString().slice(0,10)).length} dispatch ready`, 'blue', 'calendar'],
+    ['Dispatch ready', metrics.readyTrips.length, `${metrics.needsAttention.length} need attention`, 'green', 'dispatch'],
+    ['Missing crew', missingCrew, missingCrew ? 'Assignment required' : 'All crew assigned', missingCrew ? 'gold' : 'green', 'trips'],
+    ['Missing vessel', missingVessel, missingVessel ? 'Assignment required' : 'All vessels assigned', missingVessel ? 'gold' : 'green', 'trips'],
+    ['Payment pending', missingPayment, money(metrics.totalBalance) + ' outstanding', missingPayment ? 'red' : 'green', 'invoices'],
+    ['Conflict alerts', conflicts, conflicts ? 'Resolve before dispatch' : 'No conflicts found', conflicts ? 'red' : 'green', 'calendar']
+  ];
+  return `<section class="operations-snapshot">${cards.map(([label, value, detail, tone, route]) => `<button class="ops-snapshot-card ${tone}" data-route="${route}"><span>${label}</span><strong>${value}</strong><small>${detail}</small></button>`).join('')}</section>`;
 }
 
 function dashboardMetrics() {
