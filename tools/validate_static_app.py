@@ -450,7 +450,7 @@ def validate_phase_5_completion() -> tuple[bool, str]:
     required_tokens = {
         "OCR duration extraction": "const duration = pick(",
         "OCR calculated end time": "function calculateEndTime",
-        "OCR end time review field": "['endTime', 'End Time']",
+        "OCR return time review field": "['returnTime', 'Return Time']",
         "OCR confidence review": "extractionConfidence",
         "Booking confirmation classifier": "'Booking Confirmation': scoreText",
         "Captain payment receipt": "Captain Payment Receipt",
