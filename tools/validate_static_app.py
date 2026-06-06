@@ -522,8 +522,8 @@ def validate_module_visibility_and_titles() -> tuple[bool, str]:
         if f'id="page-{route}"' not in index_html:
             failures.append(f"missing page host {route}")
     required_tokens = {
-        "all mobile modules use shared navigation": "const mobilePrimaryNav = navItems;",
-        "no modules depend on More": "const mobileMoreNav = [];",
+        "mobile command bar prioritizes operating path": "const mobilePrimaryRoutes = new Set",
+        "secondary modules use More sheet": "const mobileMoreNav = navItems.filter",
         "mobile horizontal scrolling": "overflow-x: auto;",
         "mobile labels remain visible": ".mobile-nav-label,",
         "inactive mobile labels have readable contrast": ".mobile-nav-link:not(.active) {",
