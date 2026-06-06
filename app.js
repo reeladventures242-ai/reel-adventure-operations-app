@@ -1,5 +1,5 @@
 const STORE_KEY = 'rat_ops_v1_store';
-const STORE_VERSION = 23;
+const STORE_VERSION = 24;
 const STORE_BACKUP_KEY = `${STORE_KEY}_backup`;
 const STORE_RECOVERY_KEY = `${STORE_KEY}_recovery`;
 
@@ -24,10 +24,11 @@ const navItems = [
   ['cruise-schedule', '🚢', 'Cruise Schedule']
 ];
 
-// Every module stays in the horizontally scrollable mobile navigation. The More
-// menu remains available as a layout hook, but no module depends on it for access.
-const mobilePrimaryNav = navItems;
-const mobileMoreNav = [];
+// Keep the mobile command bar focused on the daily operating path. Every other
+// role-authorized module remains one tap away in the More sheet.
+const mobilePrimaryRoutes = new Set(['dashboard', 'dispatch', 'calendar', 'bookings', 'notifications']);
+const mobilePrimaryNav = navItems.filter(([route]) => mobilePrimaryRoutes.has(route));
+const mobileMoreNav = navItems.filter(([route]) => !mobilePrimaryRoutes.has(route));
 
 const legacyTools = [
   { title: 'Legacy Booking Dashboard', file: 'reel_adventure_tours_dashboard.html', desc: 'Original cruise schedule and booking tracking board.' },
@@ -140,9 +141,9 @@ const seedData = {
 
 const crudConfig = {
   bookings: {
-    title: 'Bookings', eyebrow: 'Simple CRUD', summary: 'Create, read, update, and delete booking records directly in the native operations app.', collection: 'bookings', addLabel: 'Add booking',
-    fields: [['order','Order #','text'], ['customer','Customer','text'], ['date','Trip date','date'], ['time','Time','time'], ['guests','Guests','number'], ['product','Product','text'], ['source','Source','select:bookingSources'], ['balance','Balance due','number'], ['status','Status','select:bookingStatus'], ['notes','Notes','textarea']],
-    columns: [['order','Order'], ['customer','Customer'], ['date','Date'], ['guests','Guests'], ['product','Product'], ['source','Source'], ['balance','Balance']]
+    title: 'Bookings', eyebrow: 'Reservation source of truth', summary: 'Enter customer, tour, and pricing details once. Confirmed bookings create and synchronize their linked invoice and operational trip.', collection: 'bookings', addLabel: 'Create booking',
+    fields: [['order','Order #','text'], ['customer','Customer name','text'], ['phone','Phone number','tel'], ['email','Email','email'], ['date','Tour date','date'], ['time','Tour time','time'], ['hours','Tour hours','number'], ['product','Tour type','text'], ['guests','Guest count','number'], ['pickupLocation','Pickup location','select:pickupLocations'], ['source','Booking source','select:bookingSources'], ['price','Price','number'], ['deposit','Deposit paid','number'], ['balance','Balance due','number'], ['depositRequired','Deposit required','number'], ['status','Booking status','select:bookingStatus'], ['notes','Special requests / notes','textarea']],
+    columns: [['order','Order'], ['customer','Customer'], ['date','Date'], ['time','Time'], ['guests','Guests'], ['product','Tour type'], ['price','Price'], ['balance','Balance'], ['status','Status']]
   },
   trips: {
     title: 'Trips', eyebrow: 'Daily operations', summary: 'Create trips, assign vessels and crew, detect assignment conflicts, and calculate separated owner/captain/mate payroll.', collection: 'trips', addLabel: 'Create trip',
@@ -289,7 +290,7 @@ function migrateStore(existing = {}) {
     const legacy = legacyKeys.map((key) => next[key]).find(Array.isArray);
     return legacy ? legacy : [];
   };
-  next.bookings = preserveArray('bookings');
+  next.bookings = preserveArray('bookings').map(normalizeBooking);
   next.customerProfiles = preserveArray('customerProfiles', 'customers');
   next.chatConversations = preserveArray('chatConversations', 'conversations');
   next.chatMessages = preserveArray('chatMessages', 'messages');
@@ -393,6 +394,25 @@ function normalizeNotification(notice = {}) {
     recipientRole: notice.recipientRole || notice.metadata?.recipientRole || 'All',
     recipientName: notice.recipientName || notice.metadata?.recipientName || '',
     category: notice.category || notice.metadata?.category || 'General'
+  };
+}
+
+function normalizeBooking(booking = {}) {
+  const price = Number(booking.price ?? booking.tourPrice ?? 0);
+  const deposit = Number(booking.deposit ?? booking.depositPaid ?? 0);
+  return {
+    ...booking,
+    customer: booking.customer || booking.customerName || '',
+    date: booking.date || booking.tripDate || '',
+    time: booking.time || booking.startTime || '',
+    product: booking.product || booking.tourType || '',
+    guests: Number(booking.guests ?? booking.guestCount ?? booking.passengers ?? 0),
+    source: booking.source || booking.bookingSource || '',
+    pickupLocation: booking.pickupLocation || booking.meetingPoint || '',
+    price,
+    deposit,
+    balance: Number(booking.balance ?? booking.balanceDue ?? Math.max(price - deposit, 0)),
+    status: booking.status || 'Draft'
   };
 }
 
@@ -540,7 +560,7 @@ function makeId(prefix) { return `${prefix}-${Date.now()}-${Math.random().toStri
 function getOptions(kind) {
   const maps = {
     bookingSources: store.bookingSources.map((s) => s.name),
-    bookingStatus: ['Inquiry', 'Deposit paid', 'Balance due', 'Paid in full', 'Cancelled'],
+    bookingStatus: ['Draft', 'Pending Deposit', 'Confirmed', 'Scheduled', 'Completed', 'Cancelled'],
     tripStatus: ['Scheduled', 'Completed', 'Needs review', 'Cancelled'],
     yesNo: ['Yes', 'No'],
     owners: [...new Set([...store.vessels.map((v) => v.owner), ...store.vesselOwnerPayoutRates.map((r) => r.owner)])].filter(Boolean),
@@ -557,7 +577,7 @@ function getOptions(kind) {
     incidentStatus: ['Open', 'Under Review', 'Resolved', 'Closed'],
     trips: store.trips.map((t) => `${t.id}|${formatDate(t.tripDate)} ${t.startTime || ''} ${t.customer || 'Trip'}`),
     bookings: store.bookings.map((b) => `${b.id}|${formatDate(b.date)} ${b.time || ''} ${b.customer || 'Booking'}`),
-    paymentStatus: ['Deposit Due', 'Deposit Paid', 'Balance Due', 'Paid in Full', 'Refunded', 'Cancelled'],
+    paymentStatus: ['Draft', 'Sent', 'Deposit Paid', 'Partially Paid', 'Paid', 'Overdue', 'Cancelled'],
     paymentMethods: ['Cash', 'Credit Card', 'Debit Card', 'Zelle', 'ACH', 'Check', 'Online', 'CashApp', 'PayPal (Friends & Family)', 'Payment Link', 'Other'],
     documentTypes: ['Quote', 'Invoice', 'Tour Confirmation', 'Booking Confirmation', 'Receipt'],
     pickupLocations: ['Woodes Rodgers Walk', 'Montague Dock', "Jimmy Buffett's Margaritaville", 'Other / Custom Location'],
@@ -611,7 +631,7 @@ function renderMobileNav() {
     const badge = route === 'chat' ? chatBadgeMarkup('mobile-nav-badge') : route === 'notifications' && unread ? `<span class="mobile-nav-badge" aria-label="${unread} unread notifications">${unread}</span>` : '';
     const active = currentRoute === route;
     return `<button class="mobile-nav-link ${active ? 'active' : ''}" data-route="${route}" aria-label="${label}" ${active ? 'aria-current="page"' : ''}><span class="mobile-nav-icon" aria-hidden="true">${icon}${badge}</span><span class="mobile-nav-label">${label}</span></button>`;
-  }).join('')}</div>`;
+  }).join('')}<button class="mobile-nav-link" data-mobile-more-toggle aria-label="More modules"><span class="mobile-nav-icon" aria-hidden="true">•••</span><span class="mobile-nav-label">More</span></button></div>`;
   if (more) more.innerHTML = `<div class="mobile-more-sheet" role="dialog" aria-label="More modules"><div class="mobile-more-handle"></div><div class="mobile-more-grid">${mobileMoreNav.map(([route, icon, label]) => {
     const badge = route === 'notifications' && unread ? `<em aria-label="${unread} unread notifications">${unread}</em>` : route === 'chat' ? chatBadgeMarkup('mobile-nav-badge') : '';
     return `<button class="mobile-more-item ${currentRoute === route ? 'active' : ''}" data-route="${route}"><span class="mobile-nav-icon">${icon}${badge}</span><span>${label}</span></button>`;
@@ -1389,9 +1409,9 @@ function kpi(label, value, sub) { return `<div class="card kpi"><div class="kpi-
 
 function statusColor(value = '') {
   const text = String(value || '').toLowerCase();
-  if (/ready|accepted|paid|complete|resolved|success|operational/.test(text)) return 'green';
-  if (/pending|review|balance|deposit due|submitted|draft|notified|partial/.test(text)) return 'gold';
   if (/missing|declined|conflict|not ready|incident|critical|out of service|open/.test(text)) return 'red';
+  if (/pending|review|balance|deposit due|submitted|draft|notified|partial|partially ready/.test(text)) return 'gold';
+  if (/ready|accepted|paid|complete|resolved|success|operational/.test(text)) return 'green';
   if (/completed|archived/.test(text)) return 'blue';
   if (/cancelled|canceled|inactive|none/.test(text)) return 'gray';
   return 'blue';
@@ -1621,6 +1641,12 @@ function saveRecord(event, route) {
   config.fields.forEach(([key,, type]) => { if (type === 'number') data[key] = Number(data[key] || 0); });
   if (data.phone) data.phone = normalizePhoneNumber(data.phone);
   if (route === 'bookings' && !editing[route]) data.order = nextBookingOrderNumber();
+  if (route === 'bookings') {
+    data.price = Number(data.price || 0);
+    data.deposit = Number(data.deposit || 0);
+    data.balance = Math.max(data.price - data.deposit, 0);
+    data.status = data.status || 'Draft';
+  }
   if (route === 'invoices') {
     data.tourPrice = Number(data.tourPrice || data.baseTourPrice || 0) + Number(data.swimmingPigsPeople || 0) * 20 + (data.secondBoat === 'Yes' ? 900 : 0);
     data.guestCount = Number(data.guestCount || 0) || Number(data.adultCount || 0) + Number(data.kidCount || 0) + Number(data.boat2Adults || 0) + Number(data.boat2Kids || 0);
@@ -1676,6 +1702,7 @@ function saveRecord(event, route) {
   } else {
     store[config.collection].push({ ...data });
   }
+  if (route === 'bookings') synchronizeBookingWorkflow({ ...data, id: savedId });
   addAudit(action, config.title, `${config.title.slice(0, -1)} ${summarizeRecord(data)} ${action}.`, { route });
   if (route === 'trips') syncFuelExpense({ ...data, id: savedId });
   if (route === 'trips') {
@@ -1706,6 +1733,7 @@ function saveRecord(event, route) {
 
 function deleteRecord(route, id) {
   if (route === 'trips' && !['Admin', 'Owner'].includes(activeRoleName())) return toast('This role cannot delete trips.');
+  if (route === 'bookings' && (store.invoices.some((invoice) => invoice.bookingId === id) || store.trips.some((trip) => trip.bookingId === id))) return toast('Linked bookings cannot be deleted. Set the booking status to Cancelled to preserve financial and operational history.');
   const config = crudConfig[route];
   if (!confirm(`Delete this ${config.title.slice(0, -1).toLowerCase()}?`)) return;
   const record = store[config.collection].find((item) => item.id === id);
@@ -1730,13 +1758,69 @@ function visibleRecordsForRoute(route, records = []) {
   return records;
 }
 
+function bookingWorkflowActions(booking) {
+  const hasInvoice = store.invoices.some((invoice) => invoice.bookingId === booking.id);
+  const hasTrip = store.trips.some((trip) => trip.bookingId === booking.id);
+  return `<button class="btn btn-primary btn-small" onclick="generateInvoiceFromBooking('${booking.id}')">${hasInvoice ? 'Open invoice' : 'Generate invoice'}</button>${['Confirmed', 'Scheduled', 'Completed'].includes(booking.status) ? `<button class="btn btn-outline btn-small" onclick="createTripFromBooking('${booking.id}')">${hasTrip ? 'Open trip' : 'Create trip'}</button>` : ''}`;
+}
+
+function bookingSnapshot(booking) {
+  return { customer: booking.customer || '', phone: booking.phone || '', email: booking.email || '', bookingSource: booking.source || '', tripDate: booking.date || '', startTime: booking.time || '', passengers: Number(booking.guests || 0), hours: Number(booking.hours || 4), tourType: booking.product || '', pickupLocation: booking.pickupLocation || '', tourPrice: Number(booking.price || 0), depositPaid: Number(booking.deposit || 0), balanceDue: Number(booking.balance || 0), notes: booking.notes || '' };
+}
+
+function generateInvoiceFromBooking(bookingId, silent = false) {
+  const booking = store.bookings.find((item) => item.id === bookingId);
+  if (!booking) return toast('Booking not found.');
+  let invoice = store.invoices.find((item) => item.bookingId === bookingId);
+  const snap = bookingSnapshot(booking);
+  const paymentStatus = snap.balanceDue <= 0 ? 'Paid' : snap.depositPaid > 0 ? 'Deposit Paid' : 'Draft';
+  if (invoice) Object.assign(invoice, { customerName: snap.customer, phone: snap.phone, email: snap.email, tripDate: snap.tripDate, startTime: snap.startTime, tourType: snap.tourType, guestCount: snap.passengers, pickupLocation: snap.pickupLocation, bookingSource: snap.bookingSource, tourPrice: snap.tourPrice, depositPaid: snap.depositPaid, balanceDue: snap.balanceDue, paymentStatus, notes: snap.notes });
+  else {
+    invoice = { id: makeId('invoices'), invoiceNumber: `INV-${new Date().toISOString().slice(0,10).replace(/-/g,'')}-${String(store.invoices.length + 1).padStart(3, '0')}`, documentType: 'Invoice', bookingId, customerName: snap.customer, phone: snap.phone, email: snap.email, tripDate: snap.tripDate, startTime: snap.startTime, tourType: snap.tourType, guestCount: snap.passengers, pickupLocation: snap.pickupLocation, bookingSource: snap.bookingSource, tourPrice: snap.tourPrice, depositPaid: snap.depositPaid, balanceDue: snap.balanceDue, paymentStatus, notes: snap.notes };
+    store.invoices.push(invoice);
+    addAudit('created', 'Invoices', `${invoice.invoiceNumber} generated from booking ${booking.order || booking.id}.`, { bookingId, invoiceId: invoice.id });
+  }
+  saveStore();
+  if (!silent) { renderRoute('invoices'); showForm('invoices', invoice.id); toast('Linked invoice opened. Booking details stay synchronized.'); }
+  return invoice;
+}
+
+function createTripFromBooking(bookingId, silent = false) {
+  const booking = store.bookings.find((item) => item.id === bookingId);
+  if (!booking) return toast('Booking not found.');
+  let trip = store.trips.find((item) => item.bookingId === bookingId);
+  const invoice = generateInvoiceFromBooking(bookingId, true);
+  const snap = bookingSnapshot(booking);
+  if (trip) Object.assign(trip, snap, { invoiceId: invoice?.id || trip.invoiceId, paymentStatus: invoice?.paymentStatus || trip.paymentStatus, dispatchReadinessStatus: calculateDispatchReadiness({ ...trip, ...snap }) });
+  else {
+    trip = normalizeTrip({ id: makeId('trips'), bookingId, invoiceId: invoice?.id || '', ...snap, status: booking.status === 'Completed' ? 'Completed' : 'Scheduled' });
+    trip.dispatchReadinessStatus = calculateDispatchReadiness(trip);
+    store.trips.push(trip);
+    addAudit('created', 'Trips', `Operational trip created from booking ${booking.order || booking.id}.`, { bookingId, tripId: trip.id });
+  }
+  if (invoice) invoice.tripId = trip.id;
+  saveStore();
+  if (!silent) { renderRoute('trips'); showForm('trips', trip.id); toast('Linked operational trip opened. Assign vessel and crew to continue.'); }
+  return trip;
+}
+
+function synchronizeBookingWorkflow(booking) {
+  const saved = store.bookings.find((item) => item.id === booking.id);
+  if (!saved) return;
+  const existingInvoice = store.invoices.find((item) => item.bookingId === booking.id);
+  const existingTrip = store.trips.find((item) => item.bookingId === booking.id);
+  if (existingInvoice) generateInvoiceFromBooking(booking.id, true);
+  if (existingTrip) createTripFromBooking(booking.id, true);
+  if (['Confirmed', 'Scheduled', 'Completed'].includes(booking.status)) createTripFromBooking(booking.id, true);
+}
+
 function renderTable(route) {
   const config = crudConfig[route];
   const page = document.getElementById(`page-${route}`);
   const query = page.querySelector('.search-input')?.value?.toLowerCase() || '';
   const rows = visibleRecordsForRoute(route, store[config.collection]).filter((item) => JSON.stringify(item).toLowerCase().includes(query));
   const tbody = page.querySelector('tbody');
-  tbody.innerHTML = rows.length ? rows.map((item) => `<tr>${config.columns.map(([key]) => `<td>${formatCell(key, item[key])}</td>`).join('')}<td><div class="row-actions"><button class="btn btn-outline btn-small" onclick="showForm('${route}','${item.id}')">Edit</button><button class="btn btn-danger btn-small" onclick="deleteRecord('${route}','${item.id}')">Delete</button></div></td></tr>`).join('') : `<tr><td colspan="${config.columns.length + 1}" class="empty-state">No records found.</td></tr>`;
+  tbody.innerHTML = rows.length ? rows.map((item) => `<tr>${config.columns.map(([key]) => `<td>${formatCell(key, item[key])}</td>`).join('')}<td><div class="row-actions">${route === 'bookings' ? bookingWorkflowActions(item) : ''}<button class="btn btn-outline btn-small" onclick="showForm('${route}','${item.id}')">Edit</button><button class="btn btn-danger btn-small" onclick="deleteRecord('${route}','${item.id}')">Delete</button></div></td></tr>`).join('') : `<tr><td colspan="${config.columns.length + 1}" class="empty-state">No records found.</td></tr>`;
 }
 function formatCell(key, value) {
   if (['balance', 'tourPrice', 'depositPaid', 'balanceDue', 'defaultPayout', 'amount'].includes(key)) return value === '' || value == null ? '—' : money(value);
@@ -2002,6 +2086,9 @@ function readinessChecklist(trip) {
     vesselAssigned: Boolean(trip.vessel),
     captainAssigned,
     mateAssigned,
+    pickupConfirmed: Boolean(trip.pickupLocation || trip.pickupConfirmed === 'Yes'),
+    guestCountEntered: Number(trip.passengers || 0) > 0,
+    paymentRecorded: Boolean(trip.invoiceId || trip.paymentStatus || Number(trip.depositPaid || 0) > 0 || Number(trip.balanceDue || 0) === 0),
     vesselReady,
     preTripComplete,
     hasConflicts: conflicts.length > 0,
@@ -2015,17 +2102,17 @@ function calculateDispatchReadiness(trip) {
   const checks = readinessChecklist(trip);
   if (trip.status === 'Completed' && latestChecklistStatus(trip, 'Post Trip') === 'Completed') return 'Completed';
   if (!checks.vesselAssigned || !checks.captainAssigned || !checks.mateAssigned || checks.hasConflicts) return 'Not Ready';
-  if (checks.vesselReady && checks.preTripComplete && checks.captainAccepted && checks.mateAccepted) return 'Dispatch Ready';
-  return 'Partial';
+  if (checks.vesselReady && checks.preTripComplete && checks.captainAccepted && checks.mateAccepted && checks.pickupConfirmed && checks.guestCountEntered && checks.paymentRecorded) return 'Dispatch Ready';
+  return 'Partially Ready';
 }
 
 function readinessBadge(status) {
-  const normalized = status === 'Ready' ? 'Dispatch Ready' : status === 'Needs Review' ? 'Partial' : status;
+  const normalized = status === 'Ready' ? 'Dispatch Ready' : ['Needs Review', 'Partial'].includes(status) ? 'Partially Ready' : status;
   return statusBadge(normalized || 'Partial');
 }
 
 function readinessColorClass(status) {
-  const normalized = status === 'Ready' ? 'Dispatch Ready' : status === 'Needs Review' ? 'Partial' : status;
+  const normalized = status === 'Ready' ? 'Dispatch Ready' : ['Needs Review', 'Partial'].includes(status) ? 'Partially Ready' : status;
   return normalized === 'Dispatch Ready' || normalized === 'Completed' ? 'ready-green' : normalized === 'Not Ready' ? 'ready-red' : 'ready-yellow';
 }
 
@@ -2046,7 +2133,10 @@ function readinessChecklistHtml(trip) {
     ${item(checks.captainAssigned, 'Captain Assigned', trip.captain || '')}
     ${item(checks.mateAssigned, 'Mate Assigned', trip.mate && trip.mate !== 'None' ? trip.mate : '')}
     ${item(checks.vesselReady, 'Vessel Ready', checks.vesselStatus)}
+    ${item(checks.pickupConfirmed, 'Pickup Confirmed')}
+    ${item(checks.guestCountEntered, 'Guest Count Entered')}
     ${item(checks.preTripComplete, 'Pre Trip Complete', latestChecklistStatus(trip, 'Pre Trip'))}
+    ${item(checks.paymentRecorded, 'Payment Recorded')}
   </div>`;
 }
 
