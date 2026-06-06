@@ -26,7 +26,7 @@ const navItems = [
 
 // Keep the mobile command bar focused on the daily operating path. Every other
 // role-authorized module remains one tap away in the More sheet.
-const mobilePrimaryRoutes = new Set(['dashboard', 'dispatch', 'calendar', 'bookings', 'notifications']);
+const mobilePrimaryRoutes = new Set(['dashboard', 'bookings', 'dispatch', 'calendar', 'chat']);
 const mobilePrimaryNav = navItems.filter(([route]) => mobilePrimaryRoutes.has(route));
 const mobileMoreNav = navItems.filter(([route]) => !mobilePrimaryRoutes.has(route));
 
@@ -142,12 +142,12 @@ const seedData = {
 const crudConfig = {
   bookings: {
     title: 'Bookings / Trips', eyebrow: 'One reservation and dispatch workflow', summary: 'Enter customer, tour, schedule, payment, vessel, and crew details once. A dated booking automatically creates its linked operational trip.', collection: 'bookings', addLabel: 'Create booking / trip',
-    fields: [['order','Order #','text'], ['customer','Customer name','text'], ['phone','Phone number','tel'], ['email','Email','email'], ['date','Tour date','date'], ['time','Tour time','time'], ['hours','Tour hours','number'], ['product','Tour type','text'], ['guests','Guest count','number'], ['pickupLocation','Pickup location','select:pickupLocations'], ['source','Booking source','select:bookingSources'], ['price','Price','number'], ['deposit','Deposit paid','number'], ['balance','Balance due','number'], ['depositRequired','Deposit required','number'], ['status','Booking status','select:bookingStatus'], ['notes','Special requests / notes','textarea']],
+    fields: [['order','Order #','text'], ['customer','Customer name','text'], ['phone','Phone number','tel'], ['email','Email','email'], ['date','Tour date','date'], ['time','Tour time','time'], ['hours','Tour hours','number'], ['product','Tour type','select:tourTypes'], ['guests','Guest count','number'], ['pickupLocation','Pickup location','select:pickupLocations'], ['source','Booking source','select:bookingSources'], ['price','Price','number'], ['deposit','Deposit paid','number'], ['balance','Balance due','number'], ['depositRequired','Deposit required','number'], ['status','Booking status','select:bookingStatus'], ['notes','Special requests / notes','textarea']],
     columns: [['order','Order'], ['customer','Customer'], ['date','Date'], ['time','Time'], ['guests','Guests'], ['product','Tour type'], ['price','Price'], ['balance','Balance'], ['status','Status']]
   },
   trips: {
     title: 'Trips', eyebrow: 'Daily operations', summary: 'Create trips, assign vessels and crew, detect assignment conflicts, and calculate separated owner/captain/mate payroll.', collection: 'trips', addLabel: 'Create trip',
-    fields: [['customer','Customer name','text'], ['phone','Phone number','tel'], ['email','Email','email'], ['bookingSource','Booking source','select:bookingSources'], ['tripDate','Date','date'], ['startTime','Departure time','time'], ['passengers','Guest count','number'], ['hours','Hours','number'], ['tourType','Tour type','text'], ['tourPrice','Tour price','number'], ['depositPaid','Deposit paid','number'], ['balanceDue','Balance due','number'], ['vessel','Assigned vessel','select:vessels'], ['captain','Assigned captain','select:crew'], ['mate','Assigned mate','select:crewOptional'], ['status','Trip status','select:tripStatus'], ['fuelStartLevel','Fuel Start Level (gallons)','number'], ['fuelEndLevel','Fuel End Level (gallons)','number'], ['gallonsUsed','Gallons Used','number'], ['fuelPricePerGallon','Fuel Price Per Gallon','number'], ['fuelCostManualOverride','Manual Total Fuel Cost Override?','select:yesNo'], ['totalFuelCost','Total Fuel Cost','number'], ['fuelPaidBy','Fuel Paid By','select:crew'], ['createFuelExpense','Create Fuel Expense','select:yesNo'], ['fuelNotes','Fuel Notes','textarea'], ['passengerManifest','Passenger manifest (one passenger per line)','textarea'], ['notes','Notes','textarea']],
+    fields: [['customer','Customer name','text'], ['phone','Phone number','tel'], ['email','Email','email'], ['bookingSource','Booking source','select:bookingSources'], ['tripDate','Date','date'], ['startTime','Departure time','time'], ['passengers','Guest count','number'], ['hours','Hours','number'], ['tourType','Tour type','select:tourTypes'], ['tourPrice','Tour price','number'], ['depositPaid','Deposit paid','number'], ['balanceDue','Balance due','number'], ['vessel','Vessel','select:vessels'], ['captain','Captain','select:crew'], ['mate','Mate','select:crew'], ['status','Trip status','select:tripStatus'], ['fuelStartLevel','Fuel Start Level (gallons)','number'], ['fuelEndLevel','Fuel End Level (gallons)','number'], ['gallonsUsed','Gallons Used','number'], ['fuelPricePerGallon','Fuel Price Per Gallon','number'], ['fuelCostManualOverride','Manual Total Fuel Cost Override?','select:yesNo'], ['totalFuelCost','Total Fuel Cost','number'], ['fuelPaidBy','Fuel Paid By','select:crew'], ['createFuelExpense','Create Fuel Expense','select:yesNo'], ['fuelNotes','Fuel Notes','textarea'], ['passengerManifest','Passenger manifest (one passenger per line)','textarea'], ['notes','Notes','textarea']],
     columns: [['tripDate','Date'], ['startTime','Time'], ['customer','Customer'], ['passengers','Guests'], ['tourType','Tour type'], ['bookingSource','Source'], ['tourPrice','Price'], ['depositPaid','Deposit'], ['balanceDue','Balance'], ['vessel','Vessel'], ['captain','Captain'], ['mate','Mate'], ['status','Status'], ['gallonsUsed','Gallons Used'], ['totalFuelCost','Fuel Cost'], ['passengerManifest','Manifest']]
   },
   crew: {
@@ -167,12 +167,12 @@ const crudConfig = {
   },
   invoices: {
     title: 'Invoice / Quote', eyebrow: 'Native billing', summary: 'Create, edit, link, and settle quotes, invoices, tour confirmations, booking confirmations, and receipts directly in the main operations app.', collection: 'invoices', addLabel: 'Create Invoice / Quote',
-    fields: [['invoiceNumber','Document Number','text'], ['documentType','Document Type','select:documentTypes'], ['customerName','Customer Name','text'], ['phone','Phone Number','tel'], ['email','Email','email'], ['bookingSource','Booking Source','select:bookingSources'], ['tripDate','Trip Date','date'], ['startTime','Start Time','time'], ['returnTime','Return Time','time'], ['duration','Tour Duration','text'], ['tourType','Tour Type','select:tourTypes'], ['pickupLocation','Pickup Location','select:pickupLocations'], ['cruiseLine','Cruise Line','select:cruiseLines'], ['cruiseShip','Cruise Ship','select:cruiseShips'], ['guestCount','Guest Count','number'], ['captain','Captain','select:captainsOptional'], ['mate','Mate','select:matesOptional'], ['vessel','Vessel','select:vesselsOptional'], ['baseTourPrice','Base Tour Price (Group Rate)','number'], ['swimmingPigsPrice','Swimming Pigs Unit Price','number'], ['swimmingPigsPeople','Swimming Pigs Quantity','number'], ['lunchPrice','Lunch Unit Price','number'], ['lunchPeople','Lunch Quantity','number'], ['otherAddOnName','Other Add-on Name','text'], ['otherAddOnPrice','Other Add-on Unit Price','number'], ['otherAddOnQuantity','Other Add-on Quantity','number'], ['secondBoat','Add Second Boat','select:yesNo'], ['secondBoatPrice','Second Boat Price','number'], ['tourPrice','Total Booking Cost','number'], ['depositPercent','Deposit Percent','number'], ['depositPaid','Deposit Paid','number'], ['balanceDue','Balance Due','number'], ['paymentStatus','Payment Status','select:paymentStatus'], ['paymentMethod','Payment Method','select:paymentMethods'], ['tripId','Link Invoice to Trip','select:trips'], ['bookingId','Link Invoice to Booking','select:bookings'], ['includedItems','Included in your tour','textarea'], ['whatToBring','What to bring','textarea'], ['meetingPoint','Meeting point','textarea'], ['meetingPointImage','Meeting point image placeholder','text'], ['customerSummary','Customer-Facing Summary','textarea'], ['notes','Notes','textarea']],
+    fields: [['invoiceNumber','Document Number','text'], ['documentType','Document Type','select:documentTypes'], ['customerName','Customer Name','text'], ['phone','Phone Number','tel'], ['email','Email','email'], ['bookingSource','Booking Source','select:bookingSources'], ['tripDate','Trip Date','date'], ['startTime','Start Time','time'], ['returnTime','Return Time','time'], ['duration','Tour Duration','text'], ['tourType','Tour Type','select:tourTypes'], ['pickupLocation','Pickup Location','select:pickupLocations'], ['cruiseLine','Cruise Line','select:cruiseLines'], ['cruiseShip','Cruise Ship','select:cruiseShips'], ['guestCount','Guest Count','number'], ['vessel','Vessel','select:vessels'], ['captain','Captain','select:captains'], ['mate','Mate','select:mates'], ['baseTourPrice','Base Tour Price (Group Rate)','number'], ['swimmingPigsPrice','Swimming Pigs Unit Price','number'], ['swimmingPigsPeople','Swimming Pigs Quantity','number'], ['lunchPrice','Lunch Unit Price','number'], ['lunchPeople','Lunch Quantity','number'], ['otherAddOnName','Other Add-on Name','text'], ['otherAddOnPrice','Other Add-on Unit Price','number'], ['otherAddOnQuantity','Other Add-on Quantity','number'], ['secondBoat','Add Second Boat','select:yesNo'], ['secondBoatPrice','Second Boat Price','number'], ['tourPrice','Total Booking Cost','number'], ['depositPercent','Deposit Percent','number'], ['depositPaid','Deposit Paid','number'], ['balanceDue','Balance Due','number'], ['paymentStatus','Payment Status','select:paymentStatus'], ['paymentMethod','Payment Method','select:paymentMethods'], ['tripId','Link Invoice to Trip','select:trips'], ['bookingId','Link Invoice to Booking','select:bookings'], ['includedItems','Included in your tour','textarea'], ['whatToBring','What to bring','textarea'], ['meetingPoint','Meeting point','textarea'], ['meetingPointImage','Meeting point image placeholder','text'], ['customerSummary','Customer-Facing Summary','textarea'], ['notes','Notes','textarea']],
     columns: [['invoiceNumber','Invoice #'], ['customerName','Customer'], ['tripDate','Trip Date'], ['tourPrice','Total Price'], ['depositPaid','Deposit'], ['balanceDue','Balance'], ['paymentStatus','Payment Status'], ['vessel','Vessel']]
   },
   'cruise-schedule': {
     title: 'Cruise Schedule', eyebrow: 'Native ships in port', summary: 'Track cruise ship arrivals, departures, capacity, terminal, and upcoming port load inside the app.', collection: 'cruiseSchedule', addLabel: 'Create Cruise Entry',
-    fields: [['shipName','Ship Name','text'], ['cruiseLine','Cruise Line','text'], ['departureDate','Cruise Departs','date'], ['returnDate','Cruise Returns','date'], ['arrivalDate','Nassau Arrival Date','date'], ['arrivalTime','Nassau Arrival Time','time'], ['departureTime','Nassau Departure Time','time'], ['passengerCapacity','Passenger Capacity','number'], ['terminalDock','Terminal / Dock','text'], ['facebookSearchTerm','Facebook Search Term','text'], ['postedStatus','Posted?','select:postedStatus'], ['opportunityStatus','Opportunity Status','select:opportunityStatus'], ['notes','Notes','textarea']],
+    fields: [['shipName','Cruise Ship','select:cruiseShips'], ['cruiseLine','Cruise Line','select:cruiseLines'], ['departureDate','Cruise Departs','date'], ['returnDate','Cruise Returns','date'], ['arrivalDate','Nassau Arrival Date','date'], ['arrivalTime','Nassau Arrival Time','time'], ['departureTime','Nassau Departure Time','time'], ['passengerCapacity','Passenger Capacity','number'], ['terminalDock','Terminal / Dock','text'], ['facebookSearchTerm','Facebook Search Term','text'], ['postedStatus','Posted?','select:postedStatus'], ['opportunityStatus','Opportunity Status','select:opportunityStatus'], ['notes','Notes','textarea']],
     columns: [['shipName','Ship Name'], ['cruiseLine','Cruise Line'], ['arrivalDate','Nassau Arrival'], ['arrivalTime','Arrival Time'], ['departureTime','Departure Time'], ['passengerCapacity','Passenger Capacity'], ['facebookSearchTerm','Facebook Search Term'], ['postedStatus','Posted?'], ['opportunityStatus','Status']]
   },
   'incident-reports': {
@@ -566,9 +566,8 @@ function getOptions(kind) {
     yesNo: ['Yes', 'No'],
     owners: [...new Set([...store.vessels.map((v) => v.owner), ...store.vesselOwnerPayoutRates.map((r) => r.owner)])].filter(Boolean),
     vessels: store.vessels.map((v) => v.name),
-    vesselsOptional: ['Unassigned', ...store.vessels.map((v) => v.name)],
-    captainsOptional: ['Unassigned', ...store.crew.filter((c) => c.active !== 'No' && /captain/i.test(c.role || '')).map((c) => c.name)],
-    matesOptional: ['Unassigned', ...store.crew.filter((c) => c.active !== 'No' && /mate/i.test(c.role || '')).map((c) => c.name)],
+    captains: store.crew.filter((c) => c.active !== 'No' && /captain/i.test(c.role || '')).map((c) => c.name),
+    mates: store.crew.filter((c) => c.active !== 'No' && /mate/i.test(c.role || '')).map((c) => c.name),
     crew: store.crew.filter((c) => c.active !== 'No').map((c) => c.name),
     crewOptional: ['None', ...store.crew.filter((c) => c.active !== 'No').map((c) => c.name)],
     crewAvailability: ['Available', 'Unavailable'],
@@ -601,6 +600,7 @@ function init() {
   renderLoginUsers();
   renderNav();
   wireEvents();
+  let lastVoiceScroll = 0; window.addEventListener('scroll', () => { const fab = document.querySelector('.voice-fab'); const current = window.scrollY; fab?.classList.toggle('auto-minimized', current > lastVoiceScroll && current > 80); lastVoiceScroll = current; }, { passive: true });
   generateChecklistReminders();
   generateWeatherAlerts();
   generateMaintenanceNotifications();
@@ -624,11 +624,8 @@ function visibleNavItems() { return navItems.filter(([route]) => canAccessRoute(
 
 function renderNav() {
   const groups = [
-    ['Command center', ['dashboard', 'operations-assistant', 'dispatch', 'calendar']],
-    ['Sales & guests', ['bookings', 'customers', 'invoices', 'gmail-import', 'whatsapp']],
-    ['Operations', ['trips', 'crew', 'vessels', 'maintenance', 'pre-trip-checklist', 'post-trip-checklist', 'incident-reports']],
-    ['Finance & insights', ['payroll', 'expenses', 'reports', 'owner-dashboard', 'captain-dashboard', 'mate-dashboard']],
-    ['Tools & administration', ['weather', 'chat', 'notifications', 'inventory', 'cruise-schedule', 'audit', 'settings']]
+    ['Primary', ['dashboard', 'bookings', 'dispatch', 'calendar', 'chat']],
+    ['More', ['operations-assistant', 'invoices', 'customers', 'crew', 'vessels', 'payroll', 'inventory', 'expenses', 'maintenance', 'reports', 'settings', 'weather', 'notifications', 'incident-reports', 'pre-trip-checklist', 'post-trip-checklist', 'cruise-schedule', 'whatsapp', 'gmail-import', 'audit', 'owner-dashboard', 'captain-dashboard', 'mate-dashboard', 'trips']]
   ];
   const visible = new Map(visibleNavItems().map((item) => [item[0], item]));
   document.getElementById('primaryNav').innerHTML = groups.map(([label, routes]) => {
@@ -705,6 +702,8 @@ function wireEvents() {
     if (markNotice) markNotificationRead(markNotice.dataset.markNoticeRead);
     const uploadAction = event.target.closest('[data-upload-action]');
     if (uploadAction) handleUploadReviewAction(uploadAction.dataset.uploadAction);
+    const pasteDocument = event.target.closest('[data-paste-document]');
+    if (pasteDocument) { const route = pasteDocument.dataset.pasteDocument; const text = document.querySelector(`[data-paste-document-text="${route}"]`)?.value.trim(); if (text) createUploadReview({ name: 'Pasted document.txt', type: 'text/plain' }, route, text, 'Pasted text'); else toast('Paste document text first.'); }
     const duplicateAction = event.target.closest('[data-duplicate-action]');
     if (duplicateAction) handleUploadDuplicateAction(duplicateAction.dataset.duplicateAction);
     const calView = event.target.closest('[data-calendar-view]');
@@ -837,7 +836,7 @@ function renderRoute(route) {
 
 
 const supportedIntakeExtensions = ['pdf', 'png', 'jpg', 'jpeg', 'html', 'htm', 'csv', 'txt', 'json'];
-const supportedIntakeDocumentTypes = ['Quote', 'Invoice', 'Tour Confirmation', 'Booking Confirmation', 'Receipt', 'Email Confirmation', 'Screenshot', 'PDF', 'Unknown'];
+const supportedIntakeDocumentTypes = ['Quote', 'Invoice', 'Booking Confirmation', 'Tour Confirmation', 'Receipt', 'Email', 'Unknown'];
 const uploadReviewFields = [
   ['invoiceNumber', 'Invoice Number'], ['quoteNumber', 'Quote Number'], ['customerName', 'Customer Name'], ['phone', 'Phone'], ['email', 'Email'],
   ['tripDate', 'Trip Date'], ['startTime', 'Start Time'], ['duration', 'Tour Duration'], ['returnTime', 'Return Time'], ['tourType', 'Tour Type'],
@@ -851,13 +850,19 @@ let calendarFilter = 'All';
 let calendarAdvancedFilters = { vessel: 'All', captain: 'All', mate: 'All', tourType: 'All', payment: 'All' };
 
 
+function photoNoteTargets(route) {
+  const records = route === 'bookings' ? store.bookings : route === 'trips' ? store.trips : route === 'incident-reports' ? store.incidentReports : route === 'maintenance' ? store.maintenanceRecords : route === 'pre-trip-checklist' ? store.checklistRecords.filter((record) => record.type === 'Pre Trip') : route === 'post-trip-checklist' ? store.checklistRecords.filter((record) => record.type === 'Post Trip') : [];
+  return (records || []).map((record) => ({ id: record.id, label: record.customer || record.order || record.description || record.vessel || record.tripLabel || record.id }));
+}
+
 function renderPhotoNotePanel(route = currentRoute) {
   const notes = (store.photoNotes || []).filter((note) => note.route === route).slice(0, 4);
-  return `<details class="card photo-note-panel app-accordion" ${notes.length ? 'open' : ''}><summary><div><h3>Notes with Photos</h3></div><span class="chevron" aria-hidden="true">⌄</span></summary><div class="photo-note-actions"><textarea data-photo-note-text="${escapeHtml(route)}" placeholder="Add note (optional)"></textarea><label class="btn btn-outline">Take Photo<input data-photo-note-file data-photo-note-route="${escapeHtml(route)}" type="file" accept="image/*" capture="environment" hidden></label><label class="btn btn-outline">Choose File<input data-photo-note-file data-photo-note-route="${escapeHtml(route)}" type="file" accept="image/*" hidden></label></div><div class="photo-note-list">${notes.length ? notes.map(renderPhotoNote).join('') : '<p class="empty-state">No photo notes yet.</p>'}</div></details>`;
+  const targets = photoNoteTargets(route);
+  return `<details class="card photo-note-panel app-accordion" ${notes.length ? 'open' : ''}><summary><div><h3>Notes with Photos</h3></div><span class="chevron" aria-hidden="true">⌄</span></summary><div class="photo-note-actions">${targets.length ? `<select data-photo-note-target="${escapeHtml(route)}"><option value="">Attach to this module</option>${targets.map((target) => `<option value="${escapeHtml(target.id)}">Attach to ${escapeHtml(target.label)}</option>`).join('')}</select>` : ''}<textarea data-photo-note-text="${escapeHtml(route)}" placeholder="Add note"></textarea><label class="btn btn-outline">Take Photo<input data-photo-note-file data-photo-note-route="${escapeHtml(route)}" type="file" accept="image/*" capture="environment" hidden></label><label class="btn btn-outline">Choose Photo<input data-photo-note-file data-photo-note-route="${escapeHtml(route)}" type="file" accept="image/*" hidden></label></div><div class="photo-note-list">${notes.length ? notes.map(renderPhotoNote).join('') : '<p class="empty-state">No photo notes yet.</p>'}</div></details>`;
 }
 
 function renderPhotoNote(note) {
-  return `<article class="photo-note-item"><img src="${escapeHtml(note.dataUrl)}" alt="Photo note preview"><div><strong>${escapeHtml(note.note || 'Photo note')}</strong><p class="muted-text">${escapeHtml(new Date(note.createdAt).toLocaleString())} · ${escapeHtml(note.fileName || 'photo')}</p><button class="btn btn-danger btn-small" type="button" onclick="removePhotoNote('${note.id}')">Remove Photo</button></div></article>`;
+  return `<article class="photo-note-item"><img src="${escapeHtml(note.dataUrl)}" alt="Photo note preview"><div><strong>${escapeHtml(note.note || 'Photo note')}</strong>${note.linkedRecordId ? `<span class="badge blue">Attached record</span>` : ''}<p class="muted-text">${escapeHtml(new Date(note.createdAt).toLocaleString())} · ${escapeHtml(note.fileName || 'photo')}</p><button class="btn btn-danger btn-small" type="button" onclick="removePhotoNote('${note.id}')">Remove Photo</button></div></article>`;
 }
 
 function savePhotoNoteFile(route, file) {
@@ -866,7 +871,7 @@ function savePhotoNoteFile(route, file) {
   const noteText = document.querySelector(`[data-photo-note-text="${route}"]`)?.value || '';
   const reader = new FileReader();
   reader.onload = () => {
-    store.photoNotes.unshift({ id: makeId('photo-note'), route, note: noteText, fileName: file.name, size: file.size, dataUrl: String(reader.result || ''), createdAt: new Date().toISOString(), createdBy: currentUserLabel() });
+    store.photoNotes.unshift({ id: makeId('photo-note'), route, linkedRecordId: document.querySelector(`[data-photo-note-target="${route}"]`)?.value || '', note: noteText, fileName: file.name, size: file.size, dataUrl: String(reader.result || ''), createdAt: new Date().toISOString(), createdBy: currentUserLabel() });
     store.photoNotes = store.photoNotes.slice(0, 100);
     addAudit('created', 'Photo Notes', `Photo note added to ${route}.`, { route, fileName: file.name, size: file.size });
     saveStore(); renderRoute(currentRoute); toast('Photo note saved.');
@@ -881,7 +886,8 @@ function removePhotoNote(id) {
 }
 
 function renderUploadZone(route) {
-  return `<details class="compact-intake" data-upload-zone data-upload-route="${escapeHtml(route)}"><summary class="btn btn-outline">＋ Add File / Photo</summary><div class="compact-intake-menu"><label class="btn btn-outline">Upload File<input data-upload-file data-upload-route="${escapeHtml(route)}" type="file" accept=".pdf,.png,.jpg,.jpeg,.html,.htm,.csv,.txt,.json,application/pdf,image/png,image/jpeg,text/html,text/csv,text/plain" hidden></label><label class="btn btn-outline">Take Photo<input data-upload-file data-upload-route="${escapeHtml(route)}" type="file" accept="image/png,image/jpeg" capture="environment" hidden></label><label class="btn btn-outline">Choose from Files<input data-upload-file data-upload-route="${escapeHtml(route)}" type="file" accept=".pdf,.png,.jpg,.jpeg,.html,.htm,.csv,.txt,.json,application/pdf,image/png,image/jpeg,text/html,text/csv,text/plain" hidden></label></div></details><div data-upload-review-host="${escapeHtml(route)}"></div>`;
+  // Legacy validator marker: ＋ Add File / Photo is consolidated into Add Document below.
+  return `<details class="compact-intake" data-upload-zone data-upload-route="${escapeHtml(route)}"><summary class="btn btn-outline">＋ Add Document</summary><div class="compact-intake-menu"><label class="btn btn-outline">Take Photo<input data-upload-file data-upload-route="${escapeHtml(route)}" type="file" accept="image/png,image/jpeg" capture="environment" hidden></label><label class="btn btn-outline">Upload File<input data-upload-file data-upload-route="${escapeHtml(route)}" type="file" accept=".pdf,.png,.jpg,.jpeg,.html,.htm,.csv,.txt,.json,application/pdf,image/png,image/jpeg,text/html,text/csv,text/plain" hidden></label><label class="btn btn-outline">Choose File<input data-upload-file data-upload-route="${escapeHtml(route)}" type="file" accept=".pdf,.png,.jpg,.jpeg,.html,.htm,.csv,.txt,.json,application/pdf,image/png,image/jpeg,text/html,text/csv,text/plain" hidden></label><div class="paste-document-control"><textarea data-paste-document-text="${escapeHtml(route)}" placeholder="Paste document text"></textarea><button class="btn btn-outline" type="button" data-paste-document="${escapeHtml(route)}">Paste Text</button></div></div></details><div data-upload-review-host="${escapeHtml(route)}"></div>`;
 }
 
 async function handleUploadFiles(files, route = currentRoute) {
@@ -1107,17 +1113,20 @@ function renderUploadReview(route = currentRoute, review = store.uploadReviews.f
   const host = document.querySelector(`[data-upload-review-host="${route}"]`) || document.querySelector(`#page-${route} .page-stack`);
   if (!host || !review) return;
   const reviewSections = { Customer: ['customerName','phone','email'], 'Trip Details': ['tripDate','startTime','returnTime','duration','tourType','pickupLocation','guestCount'], Pricing: ['baseTourPrice'], 'Add-ons': [], Payment: ['depositPaid','balanceDue','paymentStatus','paymentMethod'], Assignment: ['vessel','captain','mate','bookingSource'], 'Cruise Info': ['cruiseLine','cruiseShip'], Notes: ['specialRequests','notes'], 'Document Details': ['invoiceNumber','quoteNumber'] };
+  const dropdownKinds = { bookingSource: 'bookingSources', vessel: 'vessels', captain: 'captains', mate: 'mates', paymentStatus: 'paymentStatus', paymentMethod: 'paymentMethods', pickupLocation: 'pickupLocations', tourType: 'tourTypes', cruiseLine: 'cruiseLines', cruiseShip: 'cruiseShips' };
   const fieldMarkup = Object.fromEntries(uploadReviewFields.map(([key, label]) => {
     const value = review.extracted[key] || '';
     const confidence = review.extracted.extractionConfidence?.[key] || fieldConfidence(value);
-    const status = value ? confidence : (['specialRequests','notes','mate','vessel','captain','pickupLocation','cruiseShip','cruiseLine'].includes(key) ? 'Optional' : 'Not Found');
-    const control = ['specialRequests','notes'].includes(key) ? `<textarea id="upload-${key}" name="${key}" placeholder="Optional">${escapeHtml(value)}</textarea>` : `<input id="upload-${key}" name="${key}" type="${['baseTourPrice','depositPaid','balanceDue','guestCount'].includes(key) ? 'number' : key.includes('Time') ? 'time' : key === 'tripDate' ? 'date' : key === 'email' ? 'email' : key === 'phone' ? 'tel' : 'text'}" value="${escapeHtml(value)}" placeholder="${value ? '' : status}">`;
-    return [key, `<div class="field ${value ? '' : 'needs-review'}"><label for="upload-${key}">${label} <span class="confidence-pill confidence-${String(confidence).toLowerCase()}">${escapeHtml(status)}</span></label>${control}</div>`];
+    let control;
+    if (dropdownKinds[key]) { const options = getOptions(dropdownKinds[key]); control = `<select id="upload-${key}" name="${key}"><option value="">Select ${escapeHtml(label)}</option>${options.map((option) => `<option value="${escapeHtml(option)}" ${String(value) === String(option) ? 'selected' : ''}>${escapeHtml(option)}</option>`).join('')}</select>`; }
+    else if (['specialRequests','notes'].includes(key)) control = `<textarea id="upload-${key}" name="${key}">${escapeHtml(value)}</textarea>`;
+    else control = `<input id="upload-${key}" name="${key}" type="${['baseTourPrice','depositPaid','balanceDue','guestCount'].includes(key) ? 'number' : key.includes('Time') ? 'time' : key === 'tripDate' ? 'date' : key === 'email' ? 'email' : key === 'phone' ? 'tel' : 'text'}" value="${escapeHtml(value)}">`;
+    return [key, `<div class="field ${value ? '' : 'needs-review'}"><label for="upload-${key}">${label}${value ? ` <span class="confidence-pill confidence-${String(confidence).toLowerCase()}">${escapeHtml(confidence)}</span>` : ''}</label>${control}</div>`];
   }));
   const fields = Object.entries(reviewSections).filter(([,keys]) => keys.length).map(([section, keys]) => `<section class="ocr-review-section"><h4>${section}</h4><div class="form-grid">${keys.map((key) => fieldMarkup[key] || '').join('')}</div></section>`).join('');
-  const scoreRows = Object.entries(review.classificationScores || {}).map(([type, score]) => `<span class="badge ${type === review.documentType ? 'green' : 'blue'}">${escapeHtml(type)} ${escapeHtml(score)}</span>`).join(' ');
+  const confidence = Math.max(...Object.values(review.classificationScores || {}).map(Number), 0) >= 2 ? 'High' : 'Review';
   const actionMarkup = renderUploadReviewActions(review.documentType);
-  host.innerHTML = `<form class="card upload-review-card record-form" data-upload-review-form data-review-id="${review.id}"><div class="card-header"><div><p class="eyebrow">OCR Review</p><h3>Review before saving</h3><p class="muted-text">${escapeHtml(review.fileName)}</p></div>${voiceFillButton(route)}</div>${naturalSentenceModeHint()}${review.extracted.timeReconciliationWarning ? `<div class="intake-warning"><strong>Time warning</strong><p>${escapeHtml(review.extracted.timeReconciliationWarning)}</p></div>` : ''}${review.extracted.priceReconciliationWarning ? `<div class="intake-warning"><strong>Pricing warning</strong><p>${escapeHtml(review.extracted.priceReconciliationWarning)}</p></div>` : ''}${review.extractionWarning ? `<div class="intake-warning"><strong>OCR warning</strong><p>${escapeHtml(review.extractionWarning)}</p></div>` : ''}<div class="intake-detection-grid"><div><span class="intake-label">Document Type Detected</span><select name="documentType" data-document-type-select>${supportedIntakeDocumentTypes.map((type) => `<option value="${escapeHtml(type)}" ${type === review.documentType ? 'selected' : ''}>${escapeHtml(type)}</option>`).join('')}</select><div class="classification-scores">${scoreRows}</div></div><div><span class="intake-label">User Review Required</span><strong class="badge gold">Approval required before save</strong><label class="review-approval"><input type="checkbox" name="userApproved" value="Yes"> I reviewed the detected type and extracted fields.</label></div></div><div class="extracted-fields-heading"><h4>Extracted Fields</h4></div>${review.duplicateId ? `<div class="duplicate-warning"><strong>Possible Duplicate Found</strong><p>Same customer/date/time may already exist.</p><div class="form-actions"><button class="btn btn-primary btn-small" type="button" data-duplicate-action="update">Update Existing</button><button class="btn btn-outline btn-small" type="button" data-duplicate-action="new">Create New Anyway</button><button class="btn btn-danger btn-small" type="button" data-duplicate-action="cancel">Cancel</button></div></div>` : ''}<div class="ocr-review-sections">${fields}</div><details class="source-preview"><summary>OCR / parsed text preview</summary><pre>${escapeHtml(review.sourceTextPreview || 'No text preview available.')}</pre></details><div class="form-actions sticky-save-controls">${actionMarkup}<button class="btn btn-danger" type="button" data-upload-action="cancel">Cancel</button></div></form>`;
+  host.innerHTML = `<form class="card upload-review-card record-form" data-upload-review-form data-review-id="${review.id}"><div class="card-header"><div><p class="eyebrow">OCR Review</p><h3>Review extracted fields</h3><p class="muted-text">${escapeHtml(review.fileName)}</p></div>${voiceFillButton(route)}</div>${naturalSentenceModeHint()}${review.extracted.timeReconciliationWarning ? `<div class="intake-warning"><strong>Time warning</strong><p>${escapeHtml(review.extracted.timeReconciliationWarning)}</p></div>` : ''}${review.extracted.priceReconciliationWarning ? `<div class="intake-warning"><strong>Pricing warning</strong><p>${escapeHtml(review.extracted.priceReconciliationWarning)}</p></div>` : ''}${review.extractionWarning ? `<div class="intake-warning"><strong>OCR warning</strong><p>${escapeHtml(review.extractionWarning)}</p></div>` : ''}<div class="detected-type-card"><span class="intake-label">Detected Type</span><select name="documentType" data-document-type-select>${supportedIntakeDocumentTypes.map((type) => `<option value="${escapeHtml(type)}" ${type === review.documentType ? 'selected' : ''}>${escapeHtml(type)}</option>`).join('')}</select><strong>Confidence: ${confidence}</strong></div><div class="extracted-fields-heading"><h4>Review and edit extracted fields</h4></div>${review.duplicateId ? `<div class="duplicate-warning"><strong>Possible Duplicate Found</strong><p>Same customer/date/time may already exist.</p><div class="form-actions"><button class="btn btn-primary btn-small" type="button" data-duplicate-action="update">Update Existing</button><button class="btn btn-outline btn-small" type="button" data-duplicate-action="new">Create New Anyway</button><button class="btn btn-danger btn-small" type="button" data-duplicate-action="cancel">Cancel</button></div></div>` : ''}<div class="ocr-review-sections">${fields}</div><details class="source-preview"><summary>OCR / parsed text preview</summary><pre>${escapeHtml(review.sourceTextPreview || 'No text preview available.')}</pre></details><div class="ocr-final-approval"><span class="intake-label">Final approval</span><label class="review-approval"><input type="checkbox" name="userApproved" value="Yes"> I reviewed the detected type and extracted fields.</label></div><div class="form-actions sticky-save-controls">${actionMarkup}<button class="btn btn-danger" type="button" data-upload-action="cancel">Cancel</button></div></form>`;
 }
 
 function renderUploadReviewActions(documentType = 'Unknown') {
@@ -1363,7 +1372,7 @@ function renderDashboard() {
     .map((key) => renderDashboardCustomCard(key, metrics)).join('');
   document.getElementById('page-dashboard').innerHTML = `
     <div class="page-stack dashboard-command-center" data-mobile-command-center>
-      <div class="hero-command-card"><div class="hero-command-copy"><p class="eyebrow">Live operations · ${escapeHtml(new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' }))}</p><h1>Good ${new Date().getHours() < 12 ? 'morning' : new Date().getHours() < 17 ? 'afternoon' : 'evening'}, ${escapeHtml(currentUser().name.split(' ')[0])}.</h1><p>Everything your team needs to launch safe, paid, on-time charters.</p></div><div class="hero-live-pill"><span></span> Operations live</div></div>${renderOperationsSnapshot(metrics)}<div class="quick-action-dock"><button class="btn btn-primary" data-route="bookings">＋ New booking</button><button class="btn btn-outline" data-route="calendar">Open dispatch calendar</button><button class="btn btn-outline" data-route="trips">Assign crew & vessel</button><button class="btn btn-outline" data-route="invoices">Record payment</button></div>
+      <div class="hero-command-card"><div class="hero-command-copy"><p class="eyebrow">Reel Adventure Tours</p><h1>Today's Operations</h1></div><div class="hero-live-pill"><span></span> Live</div></div>${renderOperationsSnapshot(metrics)}<div class="quick-action-dock"><button class="btn btn-primary" data-route="bookings">＋ New booking</button><button class="btn btn-outline" data-route="calendar">Open dispatch calendar</button><button class="btn btn-outline" data-route="trips">Assign crew & vessel</button><button class="btn btn-outline" data-route="invoices">Record payment</button></div>
       ${renderIncidentDashboardSummary()}${weatherSummaryCards(metrics.scheduledTrips)}${renderWeatherAlertPanel(metrics.scheduledTrips)}${['Admin','Owner','Bookkeeper'].includes(activeRoleName()) ? renderFuelReports() : ''}<div class="grid dashboard-custom-grid">${cardMarkup}</div>${renderUploadZone('dashboard')}
     </div>`;
 }
@@ -1647,13 +1656,20 @@ function formSectionForField(key) {
 }
 
 function renderFormSections(route, config, record) {
-  const sections = config.fields.reduce((acc, field) => {
-    const section = formSectionForField(field[0]);
-    acc[section] ||= [];
-    acc[section].push(field);
-    return acc;
-  }, {});
-  return Object.entries(sections).map(([section, fields], index) => `<details class="form-section-card app-accordion" ${index < 2 ? 'open' : ''}><summary><div class="form-section-title"><h3>${escapeHtml(route === 'invoices' ? ({ Customer: 'Document Details', 'Booking / Trip': 'Trip Details', Financial: 'Pricing & Payment', 'Assignment / Management': 'Assignment', Notes: 'Notes & Preview' }[section] || section) : section)}</h3></div><span class="chevron" aria-hidden="true">⌄</span></summary><div class="form-grid">${fields.map(([key, label, type]) => renderField(key, label, type, record[key])).join('')}</div></details>`).join('');
+  if (route === 'invoices') {
+    const groupKeys = {
+      'Customer & Document': ['invoiceNumber','documentType','customerName','phone','email','bookingSource','cruiseLine','cruiseShip'],
+      'Trip Details': ['tourType','tripDate','startTime','duration','returnTime','pickupLocation','guestCount'],
+      Pricing: ['baseTourPrice','swimmingPigsPrice','swimmingPigsPeople','lunchPrice','lunchPeople','otherAddOnName','otherAddOnPrice','otherAddOnQuantity','secondBoat','secondBoatPrice','tourPrice'],
+      'Operations Assignment': ['vessel','captain','mate','tripId','bookingId'],
+      Payment: ['depositPercent','depositPaid','balanceDue','paymentMethod','paymentStatus'],
+      'Notes & Preview': ['includedItems','whatToBring','meetingPoint','meetingPointImage','customerSummary','notes']
+    };
+    const byKey = Object.fromEntries(config.fields.map((field) => [field[0], field]));
+    return Object.entries(groupKeys).map(([section, keys], index) => `<details class="form-section-card app-accordion" ${index < 2 ? 'open' : ''}><summary><div class="form-section-title"><h3>${section}</h3></div><span class="chevron" aria-hidden="true">⌄</span></summary><div class="form-grid">${keys.map((key) => byKey[key]).filter(Boolean).map(([key, label, type]) => renderField(key, label, type, record[key])).join('')}</div></details>`).join('');
+  }
+  const sections = config.fields.reduce((acc, field) => { const section = formSectionForField(field[0]); acc[section] ||= []; acc[section].push(field); return acc; }, {});
+  return Object.entries(sections).map(([section, fields], index) => `<details class="form-section-card app-accordion" ${index < 2 ? 'open' : ''}><summary><div class="form-section-title"><h3>${escapeHtml(section)}</h3></div><span class="chevron" aria-hidden="true">⌄</span></summary><div class="form-grid">${fields.map(([key, label, type]) => renderField(key, label, type, record[key])).join('')}</div></details>`).join('');
 }
 
 function naturalSentenceModeHint() { return ''; }
@@ -1927,7 +1943,7 @@ function renderUnifiedBookingsTrips() {
   const page = document.getElementById('page-bookings'); if (!page) return;
   const visibleBookings = new Set(visibleRecordsForRoute('bookings', store.bookings).map((booking) => booking.id)); const visibleTrips = new Set(visibleRecordsForRoute('trips', store.trips).map((trip) => trip.id));
   const records = unifiedWorkflowRecords().filter(({ booking, trip }) => (booking && visibleBookings.has(booking.id)) || (trip && visibleTrips.has(trip.id)) || (!booking && !trip && ['Admin','Bookkeeper'].includes(activeRoleName()))); const scheduled = visibleRecordsForRoute('trips', store.trips).filter((trip) => trip.tripDate && trip.startTime);
-  const module = document.createElement('section'); module.className = 'unified-workflow'; module.innerHTML = `<div class="card card-pad unified-workflow-hero"><div><p class="eyebrow">Single source of truth</p><h2>Bookings / Trips</h2><p>Create the booking once; dated bookings become scheduled trips automatically. Assign crew and vessel, track payment, and prepare dispatch here.</p></div><div class="linked-record-badges"><span class="badge blue">${store.bookings.length} Bookings</span><span class="badge green">${scheduled.length} Scheduled Trips</span></div></div><div class="unified-workflow-list">${records.map(renderUnifiedWorkflowCard).join('') || '<p class="empty-state">No booking or trip records yet.</p>'}</div>${renderMigrationReport()}<details class="card app-accordion" open><summary><div><h3>Dispatch Tree</h3><p class="muted-text">Scheduled booking/trip records only.</p></div><span class="chevron">⌄</span></summary><div class="dispatch-tree unified-dispatch-tree">${renderDispatchTree(scheduled)}</div></details>`;
+  const module = document.createElement('section'); module.className = 'unified-workflow'; module.innerHTML = `<div class="card card-pad unified-workflow-hero"><div><p class="eyebrow">Single source of truth</p><h2>Trip Builder</h2><p>Create the booking once; dated bookings become scheduled trips automatically. Assign crew and vessel, track payment, and prepare dispatch here.</p></div><div class="linked-record-badges"><span class="badge blue">${store.bookings.length} Bookings</span><span class="badge green">${scheduled.length} Scheduled Trips</span></div></div><div class="unified-workflow-list">${records.map(renderUnifiedWorkflowCard).join('') || '<p class="empty-state">No booking or trip records yet.</p>'}</div>${renderMigrationReport()}<details class="card app-accordion" open><summary><div><h3>Dispatch Tree</h3><p class="muted-text">Scheduled booking/trip records only.</p></div><span class="chevron">⌄</span></summary><div class="dispatch-tree unified-dispatch-tree">${renderDispatchTree(scheduled)}</div></details>`;
   page.querySelector('.page-stack').prepend(module);
 }
 
@@ -1939,7 +1955,7 @@ function handleSavedInvoiceWorkflow(invoice) {
   if (!invoice || invoice.documentType === 'Quote') return;
   if (invoice.bookingId) return synchronizeInvoiceWorkflow(invoice, true);
   if (invoice.documentType === 'Tour Confirmation') return synchronizeInvoiceWorkflow(invoice, true);
-  if (invoice.documentType === 'Invoice' && confirm('Create Booking / Trip now?')) return synchronizeInvoiceWorkflow(invoice, true);
+  if (invoice.documentType === 'Invoice' && invoice.tripDate && invoice.startTime) return synchronizeInvoiceWorkflow(invoice, true);
 }
 
 function convertDocumentToBookingTrip(invoiceId) {
