@@ -709,6 +709,50 @@ def validate_phase_7e_unified_bookings_trips() -> tuple[bool, str]:
     return True, "PASS — Phase 7E provides one mobile-first Bookings / Trips workflow, automatic scheduling/linking, quote safeguards, role scoping, Dispatch Tree integration, and non-destructive migration reporting"
 
 
+def validate_phase_7f_workflow_consolidation() -> tuple[bool, str]:
+    app = (ROOT / "app.js").read_text()
+    styles = (ROOT / "styles.css").read_text()
+    combined = app + styles
+    required_tokens = {
+        "single Add Document entry": "Add Document</summary>",
+        "document intake photo action": "Take Photo<input data-upload-file",
+        "document intake upload action": "Upload File<input data-upload-file",
+        "document intake choose action": "Choose File<input data-upload-file",
+        "document intake paste action": "Paste Text</button>",
+        "single detected type selector": "data-document-type-select",
+        "detected type confidence": "Confidence: ${confidence}",
+        "final approval": "ocr-final-approval",
+        "create-as selector": "data-upload-create-as",
+        "approval required before creation": "if (data.userApproved !== 'Yes')",
+        "invoice Trip Details section": "'Trip Details': ['tourType','tripDate','startTime','duration','returnTime','pickupLocation','guestCount']",
+        "invoice Pricing section": "Pricing: ['baseTourPrice'",
+        "invoice Operations Assignment section": "'Operations Assignment': ['vessel','captain','mate','tripId','bookingId']",
+        "invoice Payment section": "Payment: ['depositPercent','depositPaid','balanceDue','paymentMethod','paymentStatus']",
+        "invoice Notes section": "'Notes & Preview': ['includedItems'",
+        "primary mobile navigation": "const mobilePrimaryRoutes = new Set(['dashboard', 'bookings', 'dispatch', 'calendar', 'chat'])",
+        "auto-minimizing voice control": "fab?.classList.toggle('auto-minimized'",
+        "maintenance photo notes": "renderPhotoNotePanel('maintenance')",
+        "photo removal": "function removePhotoNote",
+        "Phase 7F mobile refinements": "Phase 7F",
+    }
+    failures = [label for label, token in required_tokens.items() if token not in combined]
+    booking_sources = [
+        "Direct", "Website", "WhatsApp", "Phone", "Viator", "GetYourGuide",
+        "Tripadvisor", "Airbnb Experiences", "Referral", "Travel Agent",
+        "Hotel Concierge", "Other",
+    ]
+    options_start = app.find("bookingSources: [", app.find("function getOptions"))
+    source_map = app[options_start:app.find("bookingStatus:", options_start)]
+    failures.extend(f"missing booking source {source}" for source in booking_sources if f"'{source}'" not in source_map)
+    review_markup_start = app.find("host.innerHTML = `<form class=\"card upload-review-card")
+    review_markup = app[review_markup_start:app.find("function renderUploadReviewActions", review_markup_start)]
+    if review_markup.find("ocr-final-approval") < review_markup.find("ocr-review-sections"):
+        failures.append("final OCR approval appears before extracted review sections")
+    if failures:
+        return False, "FAIL - " + "; ".join(failures)
+    return True, "PASS - Phase 7F consolidated OCR intake, invoice workflow, navigation, voice control, dropdown sources, photo notes, and mobile refinements are protected"
+
+
 def main() -> int:
     checks = [
         ("JavaScript syntax", validate_javascript),
@@ -730,6 +774,7 @@ def main() -> int:
         ("Phase 6J Gmail import checks", validate_phase_6j_gmail_import),
         ("Phase 6K Operations Assistant checks", validate_phase_6k_operations_assistant),
         ("Phase 7E unified Bookings / Trips checks", validate_phase_7e_unified_bookings_trips),
+        ("Phase 7F workflow consolidation checks", validate_phase_7f_workflow_consolidation),
     ]
     all_passed = True
     for label, check in checks:
