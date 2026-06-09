@@ -509,7 +509,7 @@ def validate_module_visibility_and_titles() -> tuple[bool, str]:
     styles = (ROOT / "styles.css").read_text()
     index_html = (ROOT / "index.html").read_text()
     required_modules = [
-        "Dashboard", "Dispatch", "Calendar", "Bookings", "Chat", "Customers", "Invoice / Quote", "Trips",
+        "Dashboard", "Dispatch", "Calendar", "Bookings", "Chat", "Invoice / Quote", "Trips",
         "Vessels", "Maintenance", "Crew", "Captain Dashboard", "Mate Dashboard", "Owner Dashboard", "Payroll", "Expenses",
         "Inventory", "Incident Reports", "Pre Trip Checklist", "Post Trip Checklist", "Reports", "Notifications",
         "Audit Trail", "Settings",
@@ -518,7 +518,7 @@ def validate_module_visibility_and_titles() -> tuple[bool, str]:
     for module in required_modules:
         if f"'{module}'" not in app_js:
             failures.append(f"missing navigation module {module}")
-    for route in ["dispatch", "customers"]:
+    for route in ["dispatch"]:
         if f'id="page-{route}"' not in index_html:
             failures.append(f"missing page host {route}")
     required_tokens = {
@@ -531,7 +531,6 @@ def validate_module_visibility_and_titles() -> tuple[bool, str]:
         "sidebar labels remain visible": ".nav-link .nav-label,",
         "active mobile module indicator": "box-shadow: inset 0 -3px 0 var(--aqua);",
         "active sidebar module indicator": "box-shadow: inset 4px 0 0 var(--aqua);",
-        "unique customer body title": "Customer Directory",
         "unique dispatch body title": "Operational Trip Assignment Board",
     }
     combined = app_js + styles
@@ -693,12 +692,12 @@ def validate_phase_7e_unified_bookings_trips() -> tuple[bool, str]:
         "tour confirmation integration": "invoice.documentType === 'Tour Confirmation'",
         "invoice conversion action": "Convert Quote to Booking / Trip",
         "unified record cards": "function renderUnifiedWorkflowCard",
-        "status pipeline": "const WORKFLOW_PIPELINE",
-        "dispatch tree integration": "Scheduled booking/trip records only.",
+        "simple upcoming trips heading": "<h2>Upcoming Trips</h2>",
+        "dispatch action": "Open Dispatch",
         "migration reconciliation": "function reconcileExistingWorkflow",
-        "migration report": "Bookings / Trips Migration Report",
         "role-scoped unified records": "visibleRecordsForRoute('bookings'",
-        "mobile unified layout": "@media(max-width:760px){.unified-workflow-hero",
+        "duplicate booking table removed": "page.querySelector('.table-card')?.remove()",
+        "mobile unified layout": ".unified-workflow-actions .btn{width:100%}",
     }
     combined = app + styles
     failures = [label for label, token in required_tokens.items() if token not in combined]
@@ -706,7 +705,7 @@ def validate_phase_7e_unified_bookings_trips() -> tuple[bool, str]:
         failures.append("separate Trips navigation still present")
     if failures:
         return False, "FAIL — " + "; ".join(f"missing {label}" for label in failures)
-    return True, "PASS — Phase 7E provides one mobile-first Bookings / Trips workflow, automatic scheduling/linking, quote safeguards, role scoping, Dispatch Tree integration, and non-destructive migration reporting"
+    return True, "PASS — Phase 7E provides one simplified mobile-first Bookings / Trips workflow, automatic scheduling/linking, quote safeguards, role scoping, and direct Dispatch integration"
 
 
 def validate_phase_7f_workflow_consolidation() -> tuple[bool, str]:
@@ -734,8 +733,12 @@ def validate_phase_7f_workflow_consolidation() -> tuple[bool, str]:
         "maintenance photo notes": "renderPhotoNotePanel('maintenance')",
         "photo removal": "function removePhotoNote",
         "Phase 7F mobile refinements": "Phase 7F",
+        "calendar filters collapse on mobile": "const toolsOpen = window.innerWidth > 700",
+        "calendar viewport-fit grid": ".calendar-grid.month-view{grid-template-columns:repeat(7,minmax(0,1fr));width:100%;overflow:hidden}",
     }
     failures = [label for label, token in required_tokens.items() if token not in combined]
+    if 'page-customers' in (ROOT / "index.html").read_text() or "'customers', '🪪', 'Customers'" in app:
+        failures.append("customer directory remains visible")
     booking_sources = [
         "Direct", "Website", "WhatsApp", "Phone", "Viator", "GetYourGuide",
         "Tripadvisor", "Airbnb Experiences", "Referral", "Travel Agent",
