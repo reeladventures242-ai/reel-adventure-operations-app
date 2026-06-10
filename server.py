@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Serve the operations app with live Nassau weather and cruise schedule APIs."""
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from html.parser import HTMLParser
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 import json
@@ -19,6 +19,10 @@ WINDY_URL = "https://api.windy.com/api/point-forecast/v2"
 OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
 BOATBOOKER_WIDGET_BUILDER_URL = "https://boatbooker.com/js/widgets/captainWeatherWidgetBuilder.js?v=1777446641"
 USER_AGENT = "ReelAdventureOperations/1.0 (+local operations app)"
+CACHE_DIR = os.environ.get("CACHE_DIR", os.path.join(ROOT, ".runtime-cache"))
+WEATHER_CACHE_FILE = os.path.join(CACHE_DIR, "weather-nassau.json")
+WEATHER_CACHE_TTL_SECONDS = int(os.environ.get("WEATHER_CACHE_TTL_SECONDS", "1800"))
+WEATHER_FALLBACK_TTL_SECONDS = int(os.environ.get("WEATHER_FALLBACK_TTL_SECONDS", "600"))
 
 
 def request_json(url, data=None):
@@ -38,6 +42,56 @@ def request_text(url):
 
 def iso_now():
     return datetime.now(timezone.utc).isoformat()
+
+
+def parse_iso(value):
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+
+
+def read_json_file(path):
+    try:
+        with open(path, "r", encoding="utf-8") as file:
+            return json.load(file)
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def write_json_file(path, payload):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    temp_path = f"{path}.tmp"
+    with open(temp_path, "w", encoding="utf-8") as file:
+        json.dump(payload, file)
+    os.replace(temp_path, path)
+
+
+def cache_age_seconds(payload):
+    cached_at = parse_iso(payload.get("cachedAt") or payload.get("updatedAt"))
+    if not cached_at:
+        return float("inf")
+    return (datetime.now(timezone.utc) - cached_at).total_seconds()
+
+
+def weather_cache_is_fresh(payload):
+    ttl = WEATHER_FALLBACK_TTL_SECONDS if payload.get("provider") == "Fallback Nassau Weather" else WEATHER_CACHE_TTL_SECONDS
+    return cache_age_seconds(payload) < ttl
+
+
+def save_weather_cache(payload):
+    cached = dict(payload)
+    cached["cachedAt"] = iso_now()
+    write_json_file(WEATHER_CACHE_FILE, cached)
+    return cached
+
+
+def annotate_weather_payload(payload, cache_status, warning=""):
+    result = dict(payload)
+    result["cacheStatus"] = cache_status
+    if warning:
+        result["warning"] = warning
+    return result
 
 
 def weather_from_windy(api_key):
@@ -87,6 +141,47 @@ def weather_from_open_meteo():
             round(float(hourly.get("precipitation_probability", [0])[index] or 0)), "Open-Meteo",
         ))
     return {"provider": "Open-Meteo", "sourceUrl": "https://www.windy.com/?25.056,-77.352,5", "updatedAt": iso_now(), "records": records}
+
+
+def fallback_weather(error_message=""):
+    now = datetime.now(timezone.utc)
+    records = []
+    for day in range(7):
+        for hour in (8, 11, 14, 17):
+            at = (now + timedelta(days=day)).replace(hour=hour, minute=0, second=0, microsecond=0)
+            wind = 10 + ((day + hour) % 5)
+            gust = wind + 5
+            rain = 20 + ((day * 7 + hour) % 35)
+            records.append(weather_record(at, wind, gust, rain, "Fallback Nassau Weather"))
+    warning = "Live weather provider unavailable; using temporary Nassau planning fallback."
+    if error_message:
+        warning = f"{warning} {error_message}"
+    return {
+        "provider": "Fallback Nassau Weather",
+        "sourceUrl": "https://www.windy.com/?25.056,-77.352,5",
+        "updatedAt": iso_now(),
+        "records": records,
+        "warning": warning,
+    }
+
+
+def weather_forecast_payload():
+    cached = read_json_file(WEATHER_CACHE_FILE)
+    if cached and weather_cache_is_fresh(cached):
+        return annotate_weather_payload(cached, "fresh-cache")
+    try:
+        key = os.environ.get("WINDY_API_KEY", "").strip()
+        payload = weather_from_windy(key) if key else weather_from_open_meteo()
+        return annotate_weather_payload(save_weather_cache(payload), "fresh")
+    except (urllib.error.URLError, ValueError, KeyError, IndexError) as error:
+        cached = read_json_file(WEATHER_CACHE_FILE)
+        if cached:
+            return annotate_weather_payload(
+                cached,
+                "stale-cache",
+                f"Live weather provider unavailable; showing the last saved Nassau forecast. {error}",
+            )
+        return annotate_weather_payload(save_weather_cache(fallback_weather(str(error))), "fallback")
 
 
 class CruiseScheduleParser(HTMLParser):
@@ -184,8 +279,7 @@ class AppHandler(SimpleHTTPRequestHandler):
                 self.wfile.write(body)
                 return
             if self.path.startswith("/api/weather/nassau"):
-                key = os.environ.get("WINDY_API_KEY", "").strip()
-                self.send_json(weather_from_windy(key) if key else weather_from_open_meteo())
+                self.send_json(weather_forecast_payload())
                 return
             if self.path.startswith("/api/cruise/nassau"):
                 self.send_json(cruise_schedule())
