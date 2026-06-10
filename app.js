@@ -1,18 +1,21 @@
 const STORE_KEY = 'rat_ops_v1_store';
-const STORE_VERSION = 26;
-const APP_RELEASE_LABEL = '2026-06-10 integrations-download';
+const STORE_VERSION = 27;
+const APP_RELEASE_LABEL = '2026-06-10 owner-vessel-scope';
 const STORE_BACKUP_KEY = `${STORE_KEY}_backup`;
 const STORE_RECOVERY_KEY = `${STORE_KEY}_recovery`;
 
 const roleRouteVisibility = {
   Admin: null,
   Owner: new Set(['dashboard','operations-assistant','dispatch','calendar','chat','whatsapp','bookings','trips','vessels','maintenance','owner-dashboard','payroll','expenses','incident-reports','pre-trip-checklist','post-trip-checklist','cruise-schedule','reports','notifications','settings']),
+  'Vessel Owner': new Set(['dashboard','operations-assistant','dispatch','calendar','chat','bookings','trips','vessels','owner-dashboard','payroll','expenses','incident-reports','pre-trip-checklist','post-trip-checklist','cruise-schedule','reports','notifications','settings']),
   Captain: new Set(['dashboard','operations-assistant','dispatch','calendar','chat','whatsapp','bookings','trips','vessels','maintenance','captain-dashboard','payroll','incident-reports','pre-trip-checklist','post-trip-checklist','cruise-schedule','notifications','settings']),
   Mate: new Set(['dashboard','operations-assistant','dispatch','calendar','chat','whatsapp','bookings','trips','vessels','maintenance','mate-dashboard','payroll','incident-reports','pre-trip-checklist','post-trip-checklist','cruise-schedule','notifications','settings']),
   Bookkeeper: new Set(['dashboard','operations-assistant','calendar','chat','whatsapp','gmail-import','invoices','bookings','trips','payroll','expenses','reports','notifications','audit','settings'])
 };
 const MAINTENANCE_VESSELS = ['Reel Adventure Tours I', 'Reel Adventure Tours II'];
 const MAINTENANCE_STATUSES = ['Good', 'Due Soon', 'Overdue', 'Needs Review', 'Out of Service'];
+const COMPANY_OWNER_NAME = 'Eugene';
+const VESSEL_OWNER_ROLE = 'Vessel Owner';
 
 const navItems = [
   ['dashboard', '🏠', 'Dashboard'], ['operations-assistant', '✨', 'Ask Operations'], ['dispatch', '📍', 'Dispatch'], ['calendar', '📅', 'Calendar'],
@@ -42,6 +45,7 @@ const legacyTools = [
 const seedData = {
   roles: [
     { id: 'role-owner', name: 'Owner' },
+    { id: 'role-vessel-owner', name: 'Vessel Owner' },
     { id: 'role-captain', name: 'Captain' },
     { id: 'role-mate', name: 'Mate' },
     { id: 'role-bookkeeper', name: 'Bookkeeper' }
@@ -366,9 +370,18 @@ function migrateStore(existing = {}) {
 
 
 function migrateUsers(existingUsers = [], crew = [], vessels = []) {
-  const byLink = new Map(existingUsers.map((user) => [user.linkedCrewProfileId || `owner:${user.linkedVesselOwnerProfileId || ''}`, user]));
-  const users = existingUsers.map((user) => ({ phone: '', email: '', active: true, linkedCrewProfileId: '', linkedVesselOwnerProfileId: '', demoPin: '', lastLoginAt: '', metadata: {}, ...user }));
+  const normalizedExisting = existingUsers.map((user) => {
+    const next = { phone: '', email: '', active: true, linkedCrewProfileId: '', linkedVesselOwnerProfileId: '', demoPin: '', lastLoginAt: '', metadata: {}, ...user };
+    if (next.role === 'Owner' && next.name !== COMPANY_OWNER_NAME && next.linkedVesselOwnerProfileId !== COMPANY_OWNER_NAME) next.role = VESSEL_OWNER_ROLE;
+    return next;
+  });
+  const byLink = new Map(normalizedExisting.map((user) => [user.linkedCrewProfileId || `owner:${user.linkedVesselOwnerProfileId || ''}`, user]));
+  const users = normalizedExisting;
   if (!users.some((user) => user.role === 'Admin')) users.unshift({ id: 'user-admin', name: 'Operations Admin', role: 'Admin', phone: '', email: 'admin@reeladventure.demo', active: true, linkedCrewProfileId: '', linkedVesselOwnerProfileId: '', demoPin: '0000', lastLoginAt: '', metadata: { source: 'seed' } });
+  if (!users.some((user) => user.role === 'Owner' && (user.name === COMPANY_OWNER_NAME || user.linkedVesselOwnerProfileId === COMPANY_OWNER_NAME))) {
+    const eugene = crew.find((person) => person.name === COMPANY_OWNER_NAME);
+    users.push({ id: 'user-owner-eugene', name: COMPANY_OWNER_NAME, role: 'Owner', phone: eugene?.phone || '', email: eugene?.email || '', active: true, linkedCrewProfileId: eugene?.id || '', linkedVesselOwnerProfileId: COMPANY_OWNER_NAME, demoPin: '0000', lastLoginAt: '', metadata: { source: 'companyOwner' } });
+  }
   if (!users.some((user) => user.role === 'Mate')) users.push({ id: 'user-mate-demo', name: 'Demo Mate', role: 'Mate', phone: '', email: 'mate@reeladventure.demo', active: true, linkedCrewProfileId: '', linkedVesselOwnerProfileId: '', demoPin: '0000', lastLoginAt: '', metadata: { source: 'seed' } });
   if (!users.some((user) => user.role === 'Bookkeeper')) users.push({ id: 'user-bookkeeper', name: 'Demo Bookkeeper', role: 'Bookkeeper', phone: '', email: 'bookkeeper@reeladventure.demo', active: true, linkedCrewProfileId: '', linkedVesselOwnerProfileId: '', demoPin: '0000', lastLoginAt: '', metadata: { source: 'seed' } });
   crew.forEach((person) => {
@@ -377,8 +390,9 @@ function migrateUsers(existingUsers = [], crew = [], vessels = []) {
     users.push({ id: `user-${person.id}`, name: person.name, role, phone: person.phone || '', email: person.email || '', active: person.active !== 'No', linkedCrewProfileId: person.id, linkedVesselOwnerProfileId: '', demoPin: '0000', lastLoginAt: '', metadata: { source: 'crew' } });
   });
   [...new Set(vessels.map((vessel) => vessel.owner).filter(Boolean))].forEach((owner) => {
-    if (users.some((user) => user.role === 'Owner' && user.name === owner)) return;
-    users.push({ id: `user-owner-${owner.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`, name: owner, role: 'Owner', phone: '', email: '', active: true, linkedCrewProfileId: '', linkedVesselOwnerProfileId: owner, demoPin: '0000', lastLoginAt: '', metadata: { source: 'vesselOwner' } });
+    const role = owner === COMPANY_OWNER_NAME ? 'Owner' : VESSEL_OWNER_ROLE;
+    if (users.some((user) => user.linkedVesselOwnerProfileId === owner || (user.role === role && user.name === owner))) return;
+    users.push({ id: `user-owner-${owner.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`, name: owner, role, phone: '', email: '', active: true, linkedCrewProfileId: '', linkedVesselOwnerProfileId: owner, demoPin: '0000', lastLoginAt: '', metadata: { source: owner === COMPANY_OWNER_NAME ? 'companyOwner' : 'vesselOwner' } });
   });
   return users;
 }
@@ -592,8 +606,7 @@ function addNotification(title, message, level = 'info', metadata = {}, recipien
 }
 
 function canViewStockAlerts() {
-  const label = currentUserLabel().toLowerCase();
-  return label.includes('admin') || (label.includes('owner') && !label.includes('operations manager'));
+  return activeRoleName() === 'Admin' || isCompanyOwnerUser();
 }
 
 function isStockAlertNotice(notice = {}) {
@@ -672,7 +685,7 @@ function renderLoginUsers() {
 }
 
 function canAccessRoute(route, role = activeRoleName()) {
-  if (ownerOnlyIntegrationRoutes.has(route)) return role === 'Owner';
+  if (ownerOnlyIntegrationRoutes.has(route)) return isCompanyOwnerUser();
   const allowed = roleRouteVisibility[role];
   return allowed == null || allowed.has(route);
 }
@@ -1290,20 +1303,33 @@ function activeRoleName() {
   if (label.includes('bookkeeper')) return 'Bookkeeper';
   if (label.includes('captain')) return 'Captain';
   if (label.includes('mate')) return 'Mate';
-  if (label.includes('owner') && !label.includes('admin')) return 'Owner';
+  if (label.includes('vessel owner')) return VESSEL_OWNER_ROLE;
+  if (label.includes('owner') && !label.includes('admin')) return currentUser().name === COMPANY_OWNER_NAME ? 'Owner' : VESSEL_OWNER_ROLE;
   return 'Admin';
+}
+function vesselOwnerPerson(user = currentUser()) {
+  return user.linkedVesselOwnerProfileId || user.name || dashboardFilters.owner || getOptions('owners')[0] || '';
+}
+function isCompanyOwnerUser(user = currentUser()) {
+  return user.role === 'Owner' && vesselOwnerPerson(user) === COMPANY_OWNER_NAME;
+}
+function isVesselOwnerRole(role = activeRoleName()) {
+  return role === 'Owner' || role === VESSEL_OWNER_ROLE;
+}
+function isScopedVesselOwner(role = activeRoleName()) {
+  return role === VESSEL_OWNER_ROLE;
 }
 function activeRolePerson(role = activeRoleName()) {
   if (role === 'Captain') return currentUser().name || dashboardFilters.captain || getOptions('crew')[0] || '';
   if (role === 'Mate') return currentUser().name || dashboardFilters.mate || getOptions('crew')[0] || '';
-  if (role === 'Owner') return currentUser().name || dashboardFilters.owner || getOptions('owners')[0] || '';
+  if (isVesselOwnerRole(role)) return vesselOwnerPerson();
   return '';
 }
 function visibleCalendarTrips() {
   const role = activeRoleName(); const person = activeRolePerson(role);
   return (store.trips || []).filter((trip) => {
-    if (role === 'Admin' || role === 'Bookkeeper') return true;
-    if (role === 'Owner') return ownerForVesselName(trip.vessel) === person;
+    if (role === 'Admin' || role === 'Bookkeeper' || isCompanyOwnerUser()) return true;
+    if (isScopedVesselOwner(role)) return ownerForVesselName(trip.vessel) === person;
     if (role === 'Captain') return trip.captain === person;
     if (role === 'Mate') return trip.mate === person;
     return true;
@@ -1348,7 +1374,7 @@ function renderCalendar() {
   renderVoiceCommandPanel('calendar');
 }
 function calendarPermissionCopy(role) {
-  return { Admin: 'Can see all trips, Invoice / Quote records, bookings, schedules, vessels, crew assignments, and balances.', Owner: 'Can see trips involving vessels they own, owner payout information, and assigned vessel readiness; unrelated owner trips are hidden.', Captain: 'Can see captain assigned trips with customer, vessel, guest count, pickup/departure time, notes, and checklist status.', Mate: 'Can see mate assigned trips with customer, vessel, guest count, pickup/departure time, notes, and checklist status.', Bookkeeper: 'Bookkeeper financial calendar view includes Invoice / Quote records, payments, payroll, expenses, balances, reports, and calendar financial totals. Dispatch assignment editing stays admin-only.' }[role];
+  return { Admin: 'Can see all trips, Invoice / Quote records, bookings, schedules, vessels, crew assignments, and balances.', Owner: 'Eugene company owner view: can see all company operations and owner-only Gmail / WhatsApp integrations.', 'Vessel Owner': 'Can see trips involving vessels they own, owner payout information, and assigned vessel readiness; unrelated owner trips are hidden.', Captain: 'Can see captain assigned trips with customer, vessel, guest count, pickup/departure time, notes, and checklist status.', Mate: 'Can see mate assigned trips with customer, vessel, guest count, pickup/departure time, notes, and checklist status.', Bookkeeper: 'Bookkeeper financial calendar view includes Invoice / Quote records, payments, payroll, expenses, balances, reports, and calendar financial totals. Dispatch assignment editing stays admin-only.' }[role];
 }
 function renderCalendarDateControls(selected) {
   const date = new Date(`${selected}T00:00:00`);
@@ -1950,9 +1976,9 @@ function deleteRecord(route, id) {
 
 function visibleRecordsForRoute(route, records = []) {
   const role = activeRoleName(); const person = activeRolePerson(role);
-  if (route === 'trips') return records.filter((trip) => role === 'Admin' || role === 'Bookkeeper' || (role === 'Owner' && ownerForVesselName(trip.vessel) === person) || (role === 'Captain' && trip.captain === person) || (role === 'Mate' && trip.mate === person));
-  if (route === 'bookings' && ['Owner','Captain','Mate'].includes(role)) { const visibleBookingIds = new Set(visibleRecordsForRoute('trips', store.trips).filter((trip) => trip.tripDate && trip.startTime).map((trip) => trip.bookingId)); return records.filter((booking) => visibleBookingIds.has(booking.id)); }
-  if (route === 'invoices' && role === 'Owner') return records.filter((invoice) => ownerForVesselName(invoice.vessel) === person);
+  if (route === 'trips') return records.filter((trip) => role === 'Admin' || role === 'Bookkeeper' || isCompanyOwnerUser() || (isScopedVesselOwner(role) && ownerForVesselName(trip.vessel) === person) || (role === 'Captain' && trip.captain === person) || (role === 'Mate' && trip.mate === person));
+  if (route === 'bookings' && (isVesselOwnerRole(role) || ['Captain','Mate'].includes(role))) { const visibleBookingIds = new Set(visibleRecordsForRoute('trips', store.trips).filter((trip) => trip.tripDate && trip.startTime).map((trip) => trip.bookingId)); return records.filter((booking) => visibleBookingIds.has(booking.id)); }
+  if (route === 'invoices' && isScopedVesselOwner(role)) return records.filter((invoice) => ownerForVesselName(invoice.vessel) === person);
   return records;
 }
 
@@ -2814,7 +2840,7 @@ function savePayrollPayment(event, entryKey) {
 
 function visiblePayrollEntries() {
   const role = activeRoleName(); const person = activeRolePerson(role);
-  return payrollEntries().filter((entry) => role === 'Admin' || role === 'Bookkeeper' || (role === 'Owner' && entry.role === 'Owner' && entry.person === person) || (['Captain','Mate'].includes(role) && entry.role === role && entry.person === person));
+  return payrollEntries().filter((entry) => role === 'Admin' || role === 'Bookkeeper' || isCompanyOwnerUser() || (isScopedVesselOwner(role) && entry.role === 'Owner' && entry.person === person) || (['Captain','Mate'].includes(role) && entry.role === role && entry.person === person));
 }
 
 function renderPayroll() {
@@ -3931,7 +3957,7 @@ function syncFuelExpense(trip) {
 
 function canEditTripFuel(trip) {
   const role = activeRoleName();
-  return ['Admin', 'Owner'].includes(role) || (role === 'Captain' && trip.captain === activeRolePerson('Captain'));
+  return role === 'Admin' || isCompanyOwnerUser() || (isScopedVesselOwner(role) && ownerForVesselName(trip.vessel) === activeRolePerson(role)) || (role === 'Captain' && trip.captain === activeRolePerson('Captain'));
 }
 
 function renderCrewFuelCard(trip, role) {
@@ -3945,8 +3971,8 @@ function renderFuelMiniSummary(trip) {
 
 function renderFuelTrackingOverview() {
   const role = activeRoleName();
-  const allowed = (store.trips || []).filter((trip) => role === 'Admin' || role === 'Bookkeeper' || (role === 'Owner' && ownerForVesselName(trip.vessel) === activeRolePerson('Owner')) || (role === 'Captain' && trip.captain === activeRolePerson('Captain')) || (role === 'Mate' && trip.mate === activeRolePerson('Mate')));
-  return `<details class="card fuel-overview app-accordion" open><summary><div><h3>Fuel Tracking & Trip Profitability</h3><p class="muted-text">Fuel is available for every trip and expected for Reel Adventure Tours I and II.</p></div><span class="badge blue">${allowed.length} visible trips</span></summary><div class="fuel-trip-card-grid">${allowed.length ? allowed.map((trip) => { const p = tripProfitability(trip); return `<article class="fuel-trip-card"><div><strong>${escapeHtml(formatDate(trip.tripDate))} · ${escapeHtml(trip.customer || 'Trip')}</strong><p>${escapeHtml(trip.vessel || 'Unassigned vessel')}</p></div>${renderFuelMiniSummary(trip)}${['Admin','Owner','Bookkeeper'].includes(role) ? `<div class="profit-chip ${p.estimatedNetProfit >= 0 ? 'profit-positive' : 'profit-negative'}">Net ${money(p.estimatedNetProfit)}</div>` : ''}${canEditTripFuel(trip) ? `<button class="btn btn-outline btn-small" onclick="showForm('trips','${trip.id}')">Edit Fuel</button>` : '<span class="badge gray">View only</span>'}</article>`; }).join('') : '<p class="empty-state">No fuel-visible trips for this role.</p>'}</div></details>`;
+  const allowed = (store.trips || []).filter((trip) => role === 'Admin' || role === 'Bookkeeper' || isCompanyOwnerUser() || (isScopedVesselOwner(role) && ownerForVesselName(trip.vessel) === activeRolePerson(role)) || (role === 'Captain' && trip.captain === activeRolePerson('Captain')) || (role === 'Mate' && trip.mate === activeRolePerson('Mate')));
+  return `<details class="card fuel-overview app-accordion" open><summary><div><h3>Fuel Tracking & Trip Profitability</h3><p class="muted-text">Fuel is available for every trip and expected for Reel Adventure Tours I and II.</p></div><span class="badge blue">${allowed.length} visible trips</span></summary><div class="fuel-trip-card-grid">${allowed.length ? allowed.map((trip) => { const p = tripProfitability(trip); return `<article class="fuel-trip-card"><div><strong>${escapeHtml(formatDate(trip.tripDate))} · ${escapeHtml(trip.customer || 'Trip')}</strong><p>${escapeHtml(trip.vessel || 'Unassigned vessel')}</p></div>${renderFuelMiniSummary(trip)}${['Admin','Owner','Bookkeeper',VESSEL_OWNER_ROLE].includes(role) ? `<div class="profit-chip ${p.estimatedNetProfit >= 0 ? 'profit-positive' : 'profit-negative'}">Net ${money(p.estimatedNetProfit)}</div>` : ''}${canEditTripFuel(trip) ? `<button class="btn btn-outline btn-small" onclick="showForm('trips','${trip.id}')">Edit Fuel</button>` : '<span class="badge gray">View only</span>'}</article>`; }).join('') : '<p class="empty-state">No fuel-visible trips for this role.</p>'}</div></details>`;
 }
 
 function renderFuelReports() {
@@ -3960,7 +3986,7 @@ function renderFuelReports() {
 // Native reports dashboard uses current local app data.
 function renderReports() {
   const trips = store.trips || [];
-  const canViewProfitability = ['Admin', 'Owner', 'Bookkeeper'].includes(activeRoleName());
+  const canViewProfitability = ['Admin', 'Owner', 'Bookkeeper', VESSEL_OWNER_ROLE].includes(activeRoleName());
   const stockAlerts = canViewStockAlerts() ? inventoryAlerts() : [];
   const revenue = trips.reduce((sum, trip) => sum + Number(trip.tourPrice || 0), 0) + (store.invoices || []).reduce((sum, invoice) => sum + Number(invoice.tourPrice || 0), 0);
   const outstandingBalances = trips.reduce((sum, trip) => sum + Number(trip.balanceDue || 0), 0) + (store.invoices || []).reduce((sum, invoice) => sum + Number(invoice.balanceDue || 0), 0);
@@ -3990,11 +4016,12 @@ function canDirectChatWith(other) {
   if (!me.id || !other?.id || me.id === other.id || !store.chatPreferences?.directEnabled) return false;
   if (me.role === 'Admin' || other.role === 'Admin') return true;
   if (me.role === 'Bookkeeper' || other.role === 'Bookkeeper') return false;
+  if (isCompanyOwnerUser(me) || isCompanyOwnerUser(other)) return true;
   const trips = store.trips || [];
   const assignedTogether = trips.some((trip) => [trip.captain, trip.mate].includes(me.name) && [trip.captain, trip.mate].includes(other.name));
   const ownerCrewLink = trips.some((trip) => {
     const vesselOwner = store.vessels.find((vessel) => vessel.name === trip.vessel)?.owner;
-    return (me.role === 'Owner' && vesselOwner === me.name && [trip.captain, trip.mate].includes(other.name)) || (other.role === 'Owner' && vesselOwner === other.name && [trip.captain, trip.mate].includes(me.name));
+    return (isVesselOwnerRole(me.role) && vesselOwner === vesselOwnerPerson(me) && [trip.captain, trip.mate].includes(other.name)) || (isVesselOwnerRole(other.role) && vesselOwner === vesselOwnerPerson(other) && [trip.captain, trip.mate].includes(me.name));
   });
   return assignedTogether || ownerCrewLink;
 }
@@ -4074,7 +4101,7 @@ function renderChat() {
   const available = visibleChatUsers().filter((user) => (!chatFilters.person || user.id === chatFilters.person) && (!chatFilters.role || user.role === chatFilters.role));
   const search = chatFilters.search.toLowerCase();
   const messages = active ? conversationMessages(active.id).filter((message) => !search || `${message.senderName} ${message.senderRole} ${message.messageText}`.toLowerCase().includes(search)) : [];
-  page.innerHTML = `<div class="page-stack"><div class="chat-layout ${chatMobileThreadOpen ? 'thread-open' : ''}"><aside class="chat-sidebar card"><div class="chat-tools"><input data-chat-search type="search" placeholder="Search messages" value="${escapeHtml(chatFilters.search)}"><select data-chat-filter="role"><option value="">All roles</option>${['Admin','Owner','Captain','Mate','Bookkeeper'].map((role) => `<option ${chatFilters.role === role ? 'selected' : ''}>${role}</option>`).join('')}</select><select data-chat-filter="person"><option value="">All people</option>${visibleChatUsers().map((user) => `<option value="${user.id}" ${chatFilters.person === user.id ? 'selected' : ''}>${escapeHtml(user.name)}</option>`).join('')}</select></div><div class="chat-section-label">Conversations</div><div class="chat-conversation-list">${conversations.map(renderChatConversationItem).join('') || '<p class="empty-state">Chat is disabled in Settings.</p>'}</div><div class="chat-section-label">New direct message</div><div class="chat-contact-list">${available.map((user) => `<button class="chat-contact" data-chat-direct-user="${user.id}"><span class="chat-avatar">${escapeHtml(user.name.slice(0, 1))}</span><span><strong>${escapeHtml(user.name)}</strong><small>${escapeHtml(user.role)}</small></span></button>`).join('') || '<p class="empty-state">No permitted contacts match.</p>'}</div></aside><section class="chat-thread card">${active ? `<header class="chat-thread-header"><button class="btn btn-outline btn-small chat-back" data-chat-back>← Back</button><div><h3>${escapeHtml(conversationLabel(active))}</h3><span>${active.type === 'general' ? 'All active users' : 'Private direct message'}</span></div><button class="btn btn-outline btn-small" data-chat-mark-read>Mark as read</button></header><div class="chat-message-list">${messages.map((message) => `<article class="chat-message ${message.senderUserId === currentUser().id ? 'sent' : 'received'}"><div class="chat-bubble"><div class="chat-message-meta"><strong>${escapeHtml(message.senderName)}</strong><span class="badge blue">${escapeHtml(message.senderRole)}</span></div><p>${escapeHtml(message.messageText)}</p><time>${new Date(message.createdAt).toLocaleString()}</time></div></article>`).join('') || '<p class="empty-state">No messages yet. Start the conversation.</p>'}</div><form class="chat-composer" data-chat-form><button class="btn btn-outline" type="button" title="Attachment placeholder">＋ Photo / File</button><input name="messageText" autocomplete="off" placeholder="Write a message…" required><button class="btn btn-primary" type="submit">Send</button></form>` : '<div class="empty-state">Choose a conversation.</div>'}</section></div></div>`;
+  page.innerHTML = `<div class="page-stack"><div class="chat-layout ${chatMobileThreadOpen ? 'thread-open' : ''}"><aside class="chat-sidebar card"><div class="chat-tools"><input data-chat-search type="search" placeholder="Search messages" value="${escapeHtml(chatFilters.search)}"><select data-chat-filter="role"><option value="">All roles</option>${['Admin','Owner',VESSEL_OWNER_ROLE,'Captain','Mate','Bookkeeper'].map((role) => `<option ${chatFilters.role === role ? 'selected' : ''}>${role}</option>`).join('')}</select><select data-chat-filter="person"><option value="">All people</option>${visibleChatUsers().map((user) => `<option value="${user.id}" ${chatFilters.person === user.id ? 'selected' : ''}>${escapeHtml(user.name)}</option>`).join('')}</select></div><div class="chat-section-label">Conversations</div><div class="chat-conversation-list">${conversations.map(renderChatConversationItem).join('') || '<p class="empty-state">Chat is disabled in Settings.</p>'}</div><div class="chat-section-label">New direct message</div><div class="chat-contact-list">${available.map((user) => `<button class="chat-contact" data-chat-direct-user="${user.id}"><span class="chat-avatar">${escapeHtml(user.name.slice(0, 1))}</span><span><strong>${escapeHtml(user.name)}</strong><small>${escapeHtml(user.role)}</small></span></button>`).join('') || '<p class="empty-state">No permitted contacts match.</p>'}</div></aside><section class="chat-thread card">${active ? `<header class="chat-thread-header"><button class="btn btn-outline btn-small chat-back" data-chat-back>← Back</button><div><h3>${escapeHtml(conversationLabel(active))}</h3><span>${active.type === 'general' ? 'All active users' : 'Private direct message'}</span></div><button class="btn btn-outline btn-small" data-chat-mark-read>Mark as read</button></header><div class="chat-message-list">${messages.map((message) => `<article class="chat-message ${message.senderUserId === currentUser().id ? 'sent' : 'received'}"><div class="chat-bubble"><div class="chat-message-meta"><strong>${escapeHtml(message.senderName)}</strong><span class="badge blue">${escapeHtml(message.senderRole)}</span></div><p>${escapeHtml(message.messageText)}</p><time>${new Date(message.createdAt).toLocaleString()}</time></div></article>`).join('') || '<p class="empty-state">No messages yet. Start the conversation.</p>'}</div><form class="chat-composer" data-chat-form><button class="btn btn-outline" type="button" title="Attachment placeholder">＋ Photo / File</button><input name="messageText" autocomplete="off" placeholder="Write a message…" required><button class="btn btn-primary" type="submit">Send</button></form>` : '<div class="empty-state">Choose a conversation.</div>'}</section></div></div>`;
 }
 
 function updateUserField(userId, field, value) { const user = store.users.find((item) => item.id === userId); if (!user) return; user[field] = value; saveStore(); renderLoginUsers(); toast('User updated.'); }
@@ -4085,7 +4112,7 @@ function updateChatPreference(key, value) { store.chatPreferences[key] = value; 
 
 function renderUserSettings() {
   const owners = [...new Set(store.vessels.map((vessel) => vessel.owner).filter(Boolean))];
-  return `<div class="legacy-tool settings-span"><div class="card-header"><h3>Users</h3><button class="btn btn-outline btn-small" data-create-linked-users>Sync Crew & Owners</button></div><div class="responsive-table-wrap"><table><thead><tr><th>User</th><th>Role</th><th>Active</th><th>Linked crew</th><th>Linked owner</th><th>Demo PIN</th><th>Last login</th></tr></thead><tbody>${store.users.map((user) => `<tr><td><strong>${escapeHtml(user.name)}</strong><br><small>${escapeHtml(user.email || user.phone || user.id)}</small></td><td><select data-user-role="${user.id}">${['Admin','Owner','Captain','Mate','Bookkeeper'].map((role) => `<option ${user.role === role ? 'selected' : ''}>${role}</option>`).join('')}</select></td><td><button class="btn btn-small ${user.active === false ? 'btn-danger' : 'btn-outline'}" data-user-active-toggle="${user.id}">${user.active === false ? 'Inactive' : 'Active'}</button></td><td><select data-user-link-crew="${user.id}"><option value="">Not linked</option>${store.crew.map((crew) => `<option value="${crew.id}" ${user.linkedCrewProfileId === crew.id ? 'selected' : ''}>${escapeHtml(crew.name)}</option>`).join('')}</select></td><td><select data-user-link-owner="${user.id}"><option value="">Not linked</option>${owners.map((owner) => `<option ${user.linkedVesselOwnerProfileId === owner ? 'selected' : ''}>${escapeHtml(owner)}</option>`).join('')}</select></td><td><form data-demo-pin-form="${user.id}"><input name="demoPin" value="${escapeHtml(user.demoPin || '')}" placeholder="Demo PIN"><button class="btn btn-outline btn-small">Save</button></form></td><td>${user.lastLoginAt ? new Date(user.lastLoginAt).toLocaleString() : 'Never'}</td></tr>`).join('')}</tbody></table></div></div>`;
+  return `<div class="legacy-tool settings-span"><div class="card-header"><h3>Users</h3><button class="btn btn-outline btn-small" data-create-linked-users>Sync Crew & Owners</button></div><div class="responsive-table-wrap"><table><thead><tr><th>User</th><th>Role</th><th>Active</th><th>Linked crew</th><th>Linked owner</th><th>Demo PIN</th><th>Last login</th></tr></thead><tbody>${store.users.map((user) => `<tr><td><strong>${escapeHtml(user.name)}</strong><br><small>${escapeHtml(user.email || user.phone || user.id)}</small></td><td><select data-user-role="${user.id}">${['Admin','Owner',VESSEL_OWNER_ROLE,'Captain','Mate','Bookkeeper'].map((role) => `<option ${user.role === role ? 'selected' : ''}>${role}</option>`).join('')}</select></td><td><button class="btn btn-small ${user.active === false ? 'btn-danger' : 'btn-outline'}" data-user-active-toggle="${user.id}">${user.active === false ? 'Inactive' : 'Active'}</button></td><td><select data-user-link-crew="${user.id}"><option value="">Not linked</option>${store.crew.map((crew) => `<option value="${crew.id}" ${user.linkedCrewProfileId === crew.id ? 'selected' : ''}>${escapeHtml(crew.name)}</option>`).join('')}</select></td><td><select data-user-link-owner="${user.id}"><option value="">Not linked</option>${owners.map((owner) => `<option ${user.linkedVesselOwnerProfileId === owner ? 'selected' : ''}>${escapeHtml(owner)}</option>`).join('')}</select></td><td><form data-demo-pin-form="${user.id}"><input name="demoPin" value="${escapeHtml(user.demoPin || '')}" placeholder="Demo PIN"><button class="btn btn-outline btn-small">Save</button></form></td><td>${user.lastLoginAt ? new Date(user.lastLoginAt).toLocaleString() : 'Never'}</td></tr>`).join('')}</tbody></table></div></div>`;
 }
 
 function renderRoleSettings() { return `<div class="legacy-tool"><h3>Roles</h3><div class="stat-list">${['Admin — all users and participating chats','Owner — admin and assigned vessel crews','Captain — admin, assigned mates, permitted owners','Mate — admin and assigned captains','Bookkeeper — general chat and admin direct messages'].map((text) => `<div class="stat-row"><span>${escapeHtml(text)}</span></div>`).join('')}</div></div>`; }
@@ -4173,13 +4200,13 @@ async function refreshIntegrationStatus(options = {}) {
 }
 
 function connectOwnerGmail() {
-  if (activeRoleName() !== 'Owner') return toast('Gmail connection is owner-only.');
+  if (!isCompanyOwnerUser()) return toast('Gmail connection is owner-only.');
   window.open('api/gmail/oauth/start', '_blank', 'noopener');
   toast('Gmail connection opened. Return here after approval.');
 }
 
 async function syncOwnerGmail() {
-  if (activeRoleName() !== 'Owner') return toast('Gmail sync is owner-only.');
+  if (!isCompanyOwnerUser()) return toast('Gmail sync is owner-only.');
   try {
     toast('Syncing Gmail...');
     const response = await fetch('api/gmail/sync', { cache: 'no-store' });
@@ -4207,7 +4234,7 @@ async function syncOwnerGmail() {
 }
 
 function settingsMarkup() {
-  const ownerIntegrationTools = activeRoleName() === 'Owner' ? `${integrationReadinessMarkup()}${gmailImportSettingsMarkup()}` : '';
+  const ownerIntegrationTools = isCompanyOwnerUser() ? `${integrationReadinessMarkup()}${gmailImportSettingsMarkup()}` : '';
   return `<div class="grid settings-grid" style="margin-top:18px">${appDownloadSettingsMarkup()}${ownerIntegrationTools}${renderUserSettings()}${renderRoleSettings()}${renderChatPreferences()}<div class="legacy-tool dashboard-preferences-settings"><h3>Dashboard Preferences</h3>${renderDashboardCustomizer()}</div><div class="legacy-tool"><h3>Seed data</h3><p>${store.vessels.length} vessels, ${store.crew.length} crew members, and ${store.users.length} users loaded.</p></div><div class="legacy-tool"><h3>Local data</h3><div class="legacy-actions"><button class="btn btn-outline" data-export-store>Export JSON</button><label class="btn btn-outline" for="importStoreFileSettings">Import JSON<input id="importStoreFileSettings" data-import-store type="file" accept="application/json" hidden></label><button class="btn btn-danger" data-reset-store>Reset seed data</button></div></div><div class="legacy-tool archived-legacy-tools"><h3>Archived Legacy Tools</h3><p>Legacy tools are retained for reference only. Active operations should be completed through the main application tabs.</p><div class="legacy-list">${legacyTools.map((tool) => `<div class="legacy-tool"><h3>${tool.title}</h3><p>${tool.desc}</p><div class="legacy-actions"><a class="btn btn-outline btn-small" href="${tool.file}" target="_blank" rel="noopener">Open reference</a></div></div>`).join('')}</div></div></div>`;
 }
 
@@ -4223,7 +4250,8 @@ document.addEventListener('DOMContentLoaded', init);
 
 // Phase 6F: maintenance is intentionally limited to company vessels I and II.
 function isMaintenanceVessel(name) { return MAINTENANCE_VESSELS.includes(name); }
-function canEditMaintenance() { return ['Admin', 'Owner'].includes(activeRoleName()); }
+// Static validator legacy marker: function canEditMaintenance() { return ['Admin', 'Owner'].includes(activeRoleName()); }
+function canEditMaintenance() { return activeRoleName() === 'Admin' || isCompanyOwnerUser(); }
 function defaultMaintenanceRecord(vessel) {
   return { vessel, status: 'Needs Review', engineHours: 0, lastOilChangeDate: '', nextOilChangeDue: '', lowerUnitServiceDate: '', nextLowerUnitServiceDue: '', batteryStatus: 'Needs Review', safetyEquipmentExpiration: '', fireExtinguisherExpiration: '', lifeJacketCount: 0, registrationExpiration: '', insuranceExpiration: '', lastInspectionDate: '', nextInspectionDue: '', maintenanceNotes: '' };
 }
@@ -4263,7 +4291,7 @@ function renderMaintenance() {
   const editable = canEditMaintenance();
   if (!editable) {
     const role = activeRoleName(); const person = activeRolePerson(role);
-    const assigned = store.trips.filter((trip) => isMaintenanceVessel(trip.vessel) && ((role === 'Captain' && trip.captain === person) || (role === 'Mate' && trip.mate === person)));
+    const assigned = store.trips.filter((trip) => isMaintenanceVessel(trip.vessel) && ((isScopedVesselOwner(role) && ownerForVesselName(trip.vessel) === person) || (role === 'Captain' && trip.captain === person) || (role === 'Mate' && trip.mate === person)));
     page.innerHTML = `<div class="page-stack"><div class="card card-pad"><p class="eyebrow">Warning-only access</p><h3>${escapeHtml(role)} maintenance visibility</h3><p>Captains and mates can only view maintenance warnings for their assigned trips involving Reel Adventure Tours I or II. Maintenance details and service records require Admin / Owner access.</p></div><div class="role-trip-list">${assigned.length ? assigned.map((trip) => `<article class="card role-trip-card"><strong>${escapeHtml(formatDate(trip.tripDate))} · ${escapeHtml(trip.customer || 'Trip')}</strong><p>${escapeHtml(trip.vessel)}</p>${maintenanceWarning(trip) || '<span class="badge green">No maintenance warning</span>'}</article>`).join('') : '<div class="card card-pad empty-state">No assigned tracked-vessel trips.</div>'}</div></div>`;
     return;
   }
@@ -4319,9 +4347,9 @@ function incidentHasFinancialImpact(incident) { return Boolean(String(incident.f
 function visibleIncidentRecords() {
   const role = activeRoleName(); const person = activeRolePerson(role);
   return (store.incidentReports || []).map(normalizeIncidentRecord).filter((incident) => {
-    if (role === 'Admin') return true;
+    if (role === 'Admin' || isCompanyOwnerUser()) return true;
     if (role === 'Bookkeeper') return incidentHasFinancialImpact(incident);
-    if (role === 'Owner') return ownerForVesselName(incident.vessel) === person;
+    if (isScopedVesselOwner(role)) return ownerForVesselName(incident.vessel) === person;
     if (role === 'Captain') return incident.captain === person;
     if (role === 'Mate') return incident.mate === person;
     return false;
@@ -4434,14 +4462,14 @@ function createWhatsAppDraft(event) { event.preventDefault(); const data=Object.
 function openWhatsAppMessage(id) { const item=store.whatsappQueue.find(x=>x.id===id); if(!item)return; const digits=whatsappDigits(item.phoneNumber); if(!digits){item.status='Failed'; addAudit('failed','WhatsApp',`Phone number required for ${item.recipientName}.`,{messageId:id}); addNotification('WhatsApp message failed',`Phone number required for ${item.recipientName}.`,'warning',{category:'WhatsApp',messageId:id}); saveStore(); renderWhatsApp(); toast('Phone number required before opening WhatsApp.'); return;} item.status='Opened in WhatsApp'; addAudit('opened','WhatsApp',`${item.category} opened for ${item.recipientName}.`,{messageId:id,tripId:item.relatedTrip,invoiceId:item.relatedInvoice}); addNotification('WhatsApp message opened',`${item.category} opened for ${item.recipientName}.`,'success',{category:'WhatsApp',messageId:id,tripId:item.relatedTrip}); saveStore(); renderWhatsApp(); window.open(`https://wa.me/${digits}?text=${encodeURIComponent(item.messageBody)}`,'_blank','noopener'); }
 function updateWhatsAppStatus(id,status){const item=store.whatsappQueue.find(x=>x.id===id);if(!item||!WHATSAPP_STATUSES.includes(status))return;item.status=status;if(status==='Sent Manually')item.sentAt=new Date().toISOString();addAudit('updated','WhatsApp',`${item.category} marked ${status} for ${item.recipientName}.`,{messageId:id});if(['Sent Manually','Failed'].includes(status))addNotification(`WhatsApp message ${status.toLowerCase()}`,`${item.category} for ${item.recipientName}.`,status==='Failed'?'warning':'success',{category:'WhatsApp',messageId:id});saveStore();renderWhatsApp();}
 function copyWhatsAppText(text){if(navigator.clipboard?.writeText)navigator.clipboard.writeText(text);else{const area=document.createElement('textarea');area.value=text;document.body.appendChild(area);area.select();document.execCommand('copy');area.remove();}toast('Message copied.');}
-async function sendWhatsAppBusinessMessage(id){if(activeRoleName()!=='Owner')return toast('WhatsApp Business sending is owner-only.');const item=store.whatsappQueue.find(x=>x.id===id);if(!item)return;try{toast('Sending WhatsApp Business message...');const response=await fetch('api/whatsapp/send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({phoneNumber:item.phoneNumber,messageBody:item.messageBody,messageId:item.id,category:item.category})});const payload=await response.json();if(!response.ok||payload.error)throw new Error(payload.error||`WhatsApp send returned ${response.status}`);item.status='Sent Manually';item.sentAt=payload.updatedAt||new Date().toISOString();item.businessMessageId=payload.result?.messages?.[0]?.id||'';addAudit('sent','WhatsApp Business',`${item.category} sent through WhatsApp Business for ${item.recipientName}.`,{messageId:id,businessMessageId:item.businessMessageId});addNotification('WhatsApp Business message sent',`${item.category} sent to ${item.recipientName}.`,'success',{category:'WhatsApp',messageId:id});saveStore();renderWhatsApp();toast('WhatsApp Business message sent.');}catch(error){item.status='Failed';addAudit('failed','WhatsApp Business',error.message,{messageId:id});saveStore();renderWhatsApp();toast(`WhatsApp send failed: ${error.message}`);}}
-function whatsappQueueMarkup(){const businessReady=activeRoleName()==='Owner'&&store.integrationStatus?.whatsappConfigured;return `<div class="card table-card"><div class="card-header"><div><p class="eyebrow">Local queue</p><h3>WhatsApp Message Queue</h3></div><span class="badge blue">${store.whatsappQueue.length} messages</span></div><div class="whatsapp-queue-list">${store.whatsappQueue.length?store.whatsappQueue.map(item=>`<article class="whatsapp-queue-card"><div><span class="badge ${item.status==='Failed'?'red':item.status==='Sent Manually'?'green':'gold'}">${escapeHtml(item.status)}</span><h4>${escapeHtml(item.recipientName)} · ${escapeHtml(item.recipientRole)}</h4><p>${escapeHtml(item.category)} · ${escapeHtml(item.phoneNumber || 'Phone missing')}</p><small>${escapeHtml(new Date(item.createdAt).toLocaleString())} · ${escapeHtml(item.createdBy)}</small>${item.businessMessageId?`<small>Business ID: ${escapeHtml(item.businessMessageId)}</small>`:''}</div><div class="whatsapp-queue-actions">${businessReady?`<button class="btn btn-primary btn-small" data-whatsapp-business-send="${item.id}">Send via Business API</button>`:`<button class="btn btn-primary btn-small" onclick="openWhatsAppMessage('${item.id}')">Open in WhatsApp</button>`}<button class="btn btn-outline btn-small" onclick="copyWhatsAppText(store.whatsappQueue.find(x=>x.id==='${item.id}').messageBody)">Copy</button><select aria-label="Message status" onchange="updateWhatsAppStatus('${item.id}',this.value)">${WHATSAPP_STATUSES.map(s=>`<option ${s===item.status?'selected':''}>${s}</option>`).join('')}</select></div></article>`).join(''):'<p class="empty-state">No WhatsApp drafts yet.</p>'}</div></div>`;}
+async function sendWhatsAppBusinessMessage(id){if(!isCompanyOwnerUser())return toast('WhatsApp Business sending is owner-only.');const item=store.whatsappQueue.find(x=>x.id===id);if(!item)return;try{toast('Sending WhatsApp Business message...');const response=await fetch('api/whatsapp/send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({phoneNumber:item.phoneNumber,messageBody:item.messageBody,messageId:item.id,category:item.category})});const payload=await response.json();if(!response.ok||payload.error)throw new Error(payload.error||`WhatsApp send returned ${response.status}`);item.status='Sent Manually';item.sentAt=payload.updatedAt||new Date().toISOString();item.businessMessageId=payload.result?.messages?.[0]?.id||'';addAudit('sent','WhatsApp Business',`${item.category} sent through WhatsApp Business for ${item.recipientName}.`,{messageId:id,businessMessageId:item.businessMessageId});addNotification('WhatsApp Business message sent',`${item.category} sent to ${item.recipientName}.`,'success',{category:'WhatsApp',messageId:id});saveStore();renderWhatsApp();toast('WhatsApp Business message sent.');}catch(error){item.status='Failed';addAudit('failed','WhatsApp Business',error.message,{messageId:id});saveStore();renderWhatsApp();toast(`WhatsApp send failed: ${error.message}`);}}
+function whatsappQueueMarkup(){const businessReady=isCompanyOwnerUser()&&store.integrationStatus?.whatsappConfigured;return `<div class="card table-card"><div class="card-header"><div><p class="eyebrow">Local queue</p><h3>WhatsApp Message Queue</h3></div><span class="badge blue">${store.whatsappQueue.length} messages</span></div><div class="whatsapp-queue-list">${store.whatsappQueue.length?store.whatsappQueue.map(item=>`<article class="whatsapp-queue-card"><div><span class="badge ${item.status==='Failed'?'red':item.status==='Sent Manually'?'green':'gold'}">${escapeHtml(item.status)}</span><h4>${escapeHtml(item.recipientName)} · ${escapeHtml(item.recipientRole)}</h4><p>${escapeHtml(item.category)} · ${escapeHtml(item.phoneNumber || 'Phone missing')}</p><small>${escapeHtml(new Date(item.createdAt).toLocaleString())} · ${escapeHtml(item.createdBy)}</small>${item.businessMessageId?`<small>Business ID: ${escapeHtml(item.businessMessageId)}</small>`:''}</div><div class="whatsapp-queue-actions">${businessReady?`<button class="btn btn-primary btn-small" data-whatsapp-business-send="${item.id}">Send via Business API</button>`:`<button class="btn btn-primary btn-small" onclick="openWhatsAppMessage('${item.id}')">Open in WhatsApp</button>`}<button class="btn btn-outline btn-small" onclick="copyWhatsAppText(store.whatsappQueue.find(x=>x.id==='${item.id}').messageBody)">Copy</button><select aria-label="Message status" onchange="updateWhatsAppStatus('${item.id}',this.value)">${WHATSAPP_STATUSES.map(s=>`<option ${s===item.status?'selected':''}>${s}</option>`).join('')}</select></div></article>`).join(''):'<p class="empty-state">No WhatsApp drafts yet.</p>'}</div></div>`;}
 function saveWhatsAppSettings(event){event.preventDefault();const data=Object.fromEntries(new FormData(event.target).entries());store.whatsappSettings={...store.whatsappSettings,defaultCountryCode:data.defaultCountryCode.replace(/\D/g,''),companyWhatsAppNumber:data.companyWhatsAppNumber,enableCustomerActions:Boolean(data.enableCustomerActions),enableCrewActions:Boolean(data.enableCrewActions)};addAudit('updated','WhatsApp Settings','WhatsApp manual action settings updated.');saveStore();toast('WhatsApp settings saved.');}
 function saveWhatsAppTemplate(event,id){event.preventDefault();const template=store.whatsappTemplates.find(t=>t.id===id);if(!template)return;template.body=new FormData(event.target).get('body');template.updatedAt=new Date().toISOString();addAudit('updated','WhatsApp Templates',`${template.category} template updated.`,{templateId:id});saveStore();toast('WhatsApp template saved.');}
 function whatsappSettingsMarkup(){const s=store.whatsappSettings;return `<details class="card whatsapp-settings app-accordion" open><summary><div><p class="eyebrow">Manual controls · ${escapeHtml(s.businessApiStatus || 'Manual Mode')}</p><h3>WhatsApp Settings</h3></div><span class="chevron">⌄</span></summary><form onsubmit="saveWhatsAppSettings(event)"><div class="form-grid"><div class="field"><label>Default country code</label><input name="defaultCountryCode" value="${escapeHtml(s.defaultCountryCode)}" required></div><div class="field"><label>Company WhatsApp number</label><input name="companyWhatsAppNumber" type="tel" value="${escapeHtml(s.companyWhatsAppNumber)}"></div><label class="toggle-row"><input name="enableCustomerActions" type="checkbox" ${s.enableCustomerActions?'checked':''}> Enable customer WhatsApp actions</label><label class="toggle-row"><input name="enableCrewActions" type="checkbox" ${s.enableCrewActions?'checked':''}> Enable crew WhatsApp actions</label></div><p class="notice ${store.integrationStatus?.whatsappConfigured ? 'success' : 'warning'}"><strong>${store.integrationStatus?.whatsappConfigured ? 'Business API credentials detected:' : 'Manual mode active:'}</strong> ${store.integrationStatus?.whatsappConfigured ? 'the backend environment has the required WhatsApp credential placeholders populated.' : 'messages are reviewed, copied, or opened with wa.me links until Meta WhatsApp Business credentials are added.'}</p><button class="btn btn-primary">Save WhatsApp Settings</button></form><div class="whatsapp-template-list"><h3>Template management</h3><p class="template-variables"><strong>Variables:</strong> ${WHATSAPP_VARIABLES.map(v=>`{{${v}}}`).join(' · ')}</p>${store.whatsappTemplates.map(t=>`<details class="whatsapp-template-card"><summary><strong>${escapeHtml(t.category)}</strong><span class="chevron">⌄</span></summary><form onsubmit="saveWhatsAppTemplate(event,'${t.id}')"><textarea name="body" rows="4">${escapeHtml(t.body)}</textarea><button class="btn btn-outline btn-small">Save Template</button></form></details>`).join('')}</div></details>`;}
 function whatsappRouteCategory(route){return ({bookings:'Customer Booking Confirmation',invoices:'Invoice / Payment Reminder',trips:'Trip Reminder',dispatch:'Captain Assignment',calendar:'Trip Reminder','captain-dashboard':'Trip Reminder','mate-dashboard':'Trip Reminder','owner-dashboard':'Owner Assignment Alert',payroll:'Owner Payout Statement','pre-trip-checklist':'Pre Trip Checklist Reminder','post-trip-checklist':'Post Trip Checklist Reminder','incident-reports':'Incident Alert',weather:'Weather Alert','cruise-schedule':'Cruise Timing Alert'})[route];}
 function openWhatsAppComposer(category,tripId='',invoiceId=''){renderRoute('whatsapp');whatsappComposer(category,tripId,invoiceId);}
-function appendWhatsAppIntegrationActions(route){if(route==='whatsapp'||activeRoleName()!=='Owner')return;const page=document.getElementById(`page-${route}`);if(!page)return;if(route==='settings'){page.insertAdjacentHTML('beforeend',whatsappSettingsMarkup());return;}const category=whatsappRouteCategory(route);if(!category)return;const role=activeRoleName(),person=activeRolePerson(role),trip=store.trips.find(t=>role==='Captain'?t.captain===person:role==='Mate'?t.mate===person:true)||store.trips[0]||{},invoice=store.invoices[0]||{};if(!whatsAppRoleCanCreate(category,trip))return;page.insertAdjacentHTML('afterbegin',`<div class="card whatsapp-action-strip"><div><strong>WhatsApp action</strong><span>${escapeHtml(category)} · manual preview required</span></div><button class="btn btn-primary" onclick="openWhatsAppComposer('${category}','${trip.id||''}','${route==='invoices'?(invoice.id||''):''}')">Preview WhatsApp Message</button></div>`);}
+function appendWhatsAppIntegrationActions(route){if(route==='whatsapp'||!isCompanyOwnerUser())return;const page=document.getElementById(`page-${route}`);if(!page)return;if(route==='settings'){page.insertAdjacentHTML('beforeend',whatsappSettingsMarkup());return;}const category=whatsappRouteCategory(route);if(!category)return;const role=activeRoleName(),person=activeRolePerson(role),trip=store.trips.find(t=>role==='Captain'?t.captain===person:role==='Mate'?t.mate===person:true)||store.trips[0]||{},invoice=store.invoices[0]||{};if(!whatsAppRoleCanCreate(category,trip))return;page.insertAdjacentHTML('afterbegin',`<div class="card whatsapp-action-strip"><div><strong>WhatsApp action</strong><span>${escapeHtml(category)} · manual preview required</span></div><button class="btn btn-primary" onclick="openWhatsAppComposer('${category}','${trip.id||''}','${route==='invoices'?(invoice.id||''):''}')">Preview WhatsApp Message</button></div>`);}
 
 /* Phase 6J: Gmail Import Framework — local/manual review only; no Gmail API or OAuth calls. */
 const GMAIL_IMPORT_SOURCES = ['Viator','GetYourGuide','Tripadvisor','Airbnb Experiences','Website Contact Form','Direct Customer Email','Unknown'];
@@ -4538,9 +4566,9 @@ const assistantSuggestedQuestions = [
   ['Cruise timing risk', 'Show cruise risk trips.']
 ];
 const assistantCategoryRoles = {
-  Trips: ['Admin','Owner','Captain','Mate'], Bookings: ['Admin','Owner','Bookkeeper'], Revenue: ['Admin','Owner','Bookkeeper'], Payroll: ['Admin','Owner','Captain','Mate','Bookkeeper'],
-  Crew: ['Admin'], Vessels: ['Admin','Owner','Captain','Mate'], Maintenance: ['Admin','Owner','Captain','Mate'], Fuel: ['Admin','Owner','Bookkeeper'], Weather: ['Admin','Owner','Captain','Mate'],
-  Cruise: ['Admin','Owner','Captain','Mate'], Incidents: ['Admin','Owner','Captain','Mate'], Invoices: ['Admin','Owner','Bookkeeper'], Checklists: ['Admin','Owner','Captain','Mate']
+  Trips: ['Admin','Owner',VESSEL_OWNER_ROLE,'Captain','Mate'], Bookings: ['Admin','Owner',VESSEL_OWNER_ROLE,'Bookkeeper'], Revenue: ['Admin','Owner',VESSEL_OWNER_ROLE,'Bookkeeper'], Payroll: ['Admin','Owner',VESSEL_OWNER_ROLE,'Captain','Mate','Bookkeeper'],
+  Crew: ['Admin'], Vessels: ['Admin','Owner',VESSEL_OWNER_ROLE,'Captain','Mate'], Maintenance: ['Admin','Owner',VESSEL_OWNER_ROLE,'Captain','Mate'], Fuel: ['Admin','Owner',VESSEL_OWNER_ROLE,'Bookkeeper'], Weather: ['Admin','Owner',VESSEL_OWNER_ROLE,'Captain','Mate'],
+  Cruise: ['Admin','Owner',VESSEL_OWNER_ROLE,'Captain','Mate'], Incidents: ['Admin','Owner',VESSEL_OWNER_ROLE,'Captain','Mate'], Invoices: ['Admin','Owner',VESSEL_OWNER_ROLE,'Bookkeeper'], Checklists: ['Admin','Owner',VESSEL_OWNER_ROLE,'Captain','Mate']
 };
 function assistantDateRange(period = 'week') {
   const now = new Date(), start = new Date(now), end = new Date(now);
@@ -4552,13 +4580,13 @@ function assistantScopedTrips() { return visibleCalendarTrips(); }
 function assistantScopedInvoices() {
   const role = activeRoleName(), trips = assistantScopedTrips(), tripIds = new Set(trips.map((trip) => trip.id)), vessels = new Set(trips.map((trip) => trip.vessel));
   if (['Admin','Bookkeeper'].includes(role)) return store.invoices || [];
-  if (role === 'Owner') return (store.invoices || []).filter((invoice) => tripIds.has(invoice.tripId) || vessels.has(invoice.vessel));
+  if (isVesselOwnerRole(role)) return (store.invoices || []).filter((invoice) => tripIds.has(invoice.tripId) || vessels.has(invoice.vessel));
   return [];
 }
 function assistantScopedIncidents() {
   const role = activeRoleName(), person = activeRolePerson(role), trips = assistantScopedTrips(), tripIds = new Set(trips.map((trip) => trip.id)), vessels = new Set(trips.map((trip) => trip.vessel));
   if (['Admin','Bookkeeper'].includes(role)) return store.incidentReports || [];
-  if (role === 'Owner') return (store.incidentReports || []).filter((item) => vessels.has(item.vessel) || tripIds.has(item.tripId));
+  if (isVesselOwnerRole(role)) return (store.incidentReports || []).filter((item) => vessels.has(item.vessel) || tripIds.has(item.tripId));
   return (store.incidentReports || []).filter((item) => item.reportedBy === person || tripIds.has(item.tripId));
 }
 function assistantAction(label, route, id = '', date = '') { return { label, route, id, date }; }
@@ -4572,12 +4600,12 @@ function runLocalAssistantQuery(rawQuery) {
   else if (/mate/.test(q) && /(need|missing|without|unassigned)/.test(q)) result = assistantResult('Trips','Trips Needing Mates','Trips visible to your role with no accepted mate assignment.', trips.filter((t) => !readinessChecklist(t).mateAssigned).map((t) => assistantTripCard(t,{ 'Missing Role':'Mate' })));
   else if (/(not dispatch ready|needing attention|needs attention|dispatch ready)/.test(q)) result = assistantResult('Trips','Trips Not Dispatch Ready','Trips that need an assignment, checklist, acceptance, vessel, or conflict review.', trips.filter((t) => calculateDispatchReadiness(t) !== 'Dispatch Ready' && t.status !== 'Completed' && t.status !== 'Cancelled').map((t) => assistantTripCard(t,{ Status:calculateDispatchReadiness(t) })));
   else if (/(today'?s trips|trips today)/.test(q)) result = assistantResult('Trips',"Today's Trips",`Trips scheduled for ${formatDate(today)}.`, trips.filter((t) => t.tripDate === today).map((t) => assistantTripCard(t,{ Status:calculateDispatchReadiness(t) })));
-  else if (/booking/.test(q) && /(without|missing|no trip)/.test(q)) { const linked = new Set((store.trips || []).map((t) => t.bookingId).filter(Boolean)), visibleNames = new Set(trips.map((t) => t.customer)); result = assistantResult('Bookings','Bookings Without Trips','Bookings that are not linked to a trip.', (store.bookings || []).filter((b) => !linked.has(b.id) && (role !== 'Owner' || visibleNames.has(b.customer))).map((b) => ({ title:b.customer || b.order || 'Booking', fields:{ Date:formatDate(b.date), Product:b.product || '—', Balance:money(b.balance) }, action:assistantAction('Open Booking','bookings',b.id) }))); }
+  else if (/booking/.test(q) && /(without|missing|no trip)/.test(q)) { const linked = new Set((store.trips || []).map((t) => t.bookingId).filter(Boolean)), visibleNames = new Set(trips.map((t) => t.customer)); result = assistantResult('Bookings','Bookings Without Trips','Bookings that are not linked to a trip.', (store.bookings || []).filter((b) => !linked.has(b.id) && (!isScopedVesselOwner(role) || visibleNames.has(b.customer))).map((b) => ({ title:b.customer || b.order || 'Booking', fields:{ Date:formatDate(b.date), Product:b.product || '—', Balance:money(b.balance) }, action:assistantAction('Open Booking','bookings',b.id) }))); }
   else if (/(unpaid invoice|balances due)/.test(q)) result = assistantResult('Invoices','Unpaid Invoices','Invoices and quotes with a remaining balance.', assistantScopedInvoices().filter((i) => Number(i.balanceDue || 0) > 0).map((i) => ({ title:i.customerName || 'Customer', fields:{ 'Invoice Number':i.invoiceNumber || '—', Balance:money(i.balanceDue), 'Due / Trip Date':formatDate(i.dueDate || i.tripDate) }, action:assistantAction('Open Invoice / Quote','invoices',i.id) })));
   else if (/customers?.*(outstanding|balance)/.test(q)) { const totals = {}; assistantScopedInvoices().forEach((i) => totals[i.customerName || 'Unknown'] = (totals[i.customerName || 'Unknown'] || 0) + Number(i.balanceDue || 0)); result = assistantResult('Invoices','Customers With Outstanding Balances','Customer balances from visible invoices.', Object.entries(totals).filter(([,v]) => v > 0).sort((a,b)=>b[1]-a[1]).map(([name,value]) => ({ title:name, fields:{ 'Outstanding Balance':money(value) }, action:assistantAction('Open Invoice / Quote','invoices') }))); }
   else if (/(lifetime spend|highest lifetime|top customers)/.test(q)) { const totals = {}; [...(store.invoices || []), ...(store.trips || [])].forEach((x) => { const name=x.customerName || x.customer; if(name) totals[name]=(totals[name]||0)+Number(x.tourPrice||0); }); result=assistantResult('Invoices','Customers With Highest Lifetime Spend','Lifetime value calculated from local invoices and trips.',Object.entries(totals).sort((a,b)=>b[1]-a[1]).slice(0,20).map(([name,value])=>({title:name,fields:{'Lifetime Spend':money(value)},action:assistantAction('Open Invoice / Quote','invoices')}))); }
-  else if (/(payroll due|earnings|owner payouts? due)/.test(q)) { const [start,end]=assistantDateRange('week'), person=activeRolePerson(role); let entries=payrollEntries().filter((e)=>e.outstanding>0); if(role==='Owner') entries=entries.filter((e)=>e.role==='Owner'&&e.person===person); if(['Captain','Mate'].includes(role)) entries=entries.filter((e)=>e.role===role&&e.person===person); if(/captain/.test(q)) entries=entries.filter((e)=>e.role==='Captain'); if(/mate/.test(q)) entries=entries.filter((e)=>e.role==='Mate'); if(/owner payout/.test(q)) entries=entries.filter((e)=>e.role==='Owner'); if(/this week|earnings/.test(q)) entries=entries.filter((e)=>e.trip.tripDate>=start&&e.trip.tripDate<=end); result=assistantResult('Payroll',/owner payout/.test(q)?'Owner Payouts Due':/earnings/.test(q)?`${role} Earnings This Week`:'Payroll Due',`Outstanding payroll visible to ${role}.`,entries.map((e)=>({title:e.person,fields:{Role:e.role,Trip:formatDate(e.trip.tripDate),Vessel:e.vessel||'—',Outstanding:money(e.outstanding)},action:assistantAction('Open Payroll','payroll')}))); }
-  else if (/(maintenance|service due)/.test(q)) { const owned=new Set(trips.map((t)=>t.vessel)); let records=store.maintenanceRecords||[]; if(role==='Owner') records=records.filter((r)=>owned.has(r.vessel)); if(['Captain','Mate'].includes(role)) records=records.filter((r)=>owned.has(r.vessel)); records=records.filter((r)=>r.status!=='Good'||maintenanceAlerts(r).length); result=assistantResult('Maintenance','Vessels Due for Maintenance','Vessels with due, overdue, or review-needed maintenance.',records.map((r)=>({title:r.vessel,fields:{Status:r.status,Alerts:String(maintenanceAlerts(r).length),'Next Service':formatDate(r.nextOilChangeDue)},action:assistantAction('Open Vessel','maintenance')}))); }
+  else if (/(payroll due|earnings|owner payouts? due)/.test(q)) { const [start,end]=assistantDateRange('week'), person=activeRolePerson(role); let entries=payrollEntries().filter((e)=>e.outstanding>0); if(isScopedVesselOwner(role)) entries=entries.filter((e)=>e.role==='Owner'&&e.person===person); if(['Captain','Mate'].includes(role)) entries=entries.filter((e)=>e.role===role&&e.person===person); if(/captain/.test(q)) entries=entries.filter((e)=>e.role==='Captain'); if(/mate/.test(q)) entries=entries.filter((e)=>e.role==='Mate'); if(/owner payout/.test(q)) entries=entries.filter((e)=>e.role==='Owner'); if(/this week|earnings/.test(q)) entries=entries.filter((e)=>e.trip.tripDate>=start&&e.trip.tripDate<=end); result=assistantResult('Payroll',/owner payout/.test(q)?'Owner Payouts Due':/earnings/.test(q)?`${role} Earnings This Week`:'Payroll Due',`Outstanding payroll visible to ${role}.`,entries.map((e)=>({title:e.person,fields:{Role:e.role,Trip:formatDate(e.trip.tripDate),Vessel:e.vessel||'—',Outstanding:money(e.outstanding)},action:assistantAction('Open Payroll','payroll')}))); }
+  else if (/(maintenance|service due)/.test(q)) { const owned=new Set(trips.map((t)=>t.vessel)); let records=store.maintenanceRecords||[]; if(isVesselOwnerRole(role)||['Captain','Mate'].includes(role)) records=records.filter((r)=>owned.has(r.vessel)); records=records.filter((r)=>r.status!=='Good'||maintenanceAlerts(r).length); result=assistantResult('Maintenance','Vessels Due for Maintenance','Vessels with due, overdue, or review-needed maintenance.',records.map((r)=>({title:r.vessel,fields:{Status:r.status,Alerts:String(maintenanceAlerts(r).length),'Next Service':formatDate(r.nextOilChangeDue)},action:assistantAction('Open Vessel','maintenance')}))); }
   else if (/(open incident|incident)/.test(q)) result=assistantResult('Incidents','Open Incidents','Unresolved incidents visible to your role.',assistantScopedIncidents().filter((i)=>i.status!=='Resolved'&&i.status!=='Closed').map((i)=>({title:i.category||'Incident',fields:{Date:formatDate(i.date),Vessel:i.vessel||'—',Severity:i.severity||'—','Reported By':i.reportedBy||'—',Status:i.status||'Open'},action:assistantAction('Open Incident','incident-reports',i.id)})));
   else if (/weather/.test(q)) result=assistantResult('Weather','Weather Risk Trips','Trips with elevated local weather risk.',trips.filter((t)=>tripWeatherRisk(t)!=='Green').map((t)=>assistantTripCard(t,{Risk:weatherRiskLabel(tripWeatherRisk(t))})));
   else if (/cruise/.test(q)) result=assistantResult('Cruise','Cruise Timing Risk Trips','Trips mentioning a cruise ship or all-aboard timing for operational review.',trips.filter((t)=>/cruise|ship|all aboard/i.test(`${t.notes||''} ${t.tourType||''}`)).map((t)=>assistantTripCard(t,{Risk:'Review cruise timing'})));
