@@ -22,8 +22,10 @@ BOATBOOKER_WIDGET_BUILDER_URL = "https://boatbooker.com/js/widgets/captainWeathe
 USER_AGENT = "ReelAdventureOperations/1.0 (+local operations app)"
 CACHE_DIR = os.environ.get("CACHE_DIR", os.path.join(tempfile.gettempdir(), "reel-adventure-cache"))
 WEATHER_CACHE_FILE = os.path.join(CACHE_DIR, "weather-nassau.json")
+CRUISE_CACHE_FILE = os.path.join(CACHE_DIR, "cruise-nassau.json")
 WEATHER_CACHE_TTL_SECONDS = int(os.environ.get("WEATHER_CACHE_TTL_SECONDS", "1800"))
 WEATHER_FALLBACK_TTL_SECONDS = int(os.environ.get("WEATHER_FALLBACK_TTL_SECONDS", "600"))
+CRUISE_CACHE_TTL_SECONDS = int(os.environ.get("CRUISE_CACHE_TTL_SECONDS", "21600"))
 
 
 def request_json(url, data=None):
@@ -80,17 +82,33 @@ def weather_cache_is_fresh(payload):
     return cache_age_seconds(payload) < ttl
 
 
-def save_weather_cache(payload):
+def save_json_cache(path, payload):
     cached = dict(payload)
     cached["cachedAt"] = iso_now()
     try:
-        write_json_file(WEATHER_CACHE_FILE, cached)
+        write_json_file(path, cached)
     except OSError as error:
-        cached["cacheWarning"] = f"Weather cache write skipped: {error}"
+        cached["cacheWarning"] = f"Cache write skipped: {error}"
     return cached
 
 
+def save_weather_cache(payload):
+    return save_json_cache(WEATHER_CACHE_FILE, payload)
+
+
+def save_cruise_cache(payload):
+    return save_json_cache(CRUISE_CACHE_FILE, payload)
+
+
 def annotate_weather_payload(payload, cache_status, warning=""):
+    result = dict(payload)
+    result["cacheStatus"] = cache_status
+    if warning:
+        result["warning"] = warning
+    return result
+
+
+def annotate_cruise_payload(payload, cache_status, warning=""):
     result = dict(payload)
     result["cacheStatus"] = cache_status
     if warning:
@@ -258,6 +276,29 @@ def cruise_schedule():
     return {"provider": "CruiseMapper", "sourceUrl": CRUISEMAPPER_URL, "updatedAt": iso_now(), "records": list(unique.values())}
 
 
+def cruise_schedule_payload():
+    cached = read_json_file(CRUISE_CACHE_FILE)
+    if cached and cache_age_seconds(cached) < CRUISE_CACHE_TTL_SECONDS:
+        return annotate_cruise_payload(cached, "fresh-cache")
+    try:
+        payload = cruise_schedule()
+        return annotate_cruise_payload(save_cruise_cache(payload), "fresh")
+    except (urllib.error.URLError, ValueError, KeyError, IndexError) as error:
+        cached = read_json_file(CRUISE_CACHE_FILE)
+        if cached:
+            return annotate_cruise_payload(
+                cached,
+                "stale-cache",
+                f"CruiseMapper unavailable; showing the last saved Nassau cruise schedule. {error}",
+            )
+        return annotate_cruise_payload({
+            "provider": "CruiseMapper",
+            "sourceUrl": CRUISEMAPPER_URL,
+            "updatedAt": iso_now(),
+            "records": [],
+        }, "unavailable", f"CruiseMapper unavailable and no cached Nassau schedule is saved yet. {error}")
+
+
 class AppHandler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=ROOT, **kwargs)
@@ -286,7 +327,7 @@ class AppHandler(SimpleHTTPRequestHandler):
                 self.send_json(weather_forecast_payload())
                 return
             if self.path.startswith("/api/cruise/nassau"):
-                self.send_json(cruise_schedule())
+                self.send_json(cruise_schedule_payload())
                 return
             if self.path.startswith("/api/health"):
                 self.send_json({"ok": True, "windyConfigured": bool(os.environ.get("WINDY_API_KEY")), "updatedAt": iso_now()})

@@ -507,6 +507,10 @@ function weatherSyncStatusLabel(cacheStatus, count) {
   const labels = { 'fresh': 'Live', 'fresh-cache': 'Cached', 'stale-cache': 'Cached', 'fallback': 'Fallback' };
   return `${labels[cacheStatus] || 'Live'} · ${count} forecasts`;
 }
+function cruiseSyncStatusLabel(cacheStatus, count) {
+  const labels = { 'fresh': 'Live', 'fresh-cache': 'Cached', 'stale-cache': 'Cached', 'unavailable': 'Unavailable' };
+  return `${labels[cacheStatus] || 'Live'} · ${count} arrivals`;
+}
 async function refreshLiveWeather(silent = false) {
   const integration = store.weatherIntegration;
   if (integration.status === 'Refreshing') return;
@@ -2985,7 +2989,7 @@ async function refreshCruiseMapperSchedule(silent = false) {
     const data = await response.json(), imported = data.records || [];
     const keys = new Set(imported.map((entry) => `${entry.arrivalDate}|${String(entry.shipName).toLowerCase()}`));
     store.cruiseSchedule = [...imported, ...store.cruiseSchedule.filter((entry) => !keys.has(`${entry.arrivalDate}|${String(entry.shipName).toLowerCase()}`))];
-    integration.status = `Live · ${imported.length} arrivals`;
+    integration.status = cruiseSyncStatusLabel(data.cacheStatus, imported.length);
     integration.lastSyncAt = data.updatedAt || new Date().toISOString();
     addAudit('synced', 'Cruise Schedule', `${imported.length} CruiseMapper Nassau arrivals automatically synced.`, { source: integration.sourceUrl });
     saveStore(); renderCrud('cruise-schedule'); if (!silent) toast('CruiseMapper Nassau schedule refreshed.');
