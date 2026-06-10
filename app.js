@@ -521,7 +521,7 @@ async function refreshLiveWeather(silent = false) {
     if (!response.ok) throw new Error(`Weather service returned ${response.status}`);
     const data = await response.json();
     const imported = (data.records || []).map(normalizeWeatherRecord);
-    store.weatherRecords = [...imported, ...store.weatherRecords.filter((record) => !['Windy','Windy GFS','Open-Meteo','Fallback Nassau Weather'].includes(record.apiProvider))];
+    store.weatherRecords = [...imported, ...store.weatherRecords.filter((record) => !['Windy','Windy GFS','Open-Meteo','MET Norway','Fallback Nassau Weather'].includes(record.apiProvider))];
     integration.provider = data.provider || 'Live Nassau Weather';
     integration.status = weatherSyncStatusLabel(data.cacheStatus, imported.length);
     integration.lastSyncAt = data.updatedAt || new Date().toISOString();

@@ -18,9 +18,10 @@ NASSAU_LON = -77.352
 CRUISEMAPPER_URL = "https://www.cruisemapper.com/ports/nassau-port-27"
 WINDY_URL = "https://api.windy.com/api/point-forecast/v2"
 OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
+MET_NO_URL = "https://api.met.no/weatherapi/locationforecast/2.0/compact"
 BOATBOOKER_WIDGET_BUILDER_URL = "https://boatbooker.com/js/widgets/captainWeatherWidgetBuilder.js?v=1777446641"
-USER_AGENT = "ReelAdventureOperations/1.0 (+local operations app)"
-APP_RELEASE = "2026-06-10-api-cache-v2"
+USER_AGENT = "ReelAdventureOperations/1.0 https://github.com/reeladventures242-ai/reel-adventure-operations-app"
+APP_RELEASE = "2026-06-10-api-cache-v3"
 CACHE_DIR = os.environ.get("CACHE_DIR", os.path.join(tempfile.gettempdir(), "reel-adventure-cache"))
 WEATHER_CACHE_FILE = os.path.join(CACHE_DIR, "weather-nassau.json")
 CRUISE_CACHE_FILE = os.path.join(CACHE_DIR, "cruise-nassau.json")
@@ -166,6 +167,39 @@ def weather_from_open_meteo():
     return {"provider": "Open-Meteo", "sourceUrl": "https://www.windy.com/?25.056,-77.352,5", "updatedAt": iso_now(), "records": records}
 
 
+def met_no_rain_chance(precipitation_amount):
+    if precipitation_amount <= 0:
+        return 10
+    if precipitation_amount < 0.5:
+        return 25
+    if precipitation_amount < 2:
+        return 45
+    return 70
+
+
+def weather_from_met_no():
+    query = urllib.parse.urlencode({"lat": NASSAU_LAT, "lon": NASSAU_LON})
+    data = request_json(f"{MET_NO_URL}?{query}")
+    records = []
+    for item in data.get("properties", {}).get("timeseries", [])[:168]:
+        at = datetime.fromisoformat(item["time"].replace("Z", "+00:00"))
+        details = item.get("data", {}).get("instant", {}).get("details", {})
+        next_hour = item.get("data", {}).get("next_1_hours", {}).get("details", {})
+        wind_mps = float(details.get("wind_speed") or 0)
+        gust_mps = float(details.get("wind_speed_of_gust") or wind_mps)
+        precip = float(next_hour.get("precipitation_amount") or 0)
+        records.append(weather_record(
+            at,
+            round(wind_mps * 1.94384),
+            round(gust_mps * 1.94384),
+            met_no_rain_chance(precip),
+            "MET Norway",
+        ))
+    if not records:
+        raise ValueError("MET Norway returned no Nassau forecast records")
+    return {"provider": "MET Norway", "sourceUrl": "https://api.met.no/weatherapi/locationforecast/2.0/documentation", "updatedAt": iso_now(), "records": records}
+
+
 def fallback_weather(error_message=""):
     now = datetime.now(timezone.utc)
     records = []
@@ -194,7 +228,13 @@ def weather_forecast_payload():
         return annotate_weather_payload(cached, "fresh-cache")
     try:
         key = os.environ.get("WINDY_API_KEY", "").strip()
-        payload = weather_from_windy(key) if key else weather_from_open_meteo()
+        if key:
+            payload = weather_from_windy(key)
+        else:
+            try:
+                payload = weather_from_met_no()
+            except (urllib.error.URLError, ValueError, KeyError, IndexError):
+                payload = weather_from_open_meteo()
         return annotate_weather_payload(save_weather_cache(payload), "fresh")
     except (urllib.error.URLError, ValueError, KeyError, IndexError) as error:
         cached = read_json_file(WEATHER_CACHE_FILE)
