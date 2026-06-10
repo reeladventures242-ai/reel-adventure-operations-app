@@ -174,7 +174,7 @@ class Element {
   querySelector(){ return null; }
   querySelectorAll(){ return []; }
 }
-const ids = ['toast','loginScreen','appShell','roleSelect','enterAppBtn','activeRole','menuBtn','sidebar','sidebarOverlay','primaryNav','installBtn','pageTitle','page-dashboard','page-dispatch','page-bookings','page-invoices','page-trips','page-calendar','page-chat','page-customers','page-captain-dashboard','page-mate-dashboard','page-owner-dashboard','page-vessels','page-crew','page-payroll','page-expenses','page-inventory','page-incident-reports','page-pre-trip-checklist','page-post-trip-checklist','page-cruise-schedule','page-reports','page-notifications','page-audit','page-settings','page-legacy'];
+const ids = ['toast','loginScreen','appShell','roleSelect','enterAppBtn','activeRole','menuBtn','sidebar','sidebarOverlay','primaryNav','installBtn','pageTitle','page-dashboard','page-dispatch','page-bookings','page-invoices','page-trips','page-calendar','page-chat','page-captain-dashboard','page-mate-dashboard','page-owner-dashboard','page-vessels','page-crew','page-payroll','page-expenses','page-inventory','page-incident-reports','page-pre-trip-checklist','page-post-trip-checklist','page-cruise-schedule','page-reports','page-notifications','page-audit','page-settings','page-legacy'];
 const elements = Object.fromEntries(ids.map(id => [id, new Element(id)]));
 for (const id of ids.filter(id => id.startsWith('page-'))) elements[id].classList.add('page');
 const listeners = {};
@@ -543,13 +543,12 @@ def validate_module_visibility_and_titles() -> tuple[bool, str]:
 def validate_phase_6d_weather_intelligence() -> tuple[bool, str]:
     combined = (ROOT / "app.js").read_text() + (ROOT / "index.html").read_text() + (ROOT / "styles.css").read_text()
     required_tokens = {
-        "weather module": "Weather / Conditions",
-        "weather page host": 'id="page-weather"',
-        "manual weather entry": "function saveWeatherRecord",
+        "dashboard weather widget": "function renderDashboardWeatherWidget",
+        "shared dashboard weather activation": "activateDashboardWeatherWidget();",
         "trip duration risk window": "weatherConditionsForTrip",
         "risk calculation": "function tripWeatherRisk",
-        "dashboard weather summary": "weatherSummaryCards(metrics.scheduledTrips)",
-        "dashboard weather alerts": "renderWeatherAlertPanel(metrics.scheduledTrips)",
+        "dashboard weather summary": "renderDashboardWeatherWidget()",
+        "dashboard weather alerts": "const weatherWatch = metrics.scheduledTrips.filter",
         "dispatch weather node": "renderDispatchLeaf('Weather'",
         "calendar weather badge": "🌦️ High Risk",
         "crew assigned trip weather": "weatherDetailsCard(trip, true)",
@@ -558,6 +557,10 @@ def validate_phase_6d_weather_intelligence() -> tuple[bool, str]:
         "future source field": "weatherSource",
         "future provider field": "apiProvider",
         "future forecast field": "forecastId",
+        "Windy Nassau source": "https://www.windy.com/?25.056,-77.352,5",
+        "live weather refresh": "function refreshLiveWeather",
+        "Nassau-only weather": "location: 'Nassau, Bahamas'",
+        "BoatBooker weather widget": "/api/widget/boatbooker-weather.js",
         "mobile weather cards": ".weather-details-card { padding: 9px;",
     }
     failures = [label for label, token in required_tokens.items() if token not in combined]
@@ -698,6 +701,10 @@ def validate_phase_7e_unified_bookings_trips() -> tuple[bool, str]:
         "role-scoped unified records": "visibleRecordsForRoute('bookings'",
         "duplicate booking table removed": "page.querySelector('.table-card')?.remove()",
         "mobile unified layout": ".unified-workflow-actions .btn{width:100%}",
+        "guided booking flow": "function renderBookingFlowHeader",
+        "booking live review": "function updateBookingFormSummary",
+        "booking step continuation": "function openNextBookingStep",
+        "booking required field guidance": ".booking-flow-section .field:has(input[required])",
     }
     combined = app + styles
     failures = [label for label, token in required_tokens.items() if token not in combined]
@@ -715,7 +722,6 @@ def validate_phase_7f_workflow_consolidation() -> tuple[bool, str]:
     required_tokens = {
         "single Add Document entry": "Add Document</summary>",
         "document intake photo action": "Take Photo<input data-upload-file",
-        "document intake upload action": "Upload File<input data-upload-file",
         "document intake choose action": "Choose File<input data-upload-file",
         "document intake paste action": "Paste Text</button>",
         "single detected type selector": "data-document-type-select",
@@ -723,11 +729,14 @@ def validate_phase_7f_workflow_consolidation() -> tuple[bool, str]:
         "final approval": "ocr-final-approval",
         "create-as selector": "data-upload-create-as",
         "approval required before creation": "if (data.userApproved !== 'Yes')",
-        "invoice Trip Details section": "'Trip Details': ['tourType','tripDate','startTime','duration','returnTime','pickupLocation','guestCount']",
-        "invoice Pricing section": "Pricing: ['baseTourPrice'",
-        "invoice Operations Assignment section": "'Operations Assignment': ['vessel','captain','mate','tripId','bookingId']",
-        "invoice Payment section": "Payment: ['depositPercent','depositPaid','balanceDue','paymentMethod','paymentStatus']",
-        "invoice Notes section": "'Notes & Preview': ['includedItems'",
+        "guided invoice header": "function renderInvoiceFlowHeader",
+        "invoice Tour Schedule section": "['Tour Schedule', 'Set the tour details used by the customer document and linked trip.'",
+        "invoice Pricing section": "['Pricing', 'Build the group rate and add-ons. The total calculates automatically.'",
+        "invoice Operations Assignment section": "['Operations Assignment', 'Assign the vessel and crew when known.', ['vessel','captain','mate']]",
+        "invoice Payment section": "['Payment', 'Record the deposit and payment status. The balance calculates automatically.'",
+        "invoice Notes section": "['Notes & Preview', 'Add customer-facing details and internal notes before saving.'",
+        "invoice live review": "function updateInvoiceFormSummary",
+        "invoice consolidated share menu": "Share / Export</summary>",
         "primary mobile navigation": "const mobilePrimaryRoutes = new Set(['dashboard', 'bookings', 'dispatch', 'calendar', 'chat'])",
         "auto-minimizing voice control": "fab?.classList.toggle('auto-minimized'",
         "maintenance photo notes": "renderPhotoNotePanel('maintenance')",
@@ -735,10 +744,22 @@ def validate_phase_7f_workflow_consolidation() -> tuple[bool, str]:
         "Phase 7F mobile refinements": "Phase 7F",
         "calendar filters collapse on mobile": "const toolsOpen = window.innerWidth > 700",
         "calendar viewport-fit grid": ".calendar-grid.month-view{grid-template-columns:repeat(7,minmax(0,1fr));width:100%;overflow:hidden}",
+        "animated dispatch tree root": "dispatch-tree-root",
+        "animated dispatch branch growth": "dispatch-branch-grow",
+        "dispatch reduced motion support": "@media(prefers-reduced-motion:reduce)",
+        "CruiseMapper Nassau source": "https://www.cruisemapper.com/ports/nassau-port-27",
+        "CruiseMapper schedule import": "function importCruiseMapperSchedule",
+        "CruiseMapper automatic refresh": "function refreshCruiseMapperSchedule",
     }
     failures = [label for label, token in required_tokens.items() if token not in combined]
+    if 'id="page-weather"' in combined or "'weather', '🌦️', 'Weather / Conditions'" in combined or "route === 'weather'" in combined:
+        failures.append("standalone weather module remains")
     if 'page-customers' in (ROOT / "index.html").read_text() or "'customers', '🪪', 'Customers'" in app:
         failures.append("customer directory remains visible")
+    if "function renderCustomers" in app or "function customerDirectoryRows" in app or "assistantAction('Open Customer','customers')" in app:
+        failures.append("customer module code remains")
+    if "Upload File<input data-upload-file" in app:
+        failures.append("redundant Upload File action remains")
     booking_sources = [
         "Direct", "Website", "WhatsApp", "Phone", "Viator", "GetYourGuide",
         "Tripadvisor", "Airbnb Experiences", "Referral", "Travel Agent",
