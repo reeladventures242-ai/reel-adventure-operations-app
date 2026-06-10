@@ -1,4 +1,4 @@
-const CACHE_NAME = 'rat-ops-shell-v11-unified-workflow-20260606';
+const CACHE_NAME = 'rat-ops-shell-v13-production-20260609';
 const APP_ASSETS = [
   './',
   './index.html',
@@ -30,6 +30,10 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
+  if (new URL(event.request.url).pathname.startsWith('/api/')) {
+    event.respondWith(fetch(event.request));
+    return;
+  }
   event.respondWith(
     caches.match(event.request).then((cached) => {
       if (cached) return cached;

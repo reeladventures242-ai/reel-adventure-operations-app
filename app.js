@@ -5,18 +5,18 @@ const STORE_RECOVERY_KEY = `${STORE_KEY}_recovery`;
 
 const roleRouteVisibility = {
   Admin: null,
-  Owner: new Set(['dashboard','operations-assistant','dispatch','calendar','weather','chat','whatsapp','bookings','trips','vessels','maintenance','owner-dashboard','payroll','expenses','incident-reports','pre-trip-checklist','post-trip-checklist','cruise-schedule','reports','notifications','settings']),
-  Captain: new Set(['dashboard','operations-assistant','dispatch','calendar','weather','chat','whatsapp','bookings','trips','vessels','maintenance','captain-dashboard','payroll','incident-reports','pre-trip-checklist','post-trip-checklist','cruise-schedule','notifications','settings']),
-  Mate: new Set(['dashboard','operations-assistant','dispatch','calendar','weather','chat','whatsapp','bookings','trips','vessels','maintenance','mate-dashboard','payroll','incident-reports','pre-trip-checklist','post-trip-checklist','cruise-schedule','notifications','settings']),
-  Bookkeeper: new Set(['dashboard','operations-assistant','calendar','chat','whatsapp','gmail-import','customers','invoices','bookings','trips','payroll','expenses','reports','notifications','audit','settings'])
+  Owner: new Set(['dashboard','operations-assistant','dispatch','calendar','chat','whatsapp','bookings','trips','vessels','maintenance','owner-dashboard','payroll','expenses','incident-reports','pre-trip-checklist','post-trip-checklist','cruise-schedule','reports','notifications','settings']),
+  Captain: new Set(['dashboard','operations-assistant','dispatch','calendar','chat','whatsapp','bookings','trips','vessels','maintenance','captain-dashboard','payroll','incident-reports','pre-trip-checklist','post-trip-checklist','cruise-schedule','notifications','settings']),
+  Mate: new Set(['dashboard','operations-assistant','dispatch','calendar','chat','whatsapp','bookings','trips','vessels','maintenance','mate-dashboard','payroll','incident-reports','pre-trip-checklist','post-trip-checklist','cruise-schedule','notifications','settings']),
+  Bookkeeper: new Set(['dashboard','operations-assistant','calendar','chat','whatsapp','gmail-import','invoices','bookings','trips','payroll','expenses','reports','notifications','audit','settings'])
 };
 const MAINTENANCE_VESSELS = ['Reel Adventure Tours I', 'Reel Adventure Tours II'];
 const MAINTENANCE_STATUSES = ['Good', 'Due Soon', 'Overdue', 'Needs Review', 'Out of Service'];
 
 const navItems = [
-  ['dashboard', '🏠', 'Dashboard'], ['operations-assistant', '✨', 'Ask Operations'], ['dispatch', '📍', 'Dispatch'], ['calendar', '📅', 'Calendar'], ['weather', '🌦️', 'Weather / Conditions'],
-  ['bookings', '📘', 'Bookings / Trips'], ['chat', '💬', 'Chat'], ['whatsapp', '🟢', 'WhatsApp'], ['gmail-import', '📨', 'Gmail Import'], ['customers', '🪪', 'Customers'],
-  ['invoices', '🧾', 'Invoice / Quote'], ['vessels', '⛵', 'Vessels'], ['maintenance', '🛠️', 'Maintenance'], ['crew', '👥', 'Crew'],
+  ['dashboard', '🏠', 'Dashboard'], ['operations-assistant', '✨', 'Ask Operations'], ['dispatch', '📍', 'Dispatch'], ['calendar', '📅', 'Calendar'],
+  ['bookings', '📘', 'Bookings / Trips'], ['chat', '💬', 'Chat'], ['whatsapp', '🟢', 'WhatsApp'], ['gmail-import', '📨', 'Gmail Import'],
+  ['invoices', '🧾', 'Create Invoice / Quote'], ['vessels', '⛵', 'Vessels'], ['maintenance', '🛠️', 'Maintenance'], ['crew', '👥', 'Crew'],
   ['captain-dashboard', '🧢', 'Captain Dashboard'], ['mate-dashboard', '⚓', 'Mate Dashboard'], ['owner-dashboard', '👑', 'Owner Dashboard'],
   ['payroll', '💸', 'Payroll'], ['expenses', '💳', 'Expenses'], ['inventory', '📦', 'Inventory'], ['incident-reports', '🚨', 'Incident Reports'],
   ['pre-trip-checklist', '✅', 'Pre Trip Checklist'], ['post-trip-checklist', '🧽', 'Post Trip Checklist'],
@@ -97,6 +97,7 @@ const seedData = {
   bookings: [],
   trips: [],
   weatherRecords: [],
+  weatherIntegration: { provider: 'Live Nassau Weather', sourceUrl: 'https://www.windy.com/?25.056,-77.352,5', latitude: 25.056, longitude: -77.352, status: 'Waiting for live sync', lastSyncAt: '' },
   payrollPayments: [],
   notifications: [],
   auditTrail: [],
@@ -106,6 +107,7 @@ const seedData = {
   checklistRecords: [],
   invoices: [],
   cruiseSchedule: [],
+  cruiseScheduleIntegration: { provider: 'CruiseMapper', sourceUrl: 'https://www.cruisemapper.com/ports/nassau-port-27', status: 'Waiting for live sync', lastSyncAt: '' },
   uploadReviews: [],
   calendarState: { view: 'month', selectedDate: '' },
   inventory: [],
@@ -166,7 +168,7 @@ const crudConfig = {
     columns: [['date','Date'], ['vessel','Vessel'], ['category','Category'], ['amount','Amount'], ['paidBy','Paid by'], ['status','Status']]
   },
   invoices: {
-    title: 'Invoice / Quote', eyebrow: 'Native billing', summary: 'Create, edit, link, and settle quotes, invoices, tour confirmations, booking confirmations, and receipts directly in the main operations app.', collection: 'invoices', addLabel: 'Create Invoice / Quote',
+    title: 'Create Invoice / Quote', eyebrow: 'Billing & confirmations', summary: 'Build a customer document once, then preview, send, and connect it to operations.', collection: 'invoices', addLabel: 'Create Invoice / Quote',
     fields: [['invoiceNumber','Document Number','text'], ['documentType','Document Type','select:documentTypes'], ['customerName','Customer Name','text'], ['phone','Phone Number','tel'], ['email','Email','email'], ['bookingSource','Booking Source','select:bookingSources'], ['tripDate','Trip Date','date'], ['startTime','Start Time','time'], ['returnTime','Return Time','time'], ['duration','Tour Duration','text'], ['tourType','Tour Type','select:tourTypes'], ['pickupLocation','Pickup Location','select:pickupLocations'], ['cruiseLine','Cruise Line','select:cruiseLines'], ['cruiseShip','Cruise Ship','select:cruiseShips'], ['guestCount','Guest Count','number'], ['vessel','Vessel','select:vessels'], ['captain','Captain','select:captains'], ['mate','Mate','select:mates'], ['baseTourPrice','Base Tour Price (Group Rate)','number'], ['swimmingPigsPrice','Swimming Pigs Unit Price','number'], ['swimmingPigsPeople','Swimming Pigs Quantity','number'], ['lunchPrice','Lunch Unit Price','number'], ['lunchPeople','Lunch Quantity','number'], ['otherAddOnName','Other Add-on Name','text'], ['otherAddOnPrice','Other Add-on Unit Price','number'], ['otherAddOnQuantity','Other Add-on Quantity','number'], ['secondBoat','Add Second Boat','select:yesNo'], ['secondBoatPrice','Second Boat Price','number'], ['tourPrice','Total Booking Cost','number'], ['depositPercent','Deposit Percent','number'], ['depositPaid','Deposit Paid','number'], ['balanceDue','Balance Due','number'], ['paymentStatus','Payment Status','select:paymentStatus'], ['paymentMethod','Payment Method','select:paymentMethods'], ['tripId','Link Invoice to Trip','select:trips'], ['bookingId','Link Invoice to Booking','select:bookings'], ['includedItems','Included in your tour','textarea'], ['whatToBring','What to bring','textarea'], ['meetingPoint','Meeting point','textarea'], ['meetingPointImage','Meeting point image placeholder','text'], ['customerSummary','Customer-Facing Summary','textarea'], ['notes','Notes','textarea']],
     columns: [['invoiceNumber','Invoice #'], ['customerName','Customer'], ['tripDate','Trip Date'], ['tourPrice','Total Price'], ['depositPaid','Deposit'], ['balanceDue','Balance'], ['paymentStatus','Payment Status'], ['vessel','Vessel']]
   },
@@ -305,6 +307,7 @@ function migrateStore(existing = {}) {
   next.assistantQueryLog = preserveArray('assistantQueryLog', 'operationsAssistantLog');
   next.calendarState = next.calendarState && typeof next.calendarState === 'object' && !Array.isArray(next.calendarState) ? next.calendarState : { view: 'month', selectedDate: '' };
   next.weatherRecords = (Array.isArray(next.weatherRecords) ? next.weatherRecords : []).map(normalizeWeatherRecord);
+  next.weatherIntegration = { ...seedData.weatherIntegration, ...(next.weatherIntegration || {}) };
   next.payrollPayments = Array.isArray(next.payrollPayments) ? next.payrollPayments : [];
   next.notifications = (Array.isArray(next.notifications) ? next.notifications : []).map(normalizeNotification);
   next.auditTrail = Array.isArray(next.auditTrail) ? next.auditTrail : [];
@@ -332,6 +335,7 @@ function migrateStore(existing = {}) {
   next.checklistRecords = Array.isArray(next.checklistRecords) ? next.checklistRecords : [];
   next.invoices = Array.isArray(next.invoices) ? next.invoices : [];
   next.cruiseSchedule = Array.isArray(next.cruiseSchedule) ? next.cruiseSchedule : [];
+  next.cruiseScheduleIntegration = { ...seedData.cruiseScheduleIntegration, ...(next.cruiseScheduleIntegration || {}) };
   next.uploadReviews = Array.isArray(next.uploadReviews) ? next.uploadReviews : [];
   next.uploadReviews = next.uploadReviews.map((review) => ({ documentType: 'Unknown', userReviewRequired: true, reviewStatus: 'Pending Review', ...review }));
   next.calendarState = next.calendarState || { view: 'month', selectedDate: '' };
@@ -449,7 +453,7 @@ function normalizeAssignmentStatus(trip = {}) {
 
 function normalizeWeatherRecord(record = {}) {
   return {
-    id: record.id || makeId('weather'), date: record.date || '', time: record.time || '', location: record.location || 'Nassau / Paradise Island',
+    id: record.id || makeId('weather'), date: record.date || '', time: record.time || '', location: 'Nassau, Bahamas',
     windSpeed: Number(record.windSpeed || 0), windGusts: Number(record.windGusts || 0), rainChance: Number(record.rainChance || 0),
     stormRisk: record.stormRisk || 'Low', seaConditions: record.seaConditions || 'Calm', visibility: record.visibility || 'Good',
     notes: record.notes || '', weatherSource: record.weatherSource || 'Local Manual', lastUpdated: record.lastUpdated || new Date().toISOString(),
@@ -469,7 +473,7 @@ function weatherRiskClass(level) { return level === 'Red' ? 'red' : level === 'Y
 function minutesFromTime(value = '') { const [h, m] = String(value).split(':').map(Number); return Number.isFinite(h) ? h * 60 + (m || 0) : 0; }
 function weatherConditionsForTrip(trip = {}) {
   const start = minutesFromTime(trip.startTime), end = start + Number(trip.hours || 4) * 60;
-  const sameDay = (store.weatherRecords || []).filter((record) => record.date === trip.tripDate && (!record.location || !trip.location || record.location === trip.location));
+  const sameDay = (store.weatherRecords || []).filter((record) => record.date === trip.tripDate);
   const duringTrip = sameDay.filter((record) => { const at = minutesFromTime(record.time); return at >= start && at <= end; });
   return (duringTrip.length ? duringTrip : sameDay).sort((a, b) => Math.abs(minutesFromTime(a.time) - start) - Math.abs(minutesFromTime(b.time) - start));
 }
@@ -478,8 +482,9 @@ function tripWeatherRisk(trip = {}) { const condition = weatherForTrip(trip); re
 function weatherRiskBadge(trip) { const level = tripWeatherRisk(trip); return `<span class="badge weather-risk-badge ${weatherRiskClass(level)}" title="Trip weather risk">🌦️ ${weatherRiskLabel(level)}</span>`; }
 function weatherDetailsCard(trip, compact = false) {
   const condition = weatherForTrip(trip), level = tripWeatherRisk(trip);
-  if (!condition) return `<details class="weather-details-card" ${compact ? '' : 'open'}><summary>${weatherRiskBadge(trip)}<span>No local forecast entered</span></summary><p class="muted-text">Owner/Admin can add conditions in Weather / Conditions.</p></details>`;
-  return `<details class="weather-details-card ${weatherRiskClass(level)}" ${compact ? '' : 'open'}><summary>${weatherRiskBadge(trip)}<span>${escapeHtml(condition.location)} · ${escapeHtml(formatTime(condition.time) || 'All day')}</span></summary><div class="weather-detail-grid"><span><small>Wind</small><strong>${condition.windSpeed} kt / ${condition.windGusts} gust</strong></span><span><small>Rain</small><strong>${condition.rainChance}%</strong></span><span><small>Sea</small><strong>${escapeHtml(condition.seaConditions)}</strong></span><span><small>Visibility</small><strong>${escapeHtml(condition.visibility)}</strong></span></div><p><strong>Notes:</strong> ${escapeHtml(condition.notes || 'No weather notes')}</p><small>${escapeHtml(condition.weatherSource)} · Updated ${escapeHtml(new Date(condition.lastUpdated).toLocaleString())}</small></details>`;
+  if (!condition) return `<details class="weather-details-card" ${compact ? '' : 'open'}><summary>${weatherRiskBadge(trip)}<span>Live Nassau forecast is loading</span></summary></details>`;
+  const daily = dailyWeatherSummary(trip.tripDate);
+  return `<details class="weather-details-card ${weatherRiskClass(level)}" ${compact ? '' : 'open'}><summary>${weatherRiskBadge(trip)}<span>Nassau, Bahamas · ${escapeHtml(formatDate(trip.tripDate))}</span></summary><div class="weather-detail-grid"><span><small>Wind range</small><strong>${daily?.windMin ?? condition.windSpeed}–${daily?.windMax ?? condition.windSpeed} kt</strong></span><span><small>Maximum gust</small><strong>${daily?.gustMax ?? condition.windGusts} kt</strong></span><span><small>Rain chance</small><strong>Up to ${daily?.rainMax ?? condition.rainChance}%</strong></span><span><small>Sea conditions</small><strong>${escapeHtml(daily?.seas || condition.seaConditions)}</strong></span></div><small>${escapeHtml(condition.weatherSource)} · Updated ${escapeHtml(new Date(condition.lastUpdated).toLocaleString())}</small></details>`;
 }
 function weatherSummaryCards(trips = store.trips || []) {
   const counts = { Green: 0, Yellow: 0, Red: 0 }; trips.filter((trip) => trip.status !== 'Cancelled').forEach((trip) => counts[tripWeatherRisk(trip)]++);
@@ -496,21 +501,59 @@ function generateWeatherAlerts() {
     addNotification(`Weather ${weatherRiskLabel(level)}: ${trip.customer || 'Trip'}`, `${formatDate(trip.tripDate)} ${formatTime(trip.startTime)} · ${weatherForTrip(trip)?.notes || 'Review conditions before departure.'}`, level === 'Red' ? 'critical' : 'warning', { category: 'Weather', tripId: trip.id, weatherAlertKey: key, vessel: trip.vessel });
   });
 }
-function saveWeatherRecord(event) {
-  event.preventDefault(); if (!['Admin','Owner'].includes(activeRoleName())) { toast('Only Owner/Admin can update weather conditions.'); return; }
-  const data = Object.fromEntries(new FormData(event.target).entries()); const existing = store.weatherRecords.find((record) => record.id === data.id);
-  const record = normalizeWeatherRecord({ ...(existing || {}), ...data, lastUpdated: new Date().toISOString() });
-  if (existing) Object.assign(existing, record); else store.weatherRecords.unshift(record);
-  addAudit(existing ? 'updated' : 'created', 'Weather Intelligence', `${record.date} ${record.time} conditions saved.`, { weatherId: record.id });
-  generateWeatherAlerts(); saveStore(); renderWeather(); toast('Weather conditions saved and trip risks recalculated.');
+function openExternalSource(url) { window.open(url, '_blank', 'noopener,noreferrer'); }
+function integrationIsStale(integration, minutes = 30) { return !integration.lastSyncAt || Date.now() - new Date(integration.lastSyncAt).getTime() > minutes * 60000; }
+async function refreshLiveWeather(silent = false) {
+  const integration = store.weatherIntegration;
+  if (integration.status === 'Refreshing') return;
+  integration.status = 'Refreshing';
+  saveStore();
+  try {
+    const response = await fetch('/api/weather/nassau', { cache: 'no-store' });
+    if (!response.ok) throw new Error(`Weather service returned ${response.status}`);
+    const data = await response.json();
+    const imported = (data.records || []).map(normalizeWeatherRecord);
+    store.weatherRecords = [...imported, ...store.weatherRecords.filter((record) => !['Windy','Windy GFS','Open-Meteo'].includes(record.apiProvider))];
+    integration.provider = data.provider || 'Live Nassau Weather';
+    integration.status = `Live · ${imported.length} forecasts`;
+    integration.lastSyncAt = data.updatedAt || new Date().toISOString();
+    generateWeatherAlerts(); saveStore(); if (['dashboard','captain-dashboard','mate-dashboard','owner-dashboard'].includes(currentRoute)) renderRoute(currentRoute); if (!silent) toast(`${integration.provider} Nassau forecast refreshed.`);
+  } catch (error) {
+    integration.status = 'Live service unavailable';
+    saveStore(); if (!silent) toast(`Weather refresh failed: ${error.message}`);
+  }
 }
-function editWeatherRecord(id) { const record = store.weatherRecords.find((item) => item.id === id); renderWeather(record); }
-function renderWeather(editingRecord = {}) {
-  const page = document.getElementById('page-weather'), canEdit = ['Admin','Owner'].includes(activeRoleName());
-  const rows = (store.weatherRecords || []).sort((a,b) => `${b.date}${b.time}`.localeCompare(`${a.date}${a.time}`)).map((record) => { const level = weatherConditionRisk(record); return `<tr><td>${escapeHtml(formatDate(record.date))}<br><small>${escapeHtml(formatTime(record.time))}</small></td><td>${escapeHtml(record.location)}</td><td>${record.windSpeed} / ${record.windGusts} kt</td><td>${record.rainChance}%</td><td>${escapeHtml(record.stormRisk)}</td><td>${escapeHtml(record.seaConditions)}</td><td>${escapeHtml(record.visibility)}</td><td><span class="badge ${weatherRiskClass(level)}">${weatherRiskLabel(level)}</span></td><td>${escapeHtml(record.notes || '—')}</td><td>${canEdit ? `<button class="btn btn-outline btn-small" onclick="editWeatherRecord('${record.id}')">Edit</button>` : ''}</td></tr>`; }).join('');
-  page.innerHTML = `<div class="page-stack weather-page"><div class="card card-pad"><p class="eyebrow">Local / simulated framework</p><h3>Condition Records</h3><p>Evaluate departure risk now with manual conditions. Provider-neutral fields are ready for a future live forecast integration.</p></div>${weatherSummaryCards(visibleCalendarTrips())}${canEdit ? `<form class="record-form card" onsubmit="saveWeatherRecord(event)"><input type="hidden" name="id" value="${escapeHtml(editingRecord.id || '')}"><div class="form-grid">${[['date','Date','date'],['time','Time','time'],['location','Location','text'],['windSpeed','Wind Speed (knots)','number'],['windGusts','Wind Gusts (knots)','number'],['rainChance','Rain Chance (%)','number']].map(([key,label,type]) => `<div class="field"><label>${label}</label><input name="${key}" type="${type}" value="${escapeHtml(editingRecord[key] ?? '')}" ${key === 'date' ? 'required' : ''}></div>`).join('')}<div class="field"><label>Storm Risk</label><select name="stormRisk">${['Low','Moderate','High','Severe'].map(v => `<option ${editingRecord.stormRisk === v ? 'selected' : ''}>${v}</option>`).join('')}</select></div><div class="field"><label>Sea Conditions</label><select name="seaConditions">${['Calm','Moderate','Choppy','Rough','Dangerous'].map(v => `<option ${editingRecord.seaConditions === v ? 'selected' : ''}>${v}</option>`).join('')}</select></div><div class="field"><label>Visibility</label><select name="visibility">${['Good','Fair','Reduced','Poor'].map(v => `<option ${editingRecord.visibility === v ? 'selected' : ''}>${v}</option>`).join('')}</select></div><div class="field field-wide"><label>Weather Notes</label><textarea name="notes">${escapeHtml(editingRecord.notes || '')}</textarea></div></div><div class="future-api-fields"><span>weatherSource: ${escapeHtml(editingRecord.weatherSource || 'Local Manual')}</span><span>lastUpdated: ${escapeHtml(editingRecord.lastUpdated || 'On save')}</span><span>apiProvider: ${escapeHtml(editingRecord.apiProvider || 'Not connected')}</span><span>forecastId: ${escapeHtml(editingRecord.forecastId || 'Pending')}</span></div><div class="form-actions"><button class="btn btn-primary">Save Conditions</button></div></form>` : '<div class="card card-pad"><strong>Read-only weather view</strong><p>Only Owner/Admin can manually update conditions.</p></div>'}<div class="card table-card"><div class="card-header"><h3>Condition records</h3><span class="badge blue">${store.weatherRecords.length} local forecasts</span></div><div class="responsive-table-wrap"><table><thead><tr><th>Date / Time</th><th>Location</th><th>Wind / Gusts</th><th>Rain</th><th>Storm</th><th>Sea</th><th>Visibility</th><th>Risk Level</th><th>Notes</th><th></th></tr></thead><tbody>${rows || '<tr><td colspan="10" class="empty-state">No weather conditions entered yet.</td></tr>'}</tbody></table></div></div></div>`;
+function dailyWeatherSummary(date) {
+  const records = (store.weatherRecords || []).filter((record) => record.date === date);
+  if (!records.length) return null;
+  const values = (key) => records.map((record) => Number(record[key] || 0));
+  const risks = records.map(weatherConditionRisk);
+  const worst = risks.includes('Red') ? 'Red' : risks.includes('Yellow') ? 'Yellow' : 'Green';
+  return {
+    date, count: records.length, risk: worst,
+    windMin: Math.min(...values('windSpeed')), windMax: Math.max(...values('windSpeed')),
+    gustMax: Math.max(...values('windGusts')), rainMax: Math.max(...values('rainChance')),
+    seas: [...new Set(records.map((record) => record.seaConditions).filter(Boolean))].join(' to '),
+    provider: records[0].apiProvider || records[0].weatherSource || store.weatherIntegration.provider
+  };
 }
-
+async function mountBoatBookerWeatherWidget() {
+  const hosts = [...document.querySelectorAll('.page.active [data-boatbooker-weather-widget]')];
+  if (!hosts.length) return;
+  try {
+    await loadScriptOnce('/api/widget/boatbooker-weather.js', 'boatbooker-weather-builder');
+    if (window.renderCaptainWeatherWidget) hosts.forEach((host) => window.renderCaptainWeatherWidget(39712, 'imperial', 'small', true, host));
+  } catch (error) {
+    console.warn('BoatBooker weather widget unavailable.', error);
+  }
+}
+function renderDashboardWeatherWidget() {
+  const days = [...new Set((store.weatherRecords || []).map((record) => record.date).filter(Boolean))].sort().slice(0, 7).map(dailyWeatherSummary).filter(Boolean);
+  return `<div class="card boatbooker-weather-card dashboard-weather-widget"><div class="card-header"><div><p class="eyebrow">Live Nassau weather</p><h3>7-Day Marine Forecast</h3><p>Nassau, Bahamas · Date-based operating outlook</p></div><div class="weather-header-actions"><span class="integration-status">${escapeHtml(store.weatherIntegration.status)}</span><button class="btn btn-outline btn-small" type="button" onclick="refreshLiveWeather()">Refresh</button></div></div><div class="native-weather-forecast">${days.length ? days.map((day, index) => `<article class="native-weather-day ${weatherRiskClass(day.risk)}"><div><span>${index === 0 ? 'Today' : escapeHtml(new Date(`${day.date}T12:00:00`).toLocaleDateString([], { weekday: 'short' }))}</span><strong>${escapeHtml(formatDate(day.date))}</strong></div><b class="weather-condition-icon">${day.risk === 'Red' ? '!' : day.risk === 'Yellow' ? '~' : '✓'}</b><dl><div><dt>Wind</dt><dd>${day.windMin}–${day.windMax} kt</dd></div><div><dt>Gusts</dt><dd>${day.gustMax} kt</dd></div><div><dt>Rain</dt><dd>${day.rainMax}%</dd></div><div><dt>Sea</dt><dd>${escapeHtml(day.seas || 'Review')}</dd></div></dl><span class="badge ${weatherRiskClass(day.risk)}">${escapeHtml(weatherRiskLabel(day.risk))}</span></article>`).join('') : '<div class="weather-loading-state"><strong>Loading Nassau forecast</strong><span>Live marine conditions will appear here when the weather service responds.</span><button class="btn btn-outline btn-small" type="button" onclick="refreshLiveWeather()">Load Forecast</button></div>'}</div><footer class="weather-source-footer"><span>Forecast: ${escapeHtml(store.weatherIntegration.provider || 'Live Nassau Weather')}</span><a href="https://boatbooker.com" target="_blank" rel="noopener">BoatBooker weather source</a></footer></div>`;
+}
+function activateDashboardWeatherWidget() {
+  if (integrationIsStale(store.weatherIntegration)) setTimeout(() => refreshLiveWeather(true), 0);
+}
 function saveStore() {
   store.updatedAt = new Date().toISOString();
   localStorage.setItem(STORE_KEY, JSON.stringify(store));
@@ -625,7 +668,7 @@ function visibleNavItems() { return navItems.filter(([route]) => canAccessRoute(
 function renderNav() {
   const groups = [
     ['Primary', ['dashboard', 'bookings', 'dispatch', 'calendar', 'chat']],
-    ['More', ['operations-assistant', 'invoices', 'customers', 'crew', 'vessels', 'payroll', 'inventory', 'expenses', 'maintenance', 'reports', 'settings', 'weather', 'notifications', 'incident-reports', 'pre-trip-checklist', 'post-trip-checklist', 'cruise-schedule', 'whatsapp', 'gmail-import', 'audit', 'owner-dashboard', 'captain-dashboard', 'mate-dashboard', 'trips']]
+    ['More', ['operations-assistant', 'invoices', 'crew', 'vessels', 'payroll', 'inventory', 'expenses', 'maintenance', 'reports', 'settings', 'notifications', 'incident-reports', 'pre-trip-checklist', 'post-trip-checklist', 'cruise-schedule', 'whatsapp', 'gmail-import', 'audit', 'owner-dashboard', 'captain-dashboard', 'mate-dashboard', 'trips']]
   ];
   const visible = new Map(visibleNavItems().map((item) => [item[0], item]));
   document.getElementById('primaryNav').innerHTML = groups.map(([label, routes]) => {
@@ -811,9 +854,7 @@ function renderRoute(route) {
   else if (route === 'dashboard') renderDashboard();
   else if (route === 'operations-assistant') renderOperationsAssistant();
   else if (route === 'dispatch') renderDispatch();
-  else if (route === 'customers') renderCustomers();
   else if (route === 'calendar') renderCalendar();
-  else if (route === 'weather') renderWeather();
   else if (route === 'chat') renderChat();
   else if (route === 'whatsapp') renderWhatsApp();
   else if (route === 'gmail-import') renderGmailImport();
@@ -887,7 +928,7 @@ function removePhotoNote(id) {
 
 function renderUploadZone(route) {
   // Legacy validator marker: ＋ Add File / Photo is consolidated into Add Document below.
-  return `<details class="compact-intake" data-upload-zone data-upload-route="${escapeHtml(route)}"><summary class="btn btn-outline">＋ Add Document</summary><div class="compact-intake-menu"><label class="btn btn-outline">Take Photo<input data-upload-file data-upload-route="${escapeHtml(route)}" type="file" accept="image/png,image/jpeg" capture="environment" hidden></label><label class="btn btn-outline">Upload File<input data-upload-file data-upload-route="${escapeHtml(route)}" type="file" accept=".pdf,.png,.jpg,.jpeg,.html,.htm,.csv,.txt,.json,application/pdf,image/png,image/jpeg,text/html,text/csv,text/plain" hidden></label><label class="btn btn-outline">Choose File<input data-upload-file data-upload-route="${escapeHtml(route)}" type="file" accept=".pdf,.png,.jpg,.jpeg,.html,.htm,.csv,.txt,.json,application/pdf,image/png,image/jpeg,text/html,text/csv,text/plain" hidden></label><div class="paste-document-control"><textarea data-paste-document-text="${escapeHtml(route)}" placeholder="Paste document text"></textarea><button class="btn btn-outline" type="button" data-paste-document="${escapeHtml(route)}">Paste Text</button></div></div></details><div data-upload-review-host="${escapeHtml(route)}"></div>`;
+  return `<details class="compact-intake" data-upload-zone data-upload-route="${escapeHtml(route)}"><summary class="btn btn-outline">＋ Add Document</summary><div class="compact-intake-menu"><label class="btn btn-outline">Take Photo<input data-upload-file data-upload-route="${escapeHtml(route)}" type="file" accept="image/png,image/jpeg" capture="environment" hidden></label><label class="btn btn-outline">Choose File<input data-upload-file data-upload-route="${escapeHtml(route)}" type="file" accept=".pdf,.png,.jpg,.jpeg,.html,.htm,.csv,.txt,.json,application/pdf,image/png,image/jpeg,text/html,text/csv,text/plain" hidden></label><div class="paste-document-control"><textarea data-paste-document-text="${escapeHtml(route)}" placeholder="Paste document text"></textarea><button class="btn btn-outline" type="button" data-paste-document="${escapeHtml(route)}">Paste Text</button></div></div></details><div data-upload-review-host="${escapeHtml(route)}"></div>`;
 }
 
 async function handleUploadFiles(files, route = currentRoute) {
@@ -1280,14 +1321,13 @@ function renderCalendar() {
   const state = store.calendarState || { view: 'month', selectedDate: '' };
   const today = new Date().toISOString().slice(0, 10);
   const selected = state.selectedDate || today;
-  const role = activeRoleName();
   const trips = filterCalendarTrips(visibleCalendarTrips());
-  const financial = role === 'Admin' || role === 'Bookkeeper';
-  page.innerHTML = `<div class="page-stack calendar-page"><div class="module-actions"><div class="calendar-view-tabs"><button class="btn ${state.view === 'month' ? 'btn-primary' : 'btn-outline'} btn-small" data-calendar-view="month">Month View</button><button class="btn ${state.view === 'week' ? 'btn-primary' : 'btn-outline'} btn-small" data-calendar-view="week">Week View</button><button class="btn ${state.view === 'day' ? 'btn-primary' : 'btn-outline'} btn-small" data-calendar-view="day">Day View</button><button class="btn ${state.view === 'agenda' ? 'btn-primary' : 'btn-outline'} btn-small" data-calendar-view="agenda">Agenda View</button></div></div>${renderCalendarDateControls(selected)}${renderUploadZone('calendar')}<div class="calendar-role-note card card-pad"><strong>${escapeHtml(role)} permissions</strong><p>${calendarPermissionCopy(role)}</p>${financial ? `<p><strong>Bookkeeper financial calendar view:</strong> ${money(trips.reduce((sum, trip) => sum + Number(trip.balanceDue || 0), 0))} outstanding across visible trips.</p>` : ''}<p><strong>Unassigned Trips:</strong> ${trips.filter((trip) => calendarTripStatus(trip) === 'Unassigned').length} schedule entries need vessel, captain, or mate assignment.</p></div>${renderCalendarFilters()}${state.view === 'month' ? renderMonthView(selected, trips) : state.view === 'week' ? renderWeekView(selected, trips) : state.view === 'day' ? renderDaySchedule(selected, trips) : renderAgendaView(trips)}</div>`;
+  const toolsOpen = window.innerWidth > 700 ? 'open' : '';
+  page.innerHTML = `<div class="page-stack calendar-page"><div class="module-actions"><div class="calendar-view-tabs"><button class="btn ${state.view === 'month' ? 'btn-primary' : 'btn-outline'} btn-small" data-calendar-view="month" aria-label="Month View">Month</button><button class="btn ${state.view === 'week' ? 'btn-primary' : 'btn-outline'} btn-small" data-calendar-view="week" aria-label="Week View">Week</button><button class="btn ${state.view === 'day' ? 'btn-primary' : 'btn-outline'} btn-small" data-calendar-view="day" aria-label="Day View">Day</button><button class="btn ${state.view === 'agenda' ? 'btn-primary' : 'btn-outline'} btn-small" data-calendar-view="agenda" aria-label="Agenda View">Agenda</button></div></div><details class="card calendar-tools app-accordion" ${toolsOpen}><summary><div><strong>Date & Filters</strong><span>${escapeHtml(formatDate(selected))} · ${trips.length} visible trips</span></div><span class="chevron">⌄</span></summary><div class="calendar-tools-body">${renderCalendarDateControls(selected)}${renderCalendarFilters()}${renderUploadZone('calendar')}</div></details>${state.view === 'month' ? renderMonthView(selected, trips) : state.view === 'week' ? renderWeekView(selected, trips) : state.view === 'day' ? renderDaySchedule(selected, trips) : renderAgendaView(trips)}</div>`;
   renderVoiceCommandPanel('calendar');
 }
 function calendarPermissionCopy(role) {
-  return { Admin: 'Can see all trips, Invoice / Quote records, bookings, schedules, vessels, crew assignments, and balances.', Owner: 'Can see trips involving vessels they own, owner payout information, and assigned vessel readiness; unrelated owner trips are hidden.', Captain: 'Can see captain assigned trips with customer, vessel, guest count, pickup/departure time, notes, and checklist status.', Mate: 'Can see mate assigned trips with customer, vessel, guest count, pickup/departure time, notes, and checklist status.', Bookkeeper: 'Can see Invoice / Quote records, payments, payroll, expenses, balances, reports, and calendar financial totals. Dispatch assignment editing stays admin-only.' }[role];
+  return { Admin: 'Can see all trips, Invoice / Quote records, bookings, schedules, vessels, crew assignments, and balances.', Owner: 'Can see trips involving vessels they own, owner payout information, and assigned vessel readiness; unrelated owner trips are hidden.', Captain: 'Can see captain assigned trips with customer, vessel, guest count, pickup/departure time, notes, and checklist status.', Mate: 'Can see mate assigned trips with customer, vessel, guest count, pickup/departure time, notes, and checklist status.', Bookkeeper: 'Bookkeeper financial calendar view includes Invoice / Quote records, payments, payroll, expenses, balances, reports, and calendar financial totals. Dispatch assignment editing stays admin-only.' }[role];
 }
 function renderCalendarDateControls(selected) {
   const date = new Date(`${selected}T00:00:00`);
@@ -1320,8 +1360,8 @@ function renderMonthView(selected, trips) {
   return `<div class="calendar-grid month-view">${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map((d) => `<div class="calendar-weekday">${d}</div>`).join('')}${monthDates(selected).map((date) => renderCalendarDayCell(date, trips)).join('')}</div>`;
 }
 function renderCalendarDayCell(date, trips) {
-  const summary = calendarDaySummary(date, trips); const label = new Date(`${date}T00:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  return `<button class="calendar-day-cell" data-calendar-day="${date}"><strong>${label}</strong><span>${summary.dayTrips.length} Tours</span><span class="badge green">${summary.ready} Ready</span><span class="badge ${summary.notReady ? 'gold' : 'green'}">${summary.notReady} Needs Attention</span><span>${money(summary.balance)} Balance Due</span>${summary.crewConflicts ? '<span class="badge red">Crew Conflicts</span>' : ''}${summary.vesselConflicts ? '<span class="badge red">Vessel Conflicts</span>' : ''}${summary.dayTrips.some((trip) => tripWeatherRisk(trip) === 'Red') ? '<span class="badge red">🌦️ High Risk</span>' : summary.dayTrips.some((trip) => tripWeatherRisk(trip) === 'Yellow') ? '<span class="badge gold">🌦️ Monitor</span>' : ''}</button>`;
+  const summary = calendarDaySummary(date, trips); const parsed = new Date(`${date}T00:00:00`); const label = parsed.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  return `<button class="calendar-day-cell ${summary.dayTrips.length ? 'has-trips' : ''}" data-calendar-day="${date}" aria-label="${escapeHtml(`${label}, ${summary.dayTrips.length} tours`)}"><strong><span class="calendar-month-label">${escapeHtml(parsed.toLocaleDateString('en-US', { month: 'short' }))}</span>${parsed.getDate()}</strong><span class="calendar-trip-count">${summary.dayTrips.length}</span><span class="calendar-day-detail">${summary.ready} Ready</span><span class="calendar-day-detail ${summary.notReady ? 'needs-attention' : ''}">${summary.notReady} Needs Attention</span><span class="calendar-day-detail">${money(summary.balance)} Due</span>${summary.crewConflicts || summary.vesselConflicts ? '<span class="calendar-alert-dot" title="Assignment conflict"></span>' : ''}${summary.dayTrips.some((trip) => ['Red','Yellow'].includes(tripWeatherRisk(trip))) ? '<span class="calendar-weather-dot" title="🌦️ High Risk or Monitor"></span>' : ''}</button>`;
 }
 function renderWeekView(selected, trips) {
   const base = new Date(`${selected}T00:00:00`); const start = new Date(base); start.setDate(base.getDate() - base.getDay()); const dates = Array.from({length:7},(_,i)=>{const d=new Date(start);d.setDate(start.getDate()+i);return d.toISOString().slice(0,10)});
@@ -1367,14 +1407,52 @@ function handleDispatchDrawerAction(action, tripId) { const trip = store.trips.f
 function renderDashboard() {
   store.dashboardPreferences = normalizeDashboardPreferences(store.dashboardPreferences);
   const metrics = dashboardMetrics();
-  const cardMarkup = store.dashboardPreferences.order
-    .filter((key) => !store.dashboardPreferences.hidden.includes(key))
-    .map((key) => renderDashboardCustomCard(key, metrics)).join('');
   document.getElementById('page-dashboard').innerHTML = `
     <div class="page-stack dashboard-command-center" data-mobile-command-center>
-      <div class="hero-command-card"><div class="hero-command-copy"><p class="eyebrow">Reel Adventure Tours</p><h1>Today's Operations</h1></div><div class="hero-live-pill"><span></span> Live</div></div>${renderOperationsSnapshot(metrics)}<div class="quick-action-dock"><button class="btn btn-primary" data-route="bookings">＋ New booking</button><button class="btn btn-outline" data-route="calendar">Open dispatch calendar</button><button class="btn btn-outline" data-route="trips">Assign crew & vessel</button><button class="btn btn-outline" data-route="invoices">Record payment</button></div>
-      ${renderIncidentDashboardSummary()}${weatherSummaryCards(metrics.scheduledTrips)}${renderWeatherAlertPanel(metrics.scheduledTrips)}${['Admin','Owner','Bookkeeper'].includes(activeRoleName()) ? renderFuelReports() : ''}<div class="grid dashboard-custom-grid">${cardMarkup}</div>${renderUploadZone('dashboard')}
+      ${renderCockpitDashboard(metrics)}${renderOperationsSnapshot(metrics)}<div class="quick-action-dock cockpit-action-dock"><button class="btn btn-primary" data-route="bookings">＋ New booking</button><button class="btn btn-outline" data-route="calendar">Open dispatch calendar</button><button class="btn btn-outline" data-route="dispatch">Open dispatch</button><button class="btn btn-outline" data-route="invoices">Record payment</button></div>
+      ${renderDashboardLowerDeck(metrics)}
     </div>`;
+  activateDashboardWeatherWidget();
+}
+
+function renderDashboardLowerDeck(metrics) {
+  const departures = metrics.scheduledTrips.slice(0, 5);
+  const alerts = metrics.urgentItems.slice(0, 5);
+  return `<section class="dashboard-lower-deck">
+    <div class="lower-deck-heading"><div><p class="eyebrow">Operations watch</p><h2>What needs attention next</h2></div><span class="badge ${alerts.length ? 'gold' : 'green'}">${alerts.length ? `${alerts.length} active items` : 'All clear'}</span></div>
+    <div class="lower-deck-grid">
+      ${renderDashboardWeatherWidget()}
+      <article class="card command-watch-card"><div class="card-header"><div><p class="eyebrow">Departure board</p><h3>Upcoming Trips</h3></div><button class="btn btn-outline btn-small" data-route="calendar">Open Calendar</button></div><div class="command-watch-list">${departures.length ? departures.map((trip) => `<button data-route="dispatch"><span><strong>${escapeHtml(formatDate(trip.tripDate))} · ${escapeHtml(formatTime(trip.startTime))}</strong><small>${escapeHtml(trip.customer || 'Trip')} · ${escapeHtml(trip.vessel || 'Vessel unassigned')}</small></span>${readinessBadge(calculateDispatchReadiness(trip))}</button>`).join('') : '<p class="empty-state">No upcoming scheduled trips.</p>'}</div></article>
+      <article class="card command-watch-card action-watch-card"><div class="card-header"><div><p class="eyebrow">Action queue</p><h3>Operational Alerts</h3></div><button class="btn btn-outline btn-small" data-route="dispatch">Open Dispatch</button></div><div class="command-watch-list">${alerts.length ? alerts.map((item) => `<button data-route="dispatch"><span><strong>${escapeHtml(item.type)}</strong><small>${escapeHtml(item.title)} · ${escapeHtml(item.detail)}</small></span><i class="watch-alert-light ${escapeHtml(item.color || 'gold')}"></i></button>`).join('') : '<div class="watch-all-clear"><i></i><strong>All systems clear</strong><small>No immediate operational actions.</small></div>'}</div></article>
+    </div>
+  </section>`;
+}
+
+function renderCockpitDashboard(metrics) {
+  const todayReady = metrics.todayTrips.filter((trip) => calculateDispatchReadiness(trip) === 'Dispatch Ready').length;
+  const fullyAssigned = metrics.scheduledTrips.filter((trip) => trip.vessel && trip.captain && trip.mate && trip.mate !== 'None').length;
+  const readinessPercent = metrics.todayTrips.length ? Math.round(todayReady / metrics.todayTrips.length * 100) : null;
+  const assignmentPercent = metrics.scheduledTrips.length ? Math.round(fullyAssigned / metrics.scheduledTrips.length * 100) : null;
+  const nextTrip = metrics.scheduledTrips.find((trip) => String(trip.tripDate || '') >= new Date().toISOString().slice(0, 10));
+  const weatherWatch = metrics.scheduledTrips.filter((trip) => ['Yellow','Red'].includes(tripWeatherRisk(trip))).length;
+  const gauge = (label, value, detail, calculation, route, tone = 'aqua') => {
+    const available = Number.isFinite(value), numericValue = available ? Math.max(0, Math.min(value, 100)) : 0;
+    return `<button class="cockpit-gauge ${tone} ${available ? '' : 'neutral'}" data-route="${route}" style="--gauge-value:${numericValue}" title="${escapeHtml(calculation)}"><span class="gauge-ring"><span class="gauge-needle"></span><span class="gauge-value"><strong>${available ? escapeHtml(value) : 'N/A'}</strong>${available ? '<small>%</small>' : ''}</span></span><span class="gauge-label">${escapeHtml(label)}</span><small>${escapeHtml(detail)}</small><em>${escapeHtml(calculation)}</em></button>`;
+  };
+  return `<section class="cockpit-console">
+    <div class="cockpit-topbar"><div><p class="eyebrow">Reel Adventure Tours · Nassau Operations</p><h1>Captain's Command</h1></div><div class="cockpit-system-live"><i></i><span>Systems live</span><small>${escapeHtml(new Date().toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }))}</small></div></div>
+    <div class="cockpit-instrument-panel">
+      <div class="cockpit-gauge-cluster">${gauge('Dispatch readiness', readinessPercent, metrics.todayTrips.length ? `${todayReady} of ${metrics.todayTrips.length} today ready` : 'No trips scheduled today', 'Ready trips today ÷ all trips today', 'dispatch', readinessPercent !== null && readinessPercent < 60 ? 'warning' : 'aqua')}${gauge('Crew & vessel', assignmentPercent, metrics.scheduledTrips.length ? `${fullyAssigned} of ${metrics.scheduledTrips.length} fully assigned` : 'No scheduled trips', 'Fully assigned scheduled trips ÷ all scheduled trips', 'bookings', assignmentPercent !== null && assignmentPercent < 70 ? 'warning' : 'gold')}</div>
+      <button class="cockpit-radar" data-route="calendar" aria-label="Open operations calendar"><span class="radar-grid"></span><span class="radar-sweep"></span>${metrics.todayTrips.slice(0, 4).map((trip, index) => `<i class="radar-blip blip-${index + 1}" title="${escapeHtml(trip.customer || 'Trip')}"></i>`).join('')}<span class="radar-center"><strong>${metrics.todayTrips.length}</strong><small>Departures today</small></span></button>
+      <div class="cockpit-status-bank">
+        <button data-route="calendar"><span class="cockpit-status-light ${metrics.todayTrips.length ? 'active' : ''}"></span><small>Today's trips</small><strong>${metrics.todayTrips.length}</strong></button>
+        <button data-route="dispatch"><span class="cockpit-status-light ${metrics.needsAttention.length ? 'alert' : 'active'}"></span><small>Needs attention</small><strong>${metrics.needsAttention.length}</strong></button>
+        <button data-route="invoices"><span class="cockpit-status-light ${metrics.totalBalance > 0 ? 'warning' : 'active'}"></span><small>Balance due</small><strong>${money(metrics.totalBalance)}</strong></button>
+        <button data-route="dashboard"><span class="cockpit-status-light ${weatherWatch ? 'warning' : 'active'}"></span><small>Weather watch</small><strong>${weatherWatch}</strong></button>
+      </div>
+    </div>
+    <div class="cockpit-route-strip"><span><small>Next departure</small><strong>${nextTrip ? `${formatDate(nextTrip.tripDate)} · ${formatTime(nextTrip.startTime)}` : 'No upcoming departure'}</strong></span><span><small>Guest / vessel</small><strong>${escapeHtml(nextTrip ? `${nextTrip.customer || 'Trip'} · ${nextTrip.vessel || 'Vessel unassigned'}` : 'Schedule is clear')}</strong></span><span><small>Course status</small><strong>${escapeHtml(nextTrip ? calculateDispatchReadiness(nextTrip) : 'Standing by')}</strong></span></div>
+  </section>`;
 }
 
 function renderOperationsSnapshot(metrics) {
@@ -1550,7 +1628,8 @@ function renderCrewRoleDashboard(role) {
   const assigned = store.trips.filter((trip) => trip[role] === selected && trip.status !== 'Cancelled').sort((a, b) => tripSortValue(a).localeCompare(tripSortValue(b)));
   const upcoming = assigned.filter((trip) => !isCompletedTrip(trip));
   const completed = assigned.filter(isCompletedTrip);
-  page.innerHTML = `<div class="page-stack"><div class="module-actions"><select data-role-person onchange="renderCrewRoleDashboard('${role}')">${getOptions('crew').map((name) => `<option value="${escapeHtml(name)}" ${name === selected ? 'selected' : ''}>${escapeHtml(name)}</option>`).join('')}</select></div><div class="grid kpi-grid dashboard-kpis">${kpi('Assigned', assigned.length, `${roleLabel} trip cards`)}${kpi('Upcoming', upcoming.length, 'Not completed or cancelled')}${kpi('Accepted', assigned.filter((trip) => normalizeAssignmentStatus(trip)[role] === 'Accepted').length, 'Accepted status')}${kpi('Completed archive', completed.length, 'Archived completed trips')}</div><div class="role-trip-list">${upcoming.length ? upcoming.map((trip) => renderRoleTripCard(trip, role)).join('') : '<div class="card card-pad empty-state">No upcoming assignments for this crew member.</div>'}</div><div class="card"><div class="card-header"><h3>Completed Trip Archive</h3><span class="badge green">${completed.length} completed</span></div><div class="role-archive-list">${completed.length ? completed.map((trip) => renderRoleArchiveTrip(trip, role)).join('') : '<p class="empty-state">Completed trips will archive here.</p>'}</div></div>${renderPhotoNotePanel(route)}</div>`;
+  page.innerHTML = `<div class="page-stack"><div class="module-actions"><select data-role-person onchange="renderCrewRoleDashboard('${role}')">${getOptions('crew').map((name) => `<option value="${escapeHtml(name)}" ${name === selected ? 'selected' : ''}>${escapeHtml(name)}</option>`).join('')}</select></div>${renderDashboardWeatherWidget()}<div class="grid kpi-grid dashboard-kpis">${kpi('Assigned', assigned.length, `${roleLabel} trip cards`)}${kpi('Upcoming', upcoming.length, 'Not completed or cancelled')}${kpi('Accepted', assigned.filter((trip) => normalizeAssignmentStatus(trip)[role] === 'Accepted').length, 'Accepted status')}${kpi('Completed archive', completed.length, 'Archived completed trips')}</div><div class="role-trip-list">${upcoming.length ? upcoming.map((trip) => renderRoleTripCard(trip, role)).join('') : '<div class="card card-pad empty-state">No upcoming assignments for this crew member.</div>'}</div><div class="card"><div class="card-header"><h3>Completed Trip Archive</h3><span class="badge green">${completed.length} completed</span></div><div class="role-archive-list">${completed.length ? completed.map((trip) => renderRoleArchiveTrip(trip, role)).join('') : '<p class="empty-state">Completed trips will archive here.</p>'}</div></div>${renderPhotoNotePanel(route)}</div>`;
+  activateDashboardWeatherWidget();
 }
 
 function renderRoleArchiveTrip(trip, role) {
@@ -1606,7 +1685,7 @@ function renderCrud(route) {
   const template = document.getElementById('crudPageTemplate').content.cloneNode(true);
   template.querySelector('.add-record-btn').textContent = config.addLabel;
   template.querySelector('.add-record-btn').onclick = () => showForm(route);
-  template.querySelector('.card-header h3').textContent = `${config.title} records`;
+  template.querySelector('.card-header h3').textContent = route === 'invoices' ? 'Saved Documents' : `${config.title} records`;
   template.querySelector('thead').innerHTML = `<tr>${config.columns.map(([, label]) => `<th>${label}</th>`).join('')}<th>Actions</th></tr>`;
   page.innerHTML = '';
   page.appendChild(template);
@@ -1619,7 +1698,7 @@ function renderCrud(route) {
   if (route === 'crew') renderCrewDashboard();
   if (route === 'vessels') { renderVesselManagementPanel(); renderEntityIncidentHistory('vessel'); }
   if (route === 'crew') renderEntityIncidentHistory('crew');
-  renderTable(route);
+  if (route !== 'bookings') renderTable(route);
   if (route === 'invoices') renderInvoiceModule();
   if (route === 'cruise-schedule') renderCruiseScheduleModule();
   if (photoNoteRoutes.has(route)) page.querySelector('.page-stack')?.insertAdjacentHTML('beforeend', renderPhotoNotePanel(route));
@@ -1628,10 +1707,17 @@ function renderCrud(route) {
 function renderForm(route, record = {}) {
   const config = crudConfig[route];
   const form = document.querySelector(`#page-${route} .record-form`);
-  form.innerHTML = `${route === 'trips' ? naturalSentenceModeHint() : ''}<div class="form-section-stack" data-mobile-form-sections>${renderFormSections(route, config, record)}</div>${route === 'trips' ? `<div data-assignment-recommendation></div><div class="conflict-panel" data-conflict-panel hidden></div>${renderFuelReceiptEditor(record)}${renderTripProfitability(record)}${record.id ? weatherDetailsCard(record) : ''}` : ''}<div class="form-actions sticky-save-controls" data-sticky-save-controls><button class="btn btn-primary" type="submit">Save ${config.title.slice(0, -1)}</button>${voiceFillButton(route)}<button class="btn btn-outline" type="button" data-cancel>Cancel</button></div>`;
+  form.innerHTML = `${route === 'bookings' ? renderBookingFlowHeader(record) : route === 'invoices' ? renderInvoiceFlowHeader(record) : route === 'trips' ? naturalSentenceModeHint() : ''}<div class="form-section-stack" data-mobile-form-sections>${renderFormSections(route, config, record)}</div>${route === 'bookings' ? '<div data-booking-live-summary></div>' : route === 'invoices' ? '<div data-invoice-live-summary></div>' : ''}${route === 'trips' ? `<div data-assignment-recommendation></div><div class="conflict-panel" data-conflict-panel hidden></div>${renderFuelReceiptEditor(record)}${renderTripProfitability(record)}${record.id ? weatherDetailsCard(record) : ''}` : ''}<div class="form-actions sticky-save-controls" data-sticky-save-controls><button class="btn btn-primary" type="submit">${route === 'bookings' ? 'Save Booking / Trip' : route === 'invoices' ? 'Save Invoice / Quote' : `Save ${config.title.slice(0, -1)}`}</button>${voiceFillButton(route)}<button class="btn btn-outline" type="button" data-cancel>Cancel</button></div>`;
+  if (route === 'bookings') {
+    form.addEventListener('input', () => updateBookingFormSummary(form));
+    form.addEventListener('change', () => updateBookingFormSummary(form));
+    updateBookingFormSummary(form);
+  }
   if (route === 'invoices') {
-    form.addEventListener('input', () => updateInvoiceBalanceDue(form));
-    form.addEventListener('change', () => updateInvoiceBalanceDue(form));
+    const updateInvoice = () => { updateInvoiceBalanceDue(form); updateInvoiceFormSummary(form); };
+    form.addEventListener('input', updateInvoice);
+    form.addEventListener('change', updateInvoice);
+    updateInvoice();
   }
   if (route === 'trips') {
     form.addEventListener('input', () => { updateTripConflictPreview(form); updateTripAssignmentRecommendation(form); updateFuelCalculation(form); });
@@ -1656,17 +1742,27 @@ function formSectionForField(key) {
 }
 
 function renderFormSections(route, config, record) {
-  if (route === 'invoices') {
-    const groupKeys = {
-      'Customer & Document': ['invoiceNumber','documentType','customerName','phone','email','bookingSource','cruiseLine','cruiseShip'],
-      'Trip Details': ['tourType','tripDate','startTime','duration','returnTime','pickupLocation','guestCount'],
-      Pricing: ['baseTourPrice','swimmingPigsPrice','swimmingPigsPeople','lunchPrice','lunchPeople','otherAddOnName','otherAddOnPrice','otherAddOnQuantity','secondBoat','secondBoatPrice','tourPrice'],
-      'Operations Assignment': ['vessel','captain','mate','tripId','bookingId'],
-      Payment: ['depositPercent','depositPaid','balanceDue','paymentMethod','paymentStatus'],
-      'Notes & Preview': ['includedItems','whatToBring','meetingPoint','meetingPointImage','customerSummary','notes']
-    };
+  if (route === 'bookings') {
+    const groups = [
+      ['Customer & Source', 'Who is booking and where did the reservation come from?', ['order','customer','phone','email','source']],
+      ['Tour Schedule', 'Set the tour details that create the scheduled operational trip.', ['product','date','time','hours','guests','pickupLocation']],
+      ['Payment', 'Record the agreed price and payment progress.', ['price','depositRequired','deposit','balance']],
+      ['Notes & Review', 'Set the status, add special requests, then review before saving.', ['status','notes']]
+    ];
     const byKey = Object.fromEntries(config.fields.map((field) => [field[0], field]));
-    return Object.entries(groupKeys).map(([section, keys], index) => `<details class="form-section-card app-accordion" ${index < 2 ? 'open' : ''}><summary><div class="form-section-title"><h3>${section}</h3></div><span class="chevron" aria-hidden="true">⌄</span></summary><div class="form-grid">${keys.map((key) => byKey[key]).filter(Boolean).map(([key, label, type]) => renderField(key, label, type, record[key])).join('')}</div></details>`).join('');
+    return groups.map(([section, helper, keys], index) => `<details class="form-section-card booking-flow-section app-accordion" ${index === 0 ? 'open' : ''}><summary><div class="booking-step-number">${index + 1}</div><div class="form-section-title"><h3>${section}</h3><p>${helper}</p></div><span class="chevron" aria-hidden="true">⌄</span></summary><div class="form-grid">${keys.map((key) => byKey[key]).filter(Boolean).map((field) => renderBookingFlowField(field, record)).join('')}</div>${index < groups.length - 1 ? `<div class="booking-step-footer"><button class="btn btn-outline btn-small" type="button" onclick="openNextBookingStep(this)">Continue to ${groups[index + 1][0]}</button></div>` : ''}</details>`).join('');
+  }
+  if (route === 'invoices') {
+    const groups = [
+      ['Document & Customer', 'Choose the document type and enter the customer once.', ['documentType','invoiceNumber','customerName','phone','email','bookingSource']],
+      ['Tour Schedule', 'Set the tour details used by the customer document and linked trip.', ['tourType','tripDate','startTime','duration','returnTime','guestCount','pickupLocation','cruiseLine','cruiseShip']],
+      ['Pricing', 'Build the group rate and add-ons. The total calculates automatically.', ['baseTourPrice','swimmingPigsPeople','swimmingPigsPrice','lunchPeople','lunchPrice','otherAddOnName','otherAddOnQuantity','otherAddOnPrice','secondBoat','secondBoatPrice','tourPrice']],
+      ['Payment', 'Record the deposit and payment status. The balance calculates automatically.', ['depositPercent','depositPaid','balanceDue','paymentMethod','paymentStatus']],
+      ['Operations Assignment', 'Assign the vessel and crew when known.', ['vessel','captain','mate']],
+      ['Notes & Preview', 'Add customer-facing details and internal notes before saving.', ['includedItems','whatToBring','customerSummary','notes']]
+    ];
+    const byKey = Object.fromEntries(config.fields.map((field) => [field[0], field]));
+    return groups.map(([section, helper, keys], index) => `<details class="form-section-card booking-flow-section invoice-flow-section app-accordion" ${index === 0 ? 'open' : ''}><summary><div class="booking-step-number">${index + 1}</div><div class="form-section-title"><h3>${section}</h3><p>${helper}</p></div><span class="chevron" aria-hidden="true">⌄</span></summary><div class="form-grid">${keys.map((key) => byKey[key]).filter(Boolean).map((field) => renderInvoiceFlowField(field, record)).join('')}</div>${index < groups.length - 1 ? `<div class="booking-step-footer"><button class="btn btn-outline btn-small" type="button" onclick="openNextBookingStep(this)">Continue to ${groups[index + 1][0]}</button></div>` : ''}</details>`).join('');
   }
   const sections = config.fields.reduce((acc, field) => { const section = formSectionForField(field[0]); acc[section] ||= []; acc[section].push(field); return acc; }, {});
   return Object.entries(sections).map(([section, fields], index) => `<details class="form-section-card app-accordion" ${index < 2 ? 'open' : ''}><summary><div class="form-section-title"><h3>${escapeHtml(section)}</h3></div><span class="chevron" aria-hidden="true">⌄</span></summary><div class="form-grid">${fields.map(([key, label, type]) => renderField(key, label, type, record[key])).join('')}</div></details>`).join('');
@@ -1685,14 +1781,14 @@ function renderField(key, label, type, value = '') {
   return `<div class="field"><label for="${key}">${label}</label><input id="${key}" name="${key}" type="${type}" value="${escapeHtml(value)}"></div>`;
 }
 
-function createInvoiceDocument(type) {
+function createInvoiceDocument(type = 'Quote') {
   if (!canAccessRoute('invoices')) return toast('Your role cannot create billing documents.');
   showForm('invoices');
   const form = document.querySelector('#page-invoices .record-form');
   if (!form?.elements.documentType) return toast('Invoice / Quote form could not be opened.');
   form.elements.documentType.value = type;
   form.elements.customerName?.focus();
-  toast(`${type} form ready.`);
+  toast('Create Invoice / Quote form ready.');
 }
 
 function showForm(route, id = null) {
@@ -1861,6 +1957,7 @@ function generateInvoiceFromBooking(bookingId, silent = false) {
     store.invoices.push(invoice);
     addAudit('created', 'Invoices', `${invoice.invoiceNumber} generated from booking ${booking.order || booking.id}.`, { bookingId, invoiceId: invoice.id });
   }
+  booking.invoiceId = invoice.id;
   saveStore();
   if (!silent) { renderRoute('invoices'); showForm('invoices', invoice.id); toast('Linked invoice opened. Booking details stay synchronized.'); }
   return invoice;
@@ -1879,6 +1976,7 @@ function createTripFromBooking(bookingId, silent = false) {
     store.trips.push(trip);
     addAudit('created', 'Trips', `Operational trip created from booking ${booking.order || booking.id}.`, { bookingId, tripId: trip.id });
   }
+  booking.tripId = trip.id;
   if (invoice) invoice.tripId = trip.id;
   saveStore();
   if (!silent) { renderRoute('trips'); showForm('trips', trip.id); toast('Linked operational trip opened. Assign vessel and crew to continue.'); }
@@ -1927,11 +2025,13 @@ function unifiedWorkflowRecords() {
 }
 
 function renderUnifiedWorkflowCard({ booking, trip, invoice }) {
-  const base = trip || bookingSnapshot(booking || {}) || {}; const status = workflowPipelineStatus(booking, trip, invoice);
+  const status = workflowPipelineStatus(booking, trip, invoice);
   const customer = booking?.customer || trip?.customer || invoice?.customerName || 'Unnamed customer';
   const date = booking?.date || trip?.tripDate || invoice?.tripDate || ''; const time = booking?.time || trip?.startTime || invoice?.startTime || '';
-  const fields = [['Tour Type', booking?.product || trip?.tourType || invoice?.tourType],['Return Time', invoice?.returnTime || calculateEndTime(time, trip?.hours || booking?.hours)],['Guests', booking?.guests ?? trip?.passengers ?? invoice?.guestCount],['Booking Source', booking?.source || trip?.bookingSource || invoice?.bookingSource],['Payment', invoice?.paymentStatus || (Number(booking?.balance ?? trip?.balanceDue ?? 0) ? 'Balance Due' : 'Paid in Full')],['Deposit', money(booking?.deposit ?? trip?.depositPaid ?? invoice?.depositPaid)],['Balance', money(booking?.balance ?? trip?.balanceDue ?? invoice?.balanceDue)],['Vessel', trip?.vessel || invoice?.vessel],['Captain', trip?.captain || invoice?.captain],['Mate', trip?.mate || invoice?.mate],['Dispatch', trip ? calculateDispatchReadiness(trip) : 'Not Scheduled'],['Checklist', trip ? `${trip.preTripChecklistStatus || 'Not Started'} / ${trip.postTripChecklistStatus || 'Not Started'}` : '—'],['Payroll', trip?.payroll ? 'Calculated' : 'Not calculated']];
-  return `<article class="card unified-workflow-card"><header><div><div class="linked-record-badges">${workflowBadges(booking,trip,invoice)}</div><h3>${escapeHtml(customer)}</h3><p>${escapeHtml(formatDate(date))} · ${escapeHtml(formatTime(time) || 'Unscheduled')}</p></div><span class="badge green">${escapeHtml(status)}</span></header><div class="pipeline-strip">${WORKFLOW_PIPELINE.map((step) => `<span class="${step === status ? 'current' : ''}">${escapeHtml(step)}</span>`).join('')}</div><div class="unified-record-grid">${fields.map(([label,value]) => `<div><span>${escapeHtml(label)}</span><strong>${escapeHtml(value === 0 ? '0' : value || '—')}</strong></div>`).join('')}</div><footer>${booking ? `<button class="btn btn-outline btn-small" onclick="showForm('bookings','${booking.id}')">Edit booking</button>` : ''}${trip ? `<button class="btn btn-outline btn-small" onclick="openCalendarTrip('${trip.id}')">Dispatch details</button>` : ''}${invoice ? `<button class="btn btn-outline btn-small" onclick="showForm('invoices','${invoice.id}')">Open ${escapeHtml(invoice.documentType || 'invoice')}</button>` : ''}</footer></article>`;
+  const balance = booking?.balance ?? trip?.balanceDue ?? invoice?.balanceDue;
+  const vessel = trip?.vessel || invoice?.vessel || 'Unassigned';
+  const crew = [trip?.captain || invoice?.captain, trip?.mate || invoice?.mate].filter(Boolean).join(' / ') || 'Unassigned';
+  return `<article class="card unified-workflow-card"><header><div><div class="linked-record-badges">${workflowBadges(booking,trip,invoice)}</div><h3>${escapeHtml(customer)}</h3><p>${escapeHtml(formatDate(date))} · ${escapeHtml(formatTime(time) || 'Unscheduled')} · ${escapeHtml(booking?.product || trip?.tourType || invoice?.tourType || 'Tour')}</p></div><span class="badge green">${escapeHtml(status)}</span></header><div class="unified-record-grid"><div><span>Guests</span><strong>${escapeHtml(booking?.guests ?? trip?.passengers ?? invoice?.guestCount ?? '—')}</strong></div><div><span>Balance</span><strong>${money(balance || 0)}</strong></div><div><span>Vessel</span><strong>${escapeHtml(vessel)}</strong></div><div><span>Crew</span><strong>${escapeHtml(crew)}</strong></div></div><footer>${booking ? `<button class="btn btn-primary btn-small" onclick="showForm('bookings','${booking.id}')">Edit</button>` : ''}${trip ? `<button class="btn btn-outline btn-small" onclick="openCalendarTrip('${trip.id}')">Dispatch</button>` : ''}${invoice ? `<button class="btn btn-outline btn-small" onclick="showForm('invoices','${invoice.id}')">${escapeHtml(invoice.documentType || 'Invoice')}</button>` : ''}</footer></article>`;
 }
 
 function renderMigrationReport() {
@@ -1943,8 +2043,63 @@ function renderUnifiedBookingsTrips() {
   const page = document.getElementById('page-bookings'); if (!page) return;
   const visibleBookings = new Set(visibleRecordsForRoute('bookings', store.bookings).map((booking) => booking.id)); const visibleTrips = new Set(visibleRecordsForRoute('trips', store.trips).map((trip) => trip.id));
   const records = unifiedWorkflowRecords().filter(({ booking, trip }) => (booking && visibleBookings.has(booking.id)) || (trip && visibleTrips.has(trip.id)) || (!booking && !trip && ['Admin','Bookkeeper'].includes(activeRoleName()))); const scheduled = visibleRecordsForRoute('trips', store.trips).filter((trip) => trip.tripDate && trip.startTime);
-  const module = document.createElement('section'); module.className = 'unified-workflow'; module.innerHTML = `<div class="card card-pad unified-workflow-hero"><div><p class="eyebrow">Single source of truth</p><h2>Trip Builder</h2><p>Create the booking once; dated bookings become scheduled trips automatically. Assign crew and vessel, track payment, and prepare dispatch here.</p></div><div class="linked-record-badges"><span class="badge blue">${store.bookings.length} Bookings</span><span class="badge green">${scheduled.length} Scheduled Trips</span></div></div><div class="unified-workflow-list">${records.map(renderUnifiedWorkflowCard).join('') || '<p class="empty-state">No booking or trip records yet.</p>'}</div>${renderMigrationReport()}<details class="card app-accordion" open><summary><div><h3>Dispatch Tree</h3><p class="muted-text">Scheduled booking/trip records only.</p></div><span class="chevron">⌄</span></summary><div class="dispatch-tree unified-dispatch-tree">${renderDispatchTree(scheduled)}</div></details>`;
+  const module = document.createElement('section'); module.className = 'unified-workflow'; module.innerHTML = `<div class="card card-pad unified-workflow-hero"><div><p class="eyebrow">Bookings / Trips</p><h2>Upcoming Trips</h2><p>Create or edit the reservation here. Use Dispatch for assignments and readiness.</p></div><div class="unified-workflow-actions"><button class="btn btn-primary" onclick="showForm('bookings')">New Booking / Trip</button><button class="btn btn-outline" data-route="dispatch">Open Dispatch</button></div></div><div class="workflow-summary"><span class="badge blue">${records.length} Total</span><span class="badge green">${scheduled.length} Scheduled</span></div><div class="unified-workflow-list">${records.map(renderUnifiedWorkflowCard).join('') || '<p class="empty-state">No bookings or trips yet. Select New Booking / Trip to begin.</p>'}</div>`;
   page.querySelector('.page-stack').prepend(module);
+  page.querySelector('.module-actions')?.remove();
+  page.querySelector('.table-card')?.remove();
+}
+
+function renderBookingFlowHeader(record = {}) {
+  return `<div class="booking-flow-header"><div><p class="eyebrow">Guided Booking / Trip Builder</p><h2>${record.id ? 'Update reservation' : 'Create reservation'}</h2><p>Enter the reservation once. A date and time automatically create the linked operational trip.</p></div><div class="booking-progress-strip">${['Customer','Schedule','Payment','Review'].map((label, index) => `<span><b>${index + 1}</b>${label}</span>`).join('')}</div></div>`;
+}
+
+function renderInvoiceFlowHeader(record = {}) {
+  return `<div class="booking-flow-header invoice-flow-header"><div><p class="eyebrow">Guided Customer Document Builder</p><h2>${record.id ? 'Update invoice / quote' : 'Create invoice / quote'}</h2><p>Enter customer, tour, pricing, and payment details once. Scheduled invoices connect to the Booking / Trip workflow automatically.</p></div><div class="booking-progress-strip">${['Customer','Schedule','Pricing','Payment','Assignment','Review'].map((label, index) => `<span><b>${index + 1}</b>${label}</span>`).join('')}</div></div>`;
+}
+
+function renderBookingFlowField([key, label, type], record) {
+  const clearerLabels = { order: 'Booking number', date: 'Tour date', time: 'Start time', hours: 'Duration (hours)', product: 'Tour type', source: 'Booking source', price: 'Total tour price', depositRequired: 'Required deposit amount', deposit: 'Deposit paid', balance: 'Balance due', status: 'Booking / Trip status', notes: 'Special requests and notes' };
+  let markup = renderField(key, clearerLabels[key] || label, type, record[key]);
+  if (['order','balance'].includes(key)) markup = markup.replace('<input ', '<input readonly ');
+  if (['customer','phone','email','source','product','date','time','hours','guests','pickupLocation'].includes(key)) markup = markup.replace(/<(input|select) /, '<$1 required ');
+  return markup;
+}
+
+function renderInvoiceFlowField([key, label, type], record) {
+  const clearerLabels = { invoiceNumber: 'Document number (generated when saved)', tripDate: 'Tour date', duration: 'Duration (hours)', returnTime: 'Return time (calculated)', guestCount: 'Number of guests', baseTourPrice: 'Base tour price', swimmingPigsPeople: 'Swimming Pigs guests', lunchPeople: 'Lunch guests', tourPrice: 'Total booking cost (calculated)', balanceDue: 'Balance due (calculated)', customerSummary: 'Customer-facing summary', notes: 'Internal notes' };
+  let markup = renderField(key, clearerLabels[key] || label, type, record[key]);
+  if (['invoiceNumber','returnTime','tourPrice','balanceDue'].includes(key)) markup = markup.replace('<input ', '<input readonly ');
+  if (['documentType','customerName','phone','email','bookingSource','tourType','tripDate','startTime','duration','guestCount','pickupLocation','baseTourPrice'].includes(key)) markup = markup.replace(/<(input|select) /, '<$1 required ');
+  return markup;
+}
+
+function openNextBookingStep(button) {
+  const current = button.closest('details'), next = current?.nextElementSibling;
+  if (!(next instanceof HTMLDetailsElement)) return;
+  current.open = false; next.open = true;
+  next.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function updateBookingFormSummary(form) {
+  const price = Number(form.elements.price?.value || 0), deposit = Number(form.elements.deposit?.value || 0);
+  const balance = Math.max(price - deposit, 0);
+  if (form.elements.balance) form.elements.balance.value = balance.toFixed(2).replace(/\.00$/, '');
+  const host = form.querySelector('[data-booking-live-summary]');
+  if (!host) return;
+  const customer = form.elements.customer?.value || 'Customer not entered';
+  const schedule = form.elements.date?.value && form.elements.time?.value ? `${formatDate(form.elements.date.value)} at ${formatTime(form.elements.time.value)}` : 'Date and time required';
+  const ready = Boolean(form.elements.customer?.value && form.elements.phone?.value && form.elements.email?.value && form.elements.source?.value && form.elements.product?.value && form.elements.date?.value && form.elements.time?.value && form.elements.hours?.value && form.elements.guests?.value && form.elements.pickupLocation?.value);
+  host.innerHTML = `<div class="booking-review-card ${ready ? 'ready' : ''}"><div><p class="eyebrow">Final review</p><h3>${escapeHtml(customer)}</h3><p>${escapeHtml(schedule)} · ${escapeHtml(form.elements.product?.value || 'Tour type required')} · ${escapeHtml(form.elements.guests?.value || '0')} guests</p></div><div class="booking-review-financial"><span><small>Total</small><strong>${money(price)}</strong></span><span><small>Paid</small><strong>${money(deposit)}</strong></span><span><small>Balance</small><strong>${money(balance)}</strong></span></div><span class="badge ${ready ? 'green' : 'gold'}">${ready ? 'Ready to save' : 'Complete required fields'}</span></div>`;
+}
+
+function updateInvoiceFormSummary(form) {
+  const host = form.querySelector('[data-invoice-live-summary]');
+  if (!host) return;
+  const total = Number(form.elements.tourPrice?.value || 0), paid = Number(form.elements.depositPaid?.value || 0), balance = Number(form.elements.balanceDue?.value || 0);
+  const customer = form.elements.customerName?.value || 'Customer not entered';
+  const schedule = form.elements.tripDate?.value && form.elements.startTime?.value ? `${formatDate(form.elements.tripDate.value)} at ${formatTime(form.elements.startTime.value)}` : 'Tour date and start time required';
+  const ready = Boolean(form.elements.documentType?.value && form.elements.customerName?.value && form.elements.phone?.value && form.elements.email?.value && form.elements.bookingSource?.value && form.elements.tourType?.value && form.elements.tripDate?.value && form.elements.startTime?.value && form.elements.duration?.value && form.elements.guestCount?.value && form.elements.pickupLocation?.value && form.elements.baseTourPrice?.value);
+  host.innerHTML = `<div class="booking-review-card invoice-review-card ${ready ? 'ready' : ''}"><div><p class="eyebrow">Final review</p><h3>${escapeHtml(form.elements.documentType?.value || 'Select document type')} · ${escapeHtml(customer)}</h3><p>${escapeHtml(schedule)} · ${escapeHtml(form.elements.tourType?.value || 'Tour type required')} · ${escapeHtml(form.elements.guestCount?.value || '0')} guests</p></div><div class="booking-review-financial"><span><small>Total</small><strong>${money(total)}</strong></span><span><small>Paid</small><strong>${money(paid)}</strong></span><span><small>Balance</small><strong>${money(balance)}</strong></span></div><span class="badge ${ready ? 'green' : 'gold'}">${ready ? 'Ready to save' : 'Complete required fields'}</span></div>`;
 }
 
 function invoiceToBookingSnapshot(invoice) {
@@ -2318,31 +2473,6 @@ function renderDispatch() {
   renderAssignmentBoard(page);
 }
 
-function customerDirectoryRows() {
-  const records = [
-    ...store.bookings.map((item) => ({ name: item.customer, phone: item.phone, email: item.email, source: 'Booking', date: item.date })),
-    ...store.trips.map((item) => ({ name: item.customer, phone: item.phone, email: item.email, source: 'Trip', date: item.tripDate })),
-    ...store.invoices.map((item) => ({ name: item.customerName, phone: item.phone, email: item.email, source: 'Invoice / Quote', date: item.tripDate })),
-    ...(store.customerProfiles || []).map((item) => ({ name: item.name, phone: item.phone, email: item.email, source: 'CRM Profile', date: item.updatedAt?.slice(0,10) || '' }))
-  ].filter((item) => item.name);
-  return Object.values(records.reduce((customers, item) => {
-    const key = `${item.name}|${item.email || ''}|${item.phone || ''}`.toLowerCase();
-    customers[key] ||= { ...item, sources: new Set(), dates: [] };
-    customers[key].sources.add(item.source);
-    if (item.date) customers[key].dates.push(item.date);
-    return customers;
-  }, {})).map((item) => ({ ...item, sources: [...item.sources].join(', '), latestDate: item.dates.sort().at(-1) || '' }));
-}
-
-function renderCustomers() {
-  const customers = customerDirectoryRows();
-  const incidents = visibleIncidentRecords();
-  document.getElementById('page-customers').innerHTML = `<div class="page-stack"><div class="card table-card"><div class="card-header"><h3>Customer Directory & Customer Incidents</h3><span class="badge blue">${customers.length} customers</span></div><div class="customer-profile-list">${customers.length ? customers.map((customer) => {
-    const matches = incidents.filter((incident) => incident.customer === customer.name);
-    return `<details class="customer-profile-card app-accordion"><summary><div><strong>${escapeHtml(customer.name)}</strong><p>${escapeHtml(customer.phone || customer.email || 'No contact details')}</p></div><span class="badge ${matches.length ? 'gold' : 'green'}">${matches.length} incident${matches.length === 1 ? '' : 's'}</span></summary><div class="responsive-table-wrap"><table><thead><tr><th>Date</th><th>Trip</th><th>Issue</th><th>Status</th></tr></thead><tbody>${matches.length ? matches.map((incident) => `<tr><td>${escapeHtml(formatDate(incident.date))}</td><td>${escapeHtml(incidentTripLabel(incident))}</td><td>${escapeHtml(incident.category)} — ${escapeHtml(incident.description)}</td><td>${incidentStatusBadge(incident.status)}</td></tr>`).join('') : '<tr><td colspan="4" class="empty-state">No customer incidents.</td></tr>'}</tbody></table></div></details>`;
-  }).join('') : '<p class="empty-state">No customer records found.</p>'}</div></div></div>`;
-}
-
 function renderAssignmentBoard(host = document.getElementById('page-trips')) {
   const page = host;
   if (!page) return;
@@ -2400,7 +2530,7 @@ function dailyOperationsSummary(trips) {
 function renderDispatchTree(trips) {
   if (!trips.length) return `<div class="dispatch-tree true-dispatch-tree">${renderEmptyDispatchState()}</div>`;
   const byDate = groupByValue(trips, (trip) => trip.tripDate || 'No date');
-  return `<div class="dispatch-tree true-dispatch-tree">${Object.entries(byDate).map(([date, dateTrips]) => renderDispatchDateNode(date, dateTrips)).join('')}</div>`;
+  return `<div class="dispatch-tree true-dispatch-tree"><div class="dispatch-tree-root"><span class="dispatch-root-pulse" aria-hidden="true"></span><div><span class="tree-level">Operations Tree</span><strong>Scheduled Trips</strong><small>${trips.length} active branch${trips.length === 1 ? '' : 'es'}</small></div></div><div class="dispatch-root-branches">${Object.entries(byDate).map(([date, dateTrips]) => renderDispatchDateNode(date, dateTrips)).join('')}</div></div>`;
 }
 
 function renderDispatchDateNode(date, trips) {
@@ -2437,7 +2567,7 @@ function renderDispatchTripNode(trip) {
 }
 
 function renderDispatchLeaf(label, value, status, action, actionValue, color = 'blue', htmlValue = false) {
-  return `<button class="dispatch-leaf" type="button" data-tree-action="${escapeHtml(action)}" data-tree-value="${escapeHtml(actionValue || '')}"><span class="branch-stem" aria-hidden="true">├──</span><span class="leaf-label">${escapeHtml(label)}</span><strong>${htmlValue ? value : escapeHtml(value || '—')}</strong><span class="badge ${color}">${escapeHtml(status || 'Open')}</span></button>`;
+  return `<button class="dispatch-leaf leaf-${color}" type="button" data-tree-action="${escapeHtml(action)}" data-tree-value="${escapeHtml(actionValue || '')}"><span class="branch-stem" aria-hidden="true"></span><span class="leaf-label">${escapeHtml(label)}</span><strong>${htmlValue ? value : escapeHtml(value || '—')}</strong><span class="badge ${color}">${escapeHtml(status || 'Open')}</span></button>`;
 }
 
 function ownerStatusLabel(owner) { return owner && owner !== 'Unassigned owner' ? 'Owner assigned' : 'Missing'; }
@@ -2757,12 +2887,12 @@ function renderInvoiceModule() {
   if (!page || page.querySelector('[data-invoice-module]')) return;
   const table = page.querySelector('.table-card');
   const invoices = store.invoices || [];
-  const cards = invoices.length ? invoices.map((invoice) => `<article class="invoice-card"><div class="card-header"><div><h3>${escapeHtml(invoiceDocumentTitle(invoice))}</h3><p>${escapeHtml(invoice.invoiceNumber || 'No document #')} · ${escapeHtml(invoice.customerName || 'Customer')} · ${escapeHtml(formatDate(invoice.tripDate))}</p></div>${readinessBadge(invoice.paymentStatus || 'Deposit Due')}</div><div class="assignment-card-metrics"><div><span>Total Booking Cost</span><strong>${money(invoice.tourPrice)}</strong></div><div><span>Deposit Paid</span><strong>${money(invoice.depositPaid)}</strong></div><div><span>Remaining Balance</span><strong>${money(invoice.balanceDue)}</strong></div><div><span>Payment Method</span><strong>${escapeHtml(invoice.paymentMethod || 'Not selected')}</strong></div></div><p class="muted-text">${escapeHtml(invoice.tourType || 'Tour package')} · ${escapeHtml(invoice.vessel || 'No vessel')} · ${escapeHtml(invoice.bookingSource || 'No source')}</p><div class="assignment-actions"><button class="btn btn-outline btn-small" onclick="showForm('invoices','${invoice.id}')">Edit Document</button><button class="btn btn-outline btn-small" onclick="previewInvoiceDocument('${invoice.id}')">Preview Document</button><button class="btn btn-outline btn-small" onclick="printInvoiceDocument('${invoice.id}')">Print to PDF</button><button class="btn btn-outline btn-small" onclick="downloadInvoiceDocument('${invoice.id}')">Download PDF / HTML</button><button class="btn btn-outline btn-small" onclick="sendInvoiceEmail('${invoice.id}')">Send by Email</button><button class="btn btn-outline btn-small" onclick="sendInvoiceWhatsApp('${invoice.id}')">Send by WhatsApp</button><button class="btn btn-outline btn-small" onclick="copyInvoiceShareMessage('${invoice.id}')">Copy Share Message</button><button class="btn btn-primary btn-small" onclick="convertDocumentToBookingTrip('${invoice.id}')">${invoice.documentType === 'Quote' ? 'Convert Quote to Booking / Trip' : invoice.bookingId ? 'Open Linked Booking / Trip' : 'Create Booking / Trip'}</button><button class="btn btn-primary btn-small" onclick="markInvoicePaidInFull('${invoice.id}')">Mark Paid in Full</button></div></article>`).join('') : '<p class="empty-state">No Invoice / Quote records yet. Use Create Invoice / Quote to add a native customer-facing document.</p>';
+  const cards = invoices.length ? invoices.map((invoice) => `<article class="invoice-card"><div class="card-header"><div><h3>${escapeHtml(invoiceDocumentTitle(invoice))}</h3><p>${escapeHtml(invoice.invoiceNumber || 'No document #')} · ${escapeHtml(invoice.customerName || 'Customer')} · ${escapeHtml(formatDate(invoice.tripDate))}</p></div>${readinessBadge(invoice.paymentStatus || 'Deposit Due')}</div><div class="assignment-card-metrics"><div><span>Total Booking Cost</span><strong>${money(invoice.tourPrice)}</strong></div><div><span>Deposit Paid</span><strong>${money(invoice.depositPaid)}</strong></div><div><span>Remaining Balance</span><strong>${money(invoice.balanceDue)}</strong></div><div><span>Payment Method</span><strong>${escapeHtml(invoice.paymentMethod || 'Not selected')}</strong></div></div><p class="muted-text">${escapeHtml(invoice.tourType || 'Tour package')} · ${escapeHtml(invoice.vessel || 'No vessel')} · ${escapeHtml(invoice.bookingSource || 'No source')}</p><div class="assignment-actions invoice-primary-actions"><button class="btn btn-outline btn-small" onclick="showForm('invoices','${invoice.id}')">Edit</button><button class="btn btn-outline btn-small" onclick="previewInvoiceDocument('${invoice.id}')">Preview</button><button class="btn btn-primary btn-small" onclick="convertDocumentToBookingTrip('${invoice.id}')">${invoice.documentType === 'Quote' ? 'Convert Quote to Booking / Trip' : invoice.bookingId ? 'Open Linked Booking / Trip' : 'Create Booking / Trip'}</button><button class="btn btn-primary btn-small" onclick="markInvoicePaidInFull('${invoice.id}')">Mark Paid</button><details class="invoice-more-actions"><summary class="btn btn-outline btn-small">Share / Export</summary><div><button class="btn btn-outline btn-small" onclick="printInvoiceDocument('${invoice.id}')">Print / Save PDF</button><button class="btn btn-outline btn-small" onclick="downloadInvoiceDocument('${invoice.id}')">Download Document</button><button class="btn btn-outline btn-small" onclick="sendInvoiceEmail('${invoice.id}')">Send by Email</button><button class="btn btn-outline btn-small" onclick="sendInvoiceWhatsApp('${invoice.id}')">Send by WhatsApp</button><button class="btn btn-outline btn-small" onclick="copyInvoiceShareMessage('${invoice.id}')">Copy Share Message</button></div></details></div></article>`).join('') : '<p class="empty-state">No Invoice / Quote records yet. Use Create Invoice / Quote to add a native customer-facing document.</p>';
   const module = document.createElement('details');
   module.className = 'card native-invoice-module app-accordion';
   module.dataset.invoiceModule = 'true';
   module.open = true;
-  module.innerHTML = `<summary><div><h3>Customer-Facing Invoice / Quote Output</h3><p class="muted-text">Supports Quote, Invoice, Tour Confirmation, Booking Confirmation, and Receipt with print, share, email, WhatsApp, copy, preview, and edit actions.</p></div><span class="chevron" aria-hidden="true">⌄</span></summary><div class="module-actions invoice-create-actions"><button class="btn btn-primary" type="button" onclick="createInvoiceDocument('Quote')">Create Quote</button><button class="btn btn-primary" type="button" onclick="createInvoiceDocument('Invoice')">Create Invoice</button></div><div class="grid invoice-card-grid">${cards}</div><div class="card card-pad invoice-preview-host" data-receipt-summary><strong>Document preview</strong><p class="muted-text">Choose Preview Document on any invoice/quote to review the branded customer document before printing or sending.</p></div>`;
+  module.innerHTML = `<summary><div><h3>Customer Documents</h3><p class="muted-text">Preview, share, collect payment, or connect saved documents to a Booking / Trip.</p></div><span class="chevron" aria-hidden="true">⌄</span></summary><div class="grid invoice-card-grid">${cards}</div><div class="card card-pad invoice-preview-host" data-receipt-summary><strong>Document preview</strong><p class="muted-text">Choose Preview on any document to review it before printing or sending.</p></div>`;
   table.before(module);
 }
 
@@ -2824,6 +2954,42 @@ function markInvoicePaidInFull(id) {
 }
 function generateReceiptSummary(id) { previewInvoiceDocument(id); }
 
+function importCruiseMapperSchedule() {
+  const text = document.querySelector('[data-cruise-import]')?.value.trim();
+  if (!text) { toast('Paste CruiseMapper schedule rows first.'); return; }
+  const rows = text.split(/\r?\n/).map((line) => line.split(/\t|,/).map((cell) => cell.trim())).filter((cells) => cells.length >= 2 && !/date/i.test(cells[0]));
+  const imported = rows.map(([arrivalDate, shipName, cruiseLine = '', arrivalTime = '', departureTime = '', terminalDock = '', passengerCapacity = '0']) => ({
+    id: uid('cruise'), arrivalDate, shipName, cruiseLine, arrivalTime, departureTime, terminalDock, passengerCapacity: Number(String(passengerCapacity).replace(/\D/g, '')) || 0,
+    postedStatus: 'No', opportunityStatus: 'New', notes: 'Imported from CruiseMapper Nassau schedule'
+  })).filter((entry) => /^\d{4}-\d{2}-\d{2}$/.test(entry.arrivalDate) && entry.shipName);
+  if (!imported.length) { toast('No valid rows found. Use YYYY-MM-DD, Ship, Cruise Line, Arrival, Departure, Dock, Capacity.'); return; }
+  const keys = new Set(imported.map((entry) => `${entry.arrivalDate}|${entry.shipName.toLowerCase()}`));
+  store.cruiseSchedule = [...imported, ...store.cruiseSchedule.filter((entry) => !keys.has(`${entry.arrivalDate}|${String(entry.shipName).toLowerCase()}`))];
+  store.cruiseScheduleIntegration.status = `${imported.length} rows imported`;
+  store.cruiseScheduleIntegration.lastSyncAt = new Date().toISOString();
+  addAudit('imported', 'Cruise Schedule', `${imported.length} CruiseMapper schedule rows imported.`, { source: store.cruiseScheduleIntegration.sourceUrl });
+  saveStore(); renderCrud('cruise-schedule'); toast(`${imported.length} cruise schedule rows imported.`);
+}
+async function refreshCruiseMapperSchedule(silent = false) {
+  const integration = store.cruiseScheduleIntegration;
+  if (integration.status === 'Refreshing') return;
+  integration.status = 'Refreshing';
+  saveStore(); renderCrud('cruise-schedule');
+  try {
+    const response = await fetch('/api/cruise/nassau', { cache: 'no-store' });
+    if (!response.ok) throw new Error(`Cruise service returned ${response.status}`);
+    const data = await response.json(), imported = data.records || [];
+    const keys = new Set(imported.map((entry) => `${entry.arrivalDate}|${String(entry.shipName).toLowerCase()}`));
+    store.cruiseSchedule = [...imported, ...store.cruiseSchedule.filter((entry) => !keys.has(`${entry.arrivalDate}|${String(entry.shipName).toLowerCase()}`))];
+    integration.status = `Live · ${imported.length} arrivals`;
+    integration.lastSyncAt = data.updatedAt || new Date().toISOString();
+    addAudit('synced', 'Cruise Schedule', `${imported.length} CruiseMapper Nassau arrivals automatically synced.`, { source: integration.sourceUrl });
+    saveStore(); renderCrud('cruise-schedule'); if (!silent) toast('CruiseMapper Nassau schedule refreshed.');
+  } catch (error) {
+    integration.status = 'Live service unavailable';
+    saveStore(); renderCrud('cruise-schedule'); if (!silent) toast(`Cruise refresh failed: ${error.message}`);
+  }
+}
 
 function renderCruiseScheduleModule() {
   const page = document.getElementById('page-cruise-schedule');
@@ -2833,11 +2999,17 @@ function renderCruiseScheduleModule() {
   const entries = store.cruiseSchedule || [];
   const todayShips = entries.filter((entry) => entry.arrivalDate === today);
   const upcoming = entries.filter((entry) => String(entry.arrivalDate || '') >= today).sort((a, b) => String(a.arrivalDate + a.arrivalTime).localeCompare(String(b.arrivalDate + b.arrivalTime))).slice(0, 8);
+  const integration = store.cruiseScheduleIntegration;
+  const sourcePanel = document.createElement('div');
+  sourcePanel.className = 'card card-pad external-source-card cruise-source-card';
+  sourcePanel.dataset.cruiseModule = 'true';
+  sourcePanel.innerHTML = `<div><p class="eyebrow">Live Nassau schedule source</p><h3>CruiseMapper</h3><p>The app server automatically pulls the current and upcoming Nassau schedule directly from CruiseMapper.</p><span class="integration-status">${escapeHtml(integration.status)}${integration.lastSyncAt ? ` · ${escapeHtml(new Date(integration.lastSyncAt).toLocaleString())}` : ''}</span></div><div class="external-source-actions"><button class="btn btn-outline" type="button" onclick="openExternalSource('${integration.sourceUrl}')">Open CruiseMapper Nassau</button><button class="btn btn-primary" type="button" onclick="refreshCruiseMapperSchedule()">Refresh Live Schedule</button><details><summary>Manual import fallback</summary><textarea data-cruise-import placeholder="YYYY-MM-DD, Ship, Cruise Line, Arrival, Departure, Dock, Capacity"></textarea><button class="btn btn-outline" type="button" onclick="importCruiseMapperSchedule()">Import Schedule Rows</button></details></div>`;
   const panel = document.createElement('div');
   panel.className = 'grid cruise-dashboard-grid';
   panel.dataset.cruiseModule = 'true';
   panel.innerHTML = `<div class="card card-pad"><h3>Ships in Port Today</h3>${todayShips.length ? todayShips.map((entry) => `<div class="stat-row"><span>${escapeHtml(entry.arrivalTime || 'No arrival')}–${escapeHtml(entry.departureTime || 'No departure')}</span><strong>${escapeHtml(entry.shipName)}<br><small>${escapeHtml(entry.terminalDock || 'No dock')}</small></strong></div>`).join('') : '<p class="empty-state">No ships in port today.</p>'}</div><div class="card card-pad"><h3>Upcoming Ships</h3>${upcoming.length ? upcoming.map((entry) => `<div class="stat-row"><span>${escapeHtml(formatDate(entry.arrivalDate))}</span><strong>${escapeHtml(entry.shipName)}<br><small>${escapeHtml(entry.cruiseLine || 'Cruise line')} · ${Number(entry.passengerCapacity || 0).toLocaleString()} pax</small></strong></div>`).join('') : '<p class="empty-state">No upcoming cruise entries.</p>'}</div>`;
-  table.before(panel);
+  table.before(sourcePanel, panel);
+  if (integrationIsStale(integration, 60)) setTimeout(() => refreshCruiseMapperSchedule(true), 0);
 }
 
 function renderCrewDashboard() {
@@ -3651,7 +3823,8 @@ function renderOwnerDashboard() {
   const expenseAlerts = (store.expenses || []).filter((expense) => ownerVessels.includes(expense.vessel) && expense.status !== 'Paid');
   const ownerFuelCost = trips.reduce((sum, trip) => sum + Number(trip.totalFuelCost || 0), 0);
   const ownerNetProfit = trips.reduce((sum, trip) => sum + tripProfitability(trip).estimatedNetProfit, 0);
-  page.innerHTML = `<div class="page-stack owner-command-center"><div class="module-actions"><select data-owner-select onchange="renderOwnerDashboard()">${getOptions('owners').map((owner) => `<option value="${escapeHtml(owner)}" ${owner === selected ? 'selected' : ''}>${escapeHtml(owner)}</option>`).join('')}</select></div><div class="grid kpi-grid dashboard-kpis">${kpi('Assigned vessels', ownerVessels.length, ownerVessels.join(', ') || 'None')}${kpi('Upcoming trips', trips.length, 'Owner vessel assignments')}${kpi('Outstanding owner payouts', money(outstanding), 'Unpaid owner payroll')}${kpi('Checklist completion', `${checklistDone}/${trips.length}`, 'Pre trip complete')}${kpi('Incident alerts', incidentAlerts.length, 'Open owner vessel incidents')}${kpi('Expense alerts', expenseAlerts.length, 'Submitted or review needed')}${kpi('Fuel cost', money(ownerFuelCost), 'Owner vessel trips')}${kpi('Estimated net profit', money(ownerNetProfit), 'After payroll, fuel, and expenses')}${kpi('Payroll alerts', ownerPayroll.filter((entry) => entry.outstanding > 0).length, 'Outstanding payout lines')}</div>${weatherSummaryCards(trips)}<div class="grid dashboard-grid"><div class="card"><div class="card-header"><h3>Upcoming trips</h3>${statusBadge(trips.length ? 'Pending' : 'Ready')}</div><div class="stat-list">${trips.length ? trips.map((trip) => `<div class="stat-row"><span>${escapeHtml(formatDate(trip.tripDate))} · ${escapeHtml(trip.vessel)}</span><strong>${escapeHtml(trip.customer || 'Trip')}<br><small>Captain ${escapeHtml(trip.captain || 'Missing')} · Mate ${escapeHtml(trip.mate || 'Missing')} · ${escapeHtml(calculateDispatchReadiness(trip))}<br>${weatherRiskBadge(trip)}</small></strong></div>`).join('') : '<p class="empty-state">No owner vessel assignments.</p>'}</div></div><div class="card"><div class="card-header"><h3>Owner alerts</h3>${statusBadge(incidentAlerts.length ? 'Incident' : expenseAlerts.length ? 'Needs Review' : 'Ready')}</div><div class="notice-list card-pad">${notices.length ? notices.slice(0, 8).map((notice) => `<div class="notice-item ${notice.read ? '' : 'unread'}"><span class="badge ${statusColor(notice.category)}">${escapeHtml(notice.category)}</span><div><strong>${escapeHtml(notice.title)}</strong><p>${escapeHtml(notice.message)}</p></div></div>`).join('') : '<p class="empty-state">No owner alerts.</p>'}</div></div></div>${renderPhotoNotePanel('owner-dashboard')}</div>`;
+  page.innerHTML = `<div class="page-stack owner-command-center"><div class="module-actions"><select data-owner-select onchange="renderOwnerDashboard()">${getOptions('owners').map((owner) => `<option value="${escapeHtml(owner)}" ${owner === selected ? 'selected' : ''}>${escapeHtml(owner)}</option>`).join('')}</select></div>${renderDashboardWeatherWidget()}<div class="grid kpi-grid dashboard-kpis">${kpi('Assigned vessels', ownerVessels.length, ownerVessels.join(', ') || 'None')}${kpi('Upcoming trips', trips.length, 'Owner vessel assignments')}${kpi('Outstanding owner payouts', money(outstanding), 'Unpaid owner payroll')}${kpi('Checklist completion', `${checklistDone}/${trips.length}`, 'Pre trip complete')}${kpi('Incident alerts', incidentAlerts.length, 'Open owner vessel incidents')}${kpi('Expense alerts', expenseAlerts.length, 'Submitted or review needed')}${kpi('Fuel cost', money(ownerFuelCost), 'Owner vessel trips')}${kpi('Estimated net profit', money(ownerNetProfit), 'After payroll, fuel, and expenses')}${kpi('Payroll alerts', ownerPayroll.filter((entry) => entry.outstanding > 0).length, 'Outstanding payout lines')}</div>${weatherSummaryCards(trips)}<div class="grid dashboard-grid"><div class="card"><div class="card-header"><h3>Upcoming trips</h3>${statusBadge(trips.length ? 'Pending' : 'Ready')}</div><div class="stat-list">${trips.length ? trips.map((trip) => `<div class="stat-row"><span>${escapeHtml(formatDate(trip.tripDate))} · ${escapeHtml(trip.vessel)}</span><strong>${escapeHtml(trip.customer || 'Trip')}<br><small>Captain ${escapeHtml(trip.captain || 'Missing')} · Mate ${escapeHtml(trip.mate || 'Missing')} · ${escapeHtml(calculateDispatchReadiness(trip))}<br>${weatherRiskBadge(trip)}</small></strong></div>`).join('') : '<p class="empty-state">No owner vessel assignments.</p>'}</div></div><div class="card"><div class="card-header"><h3>Owner alerts</h3>${statusBadge(incidentAlerts.length ? 'Incident' : expenseAlerts.length ? 'Needs Review' : 'Ready')}</div><div class="notice-list card-pad">${notices.length ? notices.slice(0, 8).map((notice) => `<div class="notice-item ${notice.read ? '' : 'unread'}"><span class="badge ${statusColor(notice.category)}">${escapeHtml(notice.category)}</span><div><strong>${escapeHtml(notice.title)}</strong><p>${escapeHtml(notice.message)}</p></div></div>`).join('') : '<p class="empty-state">No owner alerts.</p>'}</div></div></div>${renderPhotoNotePanel('owner-dashboard')}</div>`;
+  activateDashboardWeatherWidget();
 }
 
 
@@ -4245,7 +4418,7 @@ function saveGmailImportSettings(event) { event.preventDefault(); const data = n
 function gmailImportSettingsMarkup() { const settings = store.gmailImportSettings; return `<details class="legacy-tool settings-span gmail-settings" open><summary><div><p class="eyebrow">Future API readiness · no live connection</p><h3>Gmail Import Settings</h3></div><span class="chevron">⌄</span></summary><form onsubmit="saveGmailImportSettings(event)"><div class="gmail-readiness-grid"><span><small>gmailOAuthStatus</small><strong>${escapeHtml(store.gmailOAuthStatus)}</strong></span><span><small>gmailConnectedAccount</small><strong>${escapeHtml(store.gmailConnectedAccount || 'None')}</strong></span><span><small>lastSyncTime</small><strong>${escapeHtml(store.lastSyncTime || 'Never')}</strong></span><span><small>syncCursor</small><strong>${escapeHtml(store.syncCursor || 'Not set')}</strong></span><span><small>importRules</small><strong>${store.importRules.length} placeholders</strong></span><span><small>sourceRules</small><strong>${store.sourceRules.length} placeholders</strong></span></div><div class="form-grid"><label class="toggle-row"><input name="enabled" type="checkbox" ${settings.enabled ? 'checked' : ''}> Enable Gmail Import framework</label><label>Default Import Action<select name="defaultImportAction">${['Save as Draft','Create Booking','Create Trip','Create Invoice / Quote','Add to Calendar'].map((value) => `<option ${settings.defaultImportAction === value ? 'selected' : ''}>${value}</option>`).join('')}</select></label><label>Duplicate Detection Strictness<select name="duplicateDetectionStrictness">${['Strict','Standard','Relaxed'].map((value) => `<option ${settings.duplicateDetectionStrictness === value ? 'selected' : ''}>${value}</option>`).join('')}</select></label><label class="toggle-row"><input type="checkbox" checked disabled> Review Required Before Save (always on)</label></div><fieldset><legend>Allowed Sources</legend><div class="gmail-source-options">${GMAIL_IMPORT_SOURCES.map((source) => `<label><input type="checkbox" name="allowedSources" value="${escapeHtml(source)}" ${settings.allowedSources.includes(source) ? 'checked' : ''}> ${escapeHtml(source)}</label>`).join('')}</div></fieldset><p class="notice warning"><strong>No live Gmail API:</strong> this framework does not request OAuth credentials, connect to Gmail, sync messages, or automatically read real emails.</p><button class="btn btn-primary">Save Gmail Import Settings</button></form></details>`; }
 
 /* Phase 6K: local-only Operations Assistant. This rule engine never sends app data outside the browser. */
-const assistantLocalDataSources = ['Bookings','Trips','Invoices / Quotes','Customers','Calendar','Crew','Vessels','Payroll','Expenses','Inventory','Incident Reports','Maintenance','Fuel Tracking','Weather','Cruise Tracking','Notifications','Audit Trail'];
+const assistantLocalDataSources = ['Bookings','Trips','Invoices / Quotes','Calendar','Crew','Vessels','Payroll','Expenses','Inventory','Incident Reports','Maintenance','Fuel Tracking','Weather','Cruise Tracking','Notifications','Audit Trail'];
 const assistantSuggestedQuestions = [
   ['Trips needing attention', 'Show trips not dispatch ready.'], ['Outstanding balances', 'Show unpaid invoices.'],
   ['Payroll due', 'Show payroll due.'], ['Open incidents', 'Show open incidents.'], ['Maintenance due', 'Show vessels due for maintenance.'],
@@ -4255,7 +4428,7 @@ const assistantSuggestedQuestions = [
 const assistantCategoryRoles = {
   Trips: ['Admin','Owner','Captain','Mate'], Bookings: ['Admin','Owner','Bookkeeper'], Revenue: ['Admin','Owner','Bookkeeper'], Payroll: ['Admin','Owner','Captain','Mate','Bookkeeper'],
   Crew: ['Admin'], Vessels: ['Admin','Owner','Captain','Mate'], Maintenance: ['Admin','Owner','Captain','Mate'], Fuel: ['Admin','Owner','Bookkeeper'], Weather: ['Admin','Owner','Captain','Mate'],
-  Cruise: ['Admin','Owner','Captain','Mate'], Incidents: ['Admin','Owner','Captain','Mate'], Customers: ['Admin','Bookkeeper'], Invoices: ['Admin','Owner','Bookkeeper'], Checklists: ['Admin','Owner','Captain','Mate']
+  Cruise: ['Admin','Owner','Captain','Mate'], Incidents: ['Admin','Owner','Captain','Mate'], Invoices: ['Admin','Owner','Bookkeeper'], Checklists: ['Admin','Owner','Captain','Mate']
 };
 function assistantDateRange(period = 'week') {
   const now = new Date(), start = new Date(now), end = new Date(now);
@@ -4289,8 +4462,8 @@ function runLocalAssistantQuery(rawQuery) {
   else if (/(today'?s trips|trips today)/.test(q)) result = assistantResult('Trips',"Today's Trips",`Trips scheduled for ${formatDate(today)}.`, trips.filter((t) => t.tripDate === today).map((t) => assistantTripCard(t,{ Status:calculateDispatchReadiness(t) })));
   else if (/booking/.test(q) && /(without|missing|no trip)/.test(q)) { const linked = new Set((store.trips || []).map((t) => t.bookingId).filter(Boolean)), visibleNames = new Set(trips.map((t) => t.customer)); result = assistantResult('Bookings','Bookings Without Trips','Bookings that are not linked to a trip.', (store.bookings || []).filter((b) => !linked.has(b.id) && (role !== 'Owner' || visibleNames.has(b.customer))).map((b) => ({ title:b.customer || b.order || 'Booking', fields:{ Date:formatDate(b.date), Product:b.product || '—', Balance:money(b.balance) }, action:assistantAction('Open Booking','bookings',b.id) }))); }
   else if (/(unpaid invoice|balances due)/.test(q)) result = assistantResult('Invoices','Unpaid Invoices','Invoices and quotes with a remaining balance.', assistantScopedInvoices().filter((i) => Number(i.balanceDue || 0) > 0).map((i) => ({ title:i.customerName || 'Customer', fields:{ 'Invoice Number':i.invoiceNumber || '—', Balance:money(i.balanceDue), 'Due / Trip Date':formatDate(i.dueDate || i.tripDate) }, action:assistantAction('Open Invoice / Quote','invoices',i.id) })));
-  else if (/customers?.*(outstanding|balance)/.test(q)) { const totals = {}; assistantScopedInvoices().forEach((i) => totals[i.customerName || 'Unknown'] = (totals[i.customerName || 'Unknown'] || 0) + Number(i.balanceDue || 0)); result = assistantResult('Customers','Customers With Outstanding Balances','Customer balances from visible invoices.', Object.entries(totals).filter(([,v]) => v > 0).sort((a,b)=>b[1]-a[1]).map(([name,value]) => ({ title:name, fields:{ 'Outstanding Balance':money(value) }, action:assistantAction('Open Customer','customers') }))); }
-  else if (/(lifetime spend|highest lifetime|top customers)/.test(q)) { const totals = {}; [...(store.invoices || []), ...(store.trips || [])].forEach((x) => { const name=x.customerName || x.customer; if(name) totals[name]=(totals[name]||0)+Number(x.tourPrice||0); }); result=assistantResult('Customers','Customers With Highest Lifetime Spend','Lifetime value calculated from local invoices and trips.',Object.entries(totals).sort((a,b)=>b[1]-a[1]).slice(0,20).map(([name,value])=>({title:name,fields:{'Lifetime Spend':money(value)},action:assistantAction('Open Customer','customers')}))); }
+  else if (/customers?.*(outstanding|balance)/.test(q)) { const totals = {}; assistantScopedInvoices().forEach((i) => totals[i.customerName || 'Unknown'] = (totals[i.customerName || 'Unknown'] || 0) + Number(i.balanceDue || 0)); result = assistantResult('Invoices','Customers With Outstanding Balances','Customer balances from visible invoices.', Object.entries(totals).filter(([,v]) => v > 0).sort((a,b)=>b[1]-a[1]).map(([name,value]) => ({ title:name, fields:{ 'Outstanding Balance':money(value) }, action:assistantAction('Open Invoice / Quote','invoices') }))); }
+  else if (/(lifetime spend|highest lifetime|top customers)/.test(q)) { const totals = {}; [...(store.invoices || []), ...(store.trips || [])].forEach((x) => { const name=x.customerName || x.customer; if(name) totals[name]=(totals[name]||0)+Number(x.tourPrice||0); }); result=assistantResult('Invoices','Customers With Highest Lifetime Spend','Lifetime value calculated from local invoices and trips.',Object.entries(totals).sort((a,b)=>b[1]-a[1]).slice(0,20).map(([name,value])=>({title:name,fields:{'Lifetime Spend':money(value)},action:assistantAction('Open Invoice / Quote','invoices')}))); }
   else if (/(payroll due|earnings|owner payouts? due)/.test(q)) { const [start,end]=assistantDateRange('week'), person=activeRolePerson(role); let entries=payrollEntries().filter((e)=>e.outstanding>0); if(role==='Owner') entries=entries.filter((e)=>e.role==='Owner'&&e.person===person); if(['Captain','Mate'].includes(role)) entries=entries.filter((e)=>e.role===role&&e.person===person); if(/captain/.test(q)) entries=entries.filter((e)=>e.role==='Captain'); if(/mate/.test(q)) entries=entries.filter((e)=>e.role==='Mate'); if(/owner payout/.test(q)) entries=entries.filter((e)=>e.role==='Owner'); if(/this week|earnings/.test(q)) entries=entries.filter((e)=>e.trip.tripDate>=start&&e.trip.tripDate<=end); result=assistantResult('Payroll',/owner payout/.test(q)?'Owner Payouts Due':/earnings/.test(q)?`${role} Earnings This Week`:'Payroll Due',`Outstanding payroll visible to ${role}.`,entries.map((e)=>({title:e.person,fields:{Role:e.role,Trip:formatDate(e.trip.tripDate),Vessel:e.vessel||'—',Outstanding:money(e.outstanding)},action:assistantAction('Open Payroll','payroll')}))); }
   else if (/(maintenance|service due)/.test(q)) { const owned=new Set(trips.map((t)=>t.vessel)); let records=store.maintenanceRecords||[]; if(role==='Owner') records=records.filter((r)=>owned.has(r.vessel)); if(['Captain','Mate'].includes(role)) records=records.filter((r)=>owned.has(r.vessel)); records=records.filter((r)=>r.status!=='Good'||maintenanceAlerts(r).length); result=assistantResult('Maintenance','Vessels Due for Maintenance','Vessels with due, overdue, or review-needed maintenance.',records.map((r)=>({title:r.vessel,fields:{Status:r.status,Alerts:String(maintenanceAlerts(r).length),'Next Service':formatDate(r.nextOilChangeDue)},action:assistantAction('Open Vessel','maintenance')}))); }
   else if (/(open incident|incident)/.test(q)) result=assistantResult('Incidents','Open Incidents','Unresolved incidents visible to your role.',assistantScopedIncidents().filter((i)=>i.status!=='Resolved'&&i.status!=='Closed').map((i)=>({title:i.category||'Incident',fields:{Date:formatDate(i.date),Vessel:i.vessel||'—',Severity:i.severity||'—','Reported By':i.reportedBy||'—',Status:i.status||'Open'},action:assistantAction('Open Incident','incident-reports',i.id)})));
@@ -4300,7 +4473,7 @@ function runLocalAssistantQuery(rawQuery) {
   else if (/post.?trip.*checklist|missing post/.test(q)) result=assistantResult('Checklists','Trips Missing Post Trip Checklist','Completed trips without a completed post-trip checklist.',trips.filter((t)=>t.status==='Completed'&&latestChecklistStatus(t,'Post Trip')!=='Completed').map((t)=>assistantTripCard(t,{Checklist:latestChecklistStatus(t,'Post Trip')})));
   else if (/fuel cost/.test(q)) { const [start,end]=assistantDateRange('month'), amount=trips.filter((t)=>t.tripDate>=start&&t.tripDate<=end).reduce((sum,t)=>sum+Number(t.totalFuelCost||0),0); result=assistantResult('Fuel','Fuel Cost This Month',`${money(amount)} in locally tracked trip fuel cost.`,[{title:'Monthly Fuel Cost',fields:{Period:`${formatDate(start)} – ${formatDate(end)}`,Total:money(amount)},action:assistantAction('Open Trips','trips')}]); }
   else if (/(revenue|most profitable vessel)/.test(q)) { const period=/week/.test(q)?'week':'month',[start,end]=assistantDateRange(period), relevant=trips.filter((t)=>t.tripDate>=start&&t.tripDate<=end); if(/most profitable vessel/.test(q)){const totals={};relevant.forEach((t)=>totals[t.vessel||'Unassigned']=(totals[t.vessel||'Unassigned']||0)+Number(t.tourPrice||0)-Number(t.totalFuelCost||0)-(t.payroll||calculateTripPayroll(t)).reduce((s,e)=>s+Number(e.amount||0),0));const best=Object.entries(totals).sort((a,b)=>b[1]-a[1])[0];result=assistantResult('Revenue','Most Profitable Vessel','Estimated profit uses local revenue, payroll, and fuel values.',best?[{title:best[0],fields:{'Estimated Profit':money(best[1]),Period:`${formatDate(start)} – ${formatDate(end)}`},action:assistantAction('Open Vessel','vessels')}]:[]);}else{const amount=relevant.reduce((sum,t)=>sum+Number(t.tourPrice||0),0);result=assistantResult('Revenue',`Revenue This ${period==='week'?'Week':'Month'}`,`${money(amount)} from visible trip revenue.`,[{title:'Revenue Summary',fields:{Period:`${formatDate(start)} – ${formatDate(end)}`,Revenue:money(amount),Trips:String(relevant.length)},action:assistantAction('Open Reports','reports')}]);} }
-  else result=assistantResult('Trips','Try a Suggested Operations Question','I could not match that question yet. Use a suggested prompt or ask about trips, invoices, payroll, incidents, maintenance, customers, revenue, fuel, weather, cruise timing, or checklists.',[]);
+  else result=assistantResult('Trips','Try a Suggested Operations Question','I could not match that question yet. Use a suggested prompt or ask about trips, invoices, payroll, incidents, maintenance, revenue, fuel, weather, cruise timing, or checklists.',[]);
   if (!assistantAllowed(result.category)) result=assistantResult(result.category,'Query Not Available for This Role',`${role} does not have visibility for ${result.category.toLowerCase()} queries.`,[]);
   store.assistantQueryLog.unshift({id:makeId('assistant-query'),user:currentUserLabel(),query,category:result.category,resultCount:result.cards.length,at:new Date().toISOString()}); store.assistantQueryLog=store.assistantQueryLog.slice(0,100);
   addAudit('queried','Operations Assistant',query,{resultCategory:result.category,resultCount:result.cards.length}); saveStore(); return result;

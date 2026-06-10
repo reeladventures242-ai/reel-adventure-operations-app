@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: reel-adventure-operations-app
+    runtime: python
+    plan: free
+    buildCommand: ""
+    startCommand: python server.py
+    healthCheckPath: /api/health
+    autoDeploy: true
