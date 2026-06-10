@@ -1562,4 +1562,5 @@ body { background: radial-gradient(circle at 90% 0%, rgba(8,166,166,.10), transp
 .integration-checklist div{padding:12px;border:1px dashed rgba(7,95,125,.28);border-radius:13px;background:#f7fbfb}
 .integration-checklist strong,.integration-checklist p{margin:0}.integration-checklist p{margin-top:5px;color:var(--muted);line-height:1.45}
 .app-download-card,.integration-status-card{border-top:4px solid var(--teal)}
-@media(max-width:760px){.settings-card-head{display:grid}.integration-readiness-grid,.integration-checklist{grid-template-columns:1fr}.app-download-card .legacy-actions,.integration-status-card .legacy-actions{display:grid}.app-download-card .btn,.integration-status-card .btn{width:100%}}
+.gmail-live-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap}
+@media(max-width:760px){.settings-card-head{display:grid}.integration-readiness-grid,.integration-checklist{grid-template-columns:1fr}.app-download-card .legacy-actions,.integration-status-card .legacy-actions{display:grid}.app-download-card .btn,.integration-status-card .btn{width:100%}.gmail-live-actions{justify-content:flex-start}.gmail-live-actions .btn{flex:1 1 140px}}

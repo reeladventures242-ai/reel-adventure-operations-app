@@ -1,4 +1,4 @@
-const CACHE_NAME = 'rat-ops-shell-v14-integrations-download-20260610';
+const CACHE_NAME = 'rat-ops-shell-v15-owner-integrations-20260610';
 const APP_ASSETS = [
   './',
   './index.html',

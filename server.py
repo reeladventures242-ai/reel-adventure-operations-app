@@ -4,9 +4,11 @@
 from datetime import datetime, timedelta, timezone
 from html.parser import HTMLParser
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+import html
 import json
 import os
 import re
+import secrets
 import tempfile
 import urllib.error
 import urllib.parse
@@ -21,15 +23,23 @@ OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
 MET_NO_URL = "https://api.met.no/weatherapi/locationforecast/2.0/compact"
 BOATBOOKER_WIDGET_BUILDER_URL = "https://boatbooker.com/js/widgets/captainWeatherWidgetBuilder.js?v=1777446641"
 USER_AGENT = "ReelAdventureOperations/1.0 https://github.com/reeladventures242-ai/reel-adventure-operations-app"
-APP_RELEASE = "2026-06-10-integrations-download-v1"
+APP_RELEASE = "2026-06-10-owner-integrations-v1"
 CACHE_DIR = os.environ.get("CACHE_DIR", os.path.join(tempfile.gettempdir(), "reel-adventure-cache"))
 WEATHER_CACHE_FILE = os.path.join(CACHE_DIR, "weather-nassau.json")
 CRUISE_CACHE_FILE = os.path.join(CACHE_DIR, "cruise-nassau.json")
+GMAIL_TOKEN_FILE = os.path.join(CACHE_DIR, "gmail-owner-token.json")
+GMAIL_STATE_FILE = os.path.join(CACHE_DIR, "gmail-oauth-state.json")
+WHATSAPP_WEBHOOK_FILE = os.path.join(CACHE_DIR, "whatsapp-webhook-events.json")
 WEATHER_CACHE_TTL_SECONDS = int(os.environ.get("WEATHER_CACHE_TTL_SECONDS", "1800"))
 WEATHER_FALLBACK_TTL_SECONDS = int(os.environ.get("WEATHER_FALLBACK_TTL_SECONDS", "600"))
 CRUISE_CACHE_TTL_SECONDS = int(os.environ.get("CRUISE_CACHE_TTL_SECONDS", "21600"))
 GMAIL_REQUIRED_ENV = ("GMAIL_CLIENT_ID", "GMAIL_CLIENT_SECRET", "GMAIL_REDIRECT_URI")
 WHATSAPP_REQUIRED_ENV = ("WHATSAPP_ACCESS_TOKEN", "WHATSAPP_PHONE_NUMBER_ID", "WHATSAPP_BUSINESS_ACCOUNT_ID")
+GMAIL_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
+GMAIL_TOKEN_URL = "https://oauth2.googleapis.com/token"
+GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.readonly"
+GMAIL_API_ROOT = "https://gmail.googleapis.com/gmail/v1/users/me"
+WHATSAPP_GRAPH_VERSION = os.environ.get("WHATSAPP_GRAPH_VERSION", "v20.0")
 
 
 def request_json(url, data=None):
@@ -39,6 +49,27 @@ def request_json(url, data=None):
         headers["Content-Type"] = "application/json"
     with urllib.request.urlopen(urllib.request.Request(url, data=body, headers=headers), timeout=25) as response:
         return json.loads(response.read().decode("utf-8"))
+
+
+def request_form_json(url, form):
+    body = urllib.parse.urlencode(form).encode()
+    request = urllib.request.Request(url, data=body, headers={
+        "User-Agent": USER_AGENT,
+        "Accept": "application/json",
+        "Content-Type": "application/x-www-form-urlencoded",
+    })
+    with urllib.request.urlopen(request, timeout=25) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def request_authed_json(url, token, data=None):
+    body = json.dumps(data).encode() if data is not None else None
+    headers = {"User-Agent": USER_AGENT, "Accept": "application/json", "Authorization": f"Bearer {token}"}
+    if body is not None:
+        headers["Content-Type"] = "application/json"
+    request = urllib.request.Request(url, data=body, headers=headers)
+    with urllib.request.urlopen(request, timeout=25) as response:
+        return json.loads(response.read().decode("utf-8") or "{}")
 
 
 def request_text(url):
@@ -54,6 +85,111 @@ def iso_now():
 def env_readiness(required_names):
     missing = [name for name in required_names if not os.environ.get(name)]
     return {"configured": not missing, "missing": missing}
+
+
+def gmail_token_payload():
+    payload = read_json_file(GMAIL_TOKEN_FILE) or {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def save_gmail_token(payload):
+    token = dict(payload)
+    expires_in = int(token.get("expires_in") or 0)
+    if expires_in:
+        token["expiresAt"] = (datetime.now(timezone.utc) + timedelta(seconds=max(60, expires_in - 60))).isoformat()
+    existing = gmail_token_payload()
+    if "refresh_token" not in token and existing.get("refresh_token"):
+        token["refresh_token"] = existing["refresh_token"]
+    write_json_file(GMAIL_TOKEN_FILE, token)
+    return token
+
+
+def gmail_token_status():
+    token = gmail_token_payload()
+    connected = bool(token.get("refresh_token") or token.get("access_token"))
+    return {
+        "connected": connected,
+        "email": token.get("email", ""),
+        "expiresAt": token.get("expiresAt", ""),
+        "updatedAt": token.get("updatedAt", ""),
+    }
+
+
+def gmail_access_token():
+    token = gmail_token_payload()
+    access_token = token.get("access_token", "")
+    expires_at = parse_iso(token.get("expiresAt"))
+    if access_token and expires_at and expires_at > datetime.now(timezone.utc):
+        return access_token
+    refresh_token = token.get("refresh_token")
+    if not refresh_token:
+        raise ValueError("Gmail owner account is not connected")
+    refreshed = request_form_json(GMAIL_TOKEN_URL, {
+        "client_id": os.environ.get("GMAIL_CLIENT_ID", ""),
+        "client_secret": os.environ.get("GMAIL_CLIENT_SECRET", ""),
+        "refresh_token": refresh_token,
+        "grant_type": "refresh_token",
+    })
+    refreshed["updatedAt"] = iso_now()
+    return save_gmail_token(refreshed)["access_token"]
+
+
+def gmail_message_text(message):
+    headers = {item.get("name", "").lower(): item.get("value", "") for item in message.get("payload", {}).get("headers", [])}
+    parts = [
+        f"From: {headers.get('from', '')}",
+        f"Subject: {headers.get('subject', '')}",
+        f"Date: {headers.get('date', '')}",
+        "",
+        message.get("snippet", ""),
+    ]
+    return "\n".join(parts).strip()
+
+
+def gmail_sync_payload():
+    token = gmail_access_token()
+    query = urllib.parse.urlencode({
+        "maxResults": os.environ.get("GMAIL_SYNC_MAX_RESULTS", "10"),
+        "q": os.environ.get("GMAIL_SYNC_QUERY", "newer_than:30d (booking OR reservation OR confirmation OR invoice OR quote OR Viator OR GetYourGuide OR Tripadvisor OR Airbnb)"),
+    })
+    listing = request_authed_json(f"{GMAIL_API_ROOT}/messages?{query}", token)
+    messages = []
+    for item in listing.get("messages", []):
+        msg_id = item.get("id")
+        if not msg_id:
+            continue
+        meta_query = urllib.parse.urlencode({"format": "metadata", "metadataHeaders": ["From", "Subject", "Date"]}, doseq=True)
+        message = request_authed_json(f"{GMAIL_API_ROOT}/messages/{urllib.parse.quote(msg_id)}?{meta_query}", token)
+        headers = {header.get("name", ""): header.get("value", "") for header in message.get("payload", {}).get("headers", [])}
+        messages.append({
+            "id": msg_id,
+            "threadId": message.get("threadId", ""),
+            "source": "Live Gmail API",
+            "sender": headers.get("From", ""),
+            "subject": headers.get("Subject", ""),
+            "receivedDate": headers.get("Date", ""),
+            "snippet": message.get("snippet", ""),
+            "rawText": gmail_message_text(message),
+        })
+    return {"ok": True, "messages": messages, "resultSizeEstimate": listing.get("resultSizeEstimate", len(messages)), "updatedAt": iso_now()}
+
+
+def whatsapp_send_message(payload):
+    readiness = env_readiness(WHATSAPP_REQUIRED_ENV)
+    if not readiness["configured"]:
+        raise ValueError(f"WhatsApp Business credentials missing: {', '.join(readiness['missing'])}")
+    phone = re.sub(r"\D+", "", str(payload.get("phoneNumber", "")))
+    body = str(payload.get("messageBody", "")).strip()
+    if not phone or not body:
+        raise ValueError("phoneNumber and messageBody are required")
+    url = f"https://graph.facebook.com/{WHATSAPP_GRAPH_VERSION}/{os.environ['WHATSAPP_PHONE_NUMBER_ID']}/messages"
+    result = request_authed_json(url, os.environ["WHATSAPP_ACCESS_TOKEN"], {
+        "messaging_product": "whatsapp",
+        "to": phone,
+        "type": "text",
+        "text": {"preview_url": False, "body": body},
+    })
+    return {"ok": True, "provider": "Meta WhatsApp Cloud API", "result": result, "updatedAt": iso_now()}
 
 
 def parse_iso(value):
@@ -360,6 +496,84 @@ class AppHandler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def read_json_body(self):
+        length = int(self.headers.get("Content-Length", "0") or 0)
+        if not length:
+            return {}
+        raw = self.rfile.read(length).decode("utf-8")
+        return json.loads(raw or "{}")
+
+    def send_html(self, title, message, status=200):
+        body = f"""<!doctype html><html><head><meta charset="utf-8"><title>{html.escape(title)}</title><meta name="viewport" content="width=device-width, initial-scale=1"></head><body style="font-family:system-ui;padding:28px;line-height:1.5"><h1>{html.escape(title)}</h1><p>{html.escape(message)}</p><p><a href="/index.html">Return to Reel Adventure Tours</a></p></body></html>""".encode()
+        self.send_response(status)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def handle_gmail_oauth_start(self):
+        readiness = env_readiness(GMAIL_REQUIRED_ENV)
+        if not readiness["configured"]:
+            self.send_json({"error": "Gmail OAuth credentials are not configured", "missing": readiness["missing"], "updatedAt": iso_now()}, 400)
+            return
+        state = secrets.token_urlsafe(32)
+        write_json_file(GMAIL_STATE_FILE, {"state": state, "createdAt": iso_now()})
+        params = urllib.parse.urlencode({
+            "client_id": os.environ["GMAIL_CLIENT_ID"],
+            "redirect_uri": os.environ["GMAIL_REDIRECT_URI"],
+            "response_type": "code",
+            "scope": GMAIL_SCOPE,
+            "access_type": "offline",
+            "include_granted_scopes": "true",
+            "prompt": "consent",
+            "state": state,
+        })
+        self.send_response(302)
+        self.send_header("Location", f"{GMAIL_AUTH_URL}?{params}")
+        self.end_headers()
+
+    def handle_gmail_oauth_callback(self):
+        params = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+        if params.get("error"):
+            self.send_html("Gmail connection cancelled", params["error"][0], 400)
+            return
+        state = params.get("state", [""])[0]
+        code = params.get("code", [""])[0]
+        expected = (read_json_file(GMAIL_STATE_FILE) or {}).get("state", "")
+        if not state or state != expected or not code:
+            self.send_html("Gmail connection failed", "OAuth state or code was invalid. Start the connection again from the Owner profile.", 400)
+            return
+        token = request_form_json(GMAIL_TOKEN_URL, {
+            "client_id": os.environ.get("GMAIL_CLIENT_ID", ""),
+            "client_secret": os.environ.get("GMAIL_CLIENT_SECRET", ""),
+            "code": code,
+            "grant_type": "authorization_code",
+            "redirect_uri": os.environ.get("GMAIL_REDIRECT_URI", ""),
+        })
+        token["updatedAt"] = iso_now()
+        saved = save_gmail_token(token)
+        try:
+            profile = request_authed_json(f"{GMAIL_API_ROOT}/profile", saved["access_token"])
+            saved["email"] = profile.get("emailAddress", "")
+            save_gmail_token(saved)
+        except (urllib.error.URLError, ValueError, KeyError):
+            pass
+        self.send_html("Gmail connected", "The Owner Gmail account is connected. Return to the app and use Sync Gmail.")
+
+    def handle_whatsapp_webhook_verify(self):
+        params = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+        verify_token = os.environ.get("WHATSAPP_WEBHOOK_VERIFY_TOKEN", "")
+        if params.get("hub.mode", [""])[0] == "subscribe" and params.get("hub.verify_token", [""])[0] == verify_token and verify_token:
+            challenge = params.get("hub.challenge", [""])[0].encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain")
+            self.send_header("Content-Length", str(len(challenge)))
+            self.end_headers()
+            self.wfile.write(challenge)
+            return
+        self.send_json({"error": "Webhook verification failed", "updatedAt": iso_now()}, 403)
+
     def do_GET(self):
         try:
             if self.path.startswith("/api/widget/boatbooker-weather.js"):
@@ -381,10 +595,22 @@ class AppHandler(SimpleHTTPRequestHandler):
                 self.send_json({
                     "ok": True,
                     "release": APP_RELEASE,
-                    "gmail": env_readiness(GMAIL_REQUIRED_ENV),
-                    "whatsapp": env_readiness(WHATSAPP_REQUIRED_ENV),
+                    "gmail": {**env_readiness(GMAIL_REQUIRED_ENV), **gmail_token_status()},
+                    "whatsapp": {**env_readiness(WHATSAPP_REQUIRED_ENV), "webhookConfigured": bool(os.environ.get("WHATSAPP_WEBHOOK_VERIFY_TOKEN"))},
                     "updatedAt": iso_now(),
                 })
+                return
+            if self.path.startswith("/api/gmail/oauth/start"):
+                self.handle_gmail_oauth_start()
+                return
+            if self.path.startswith("/api/gmail/oauth/callback"):
+                self.handle_gmail_oauth_callback()
+                return
+            if self.path.startswith("/api/gmail/sync"):
+                self.send_json(gmail_sync_payload())
+                return
+            if self.path.startswith("/api/whatsapp/webhook"):
+                self.handle_whatsapp_webhook_verify()
                 return
             if self.path.startswith("/api/health"):
                 self.send_json({
@@ -392,12 +618,31 @@ class AppHandler(SimpleHTTPRequestHandler):
                     "release": APP_RELEASE,
                     "windyConfigured": bool(os.environ.get("WINDY_API_KEY")),
                     "gmailConfigured": env_readiness(GMAIL_REQUIRED_ENV)["configured"],
+                    "gmailConnected": gmail_token_status()["connected"],
                     "whatsappConfigured": env_readiness(WHATSAPP_REQUIRED_ENV)["configured"],
                     "updatedAt": iso_now(),
                 })
                 return
             super().do_GET()
         except (urllib.error.URLError, ValueError, KeyError, IndexError) as error:
+            self.send_json({"error": str(error), "updatedAt": iso_now()}, 502)
+
+    def do_POST(self):
+        try:
+            if self.path.startswith("/api/whatsapp/send"):
+                self.send_json(whatsapp_send_message(self.read_json_body()))
+                return
+            if self.path.startswith("/api/whatsapp/webhook"):
+                event = self.read_json_body()
+                saved = read_json_file(WHATSAPP_WEBHOOK_FILE) or []
+                if not isinstance(saved, list):
+                    saved = []
+                saved.append({"receivedAt": iso_now(), "event": event})
+                write_json_file(WHATSAPP_WEBHOOK_FILE, saved[-100:])
+                self.send_json({"ok": True, "updatedAt": iso_now()})
+                return
+            self.send_json({"error": "Unknown API route", "updatedAt": iso_now()}, 404)
+        except (urllib.error.URLError, ValueError, KeyError, json.JSONDecodeError) as error:
             self.send_json({"error": str(error), "updatedAt": iso_now()}, 502)
 
 
