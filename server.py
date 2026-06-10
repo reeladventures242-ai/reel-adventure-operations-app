@@ -7,6 +7,7 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
 import re
+import tempfile
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -19,7 +20,7 @@ WINDY_URL = "https://api.windy.com/api/point-forecast/v2"
 OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
 BOATBOOKER_WIDGET_BUILDER_URL = "https://boatbooker.com/js/widgets/captainWeatherWidgetBuilder.js?v=1777446641"
 USER_AGENT = "ReelAdventureOperations/1.0 (+local operations app)"
-CACHE_DIR = os.environ.get("CACHE_DIR", os.path.join(ROOT, ".runtime-cache"))
+CACHE_DIR = os.environ.get("CACHE_DIR", os.path.join(tempfile.gettempdir(), "reel-adventure-cache"))
 WEATHER_CACHE_FILE = os.path.join(CACHE_DIR, "weather-nassau.json")
 WEATHER_CACHE_TTL_SECONDS = int(os.environ.get("WEATHER_CACHE_TTL_SECONDS", "1800"))
 WEATHER_FALLBACK_TTL_SECONDS = int(os.environ.get("WEATHER_FALLBACK_TTL_SECONDS", "600"))
@@ -82,7 +83,10 @@ def weather_cache_is_fresh(payload):
 def save_weather_cache(payload):
     cached = dict(payload)
     cached["cachedAt"] = iso_now()
-    write_json_file(WEATHER_CACHE_FILE, cached)
+    try:
+        write_json_file(WEATHER_CACHE_FILE, cached)
+    except OSError as error:
+        cached["cacheWarning"] = f"Weather cache write skipped: {error}"
     return cached
 
 
