@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import pathlib
+import re
 import subprocess
 import sys
 from html.parser import HTMLParser
@@ -521,6 +522,10 @@ def validate_module_visibility_and_titles() -> tuple[bool, str]:
     for route in ["dispatch"]:
         if f'id="page-{route}"' not in index_html:
             failures.append(f"missing page host {route}")
+    page_hosts = set(re.findall(r'id="page-([^"]+)"', index_html))
+    literal_routes = set(re.findall(r'data-route="([a-z0-9-]+)"', app_js))
+    dead_routes = sorted(route for route in literal_routes if route not in page_hosts)
+    failures.extend(f"dead data-route target {route}" for route in dead_routes)
     required_tokens = {
         "mobile command bar prioritizes operating path": "const mobilePrimaryRoutes = new Set",
         "secondary modules use More sheet": "const mobileMoreNav = navItems.filter",

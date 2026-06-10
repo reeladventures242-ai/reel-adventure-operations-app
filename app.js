@@ -1702,7 +1702,7 @@ function renderCrud(route) {
   page.querySelector('.search-input').addEventListener('input', () => renderTable(route));
   renderForm(route);
   if (route === 'bookings') renderUnifiedBookingsTrips();
-  if (route === 'trips') { renderAssignmentBoard(); page.querySelector('.page-stack')?.insertAdjacentHTML('beforeend', renderFuelTrackingOverview()); page.querySelector('.page-stack')?.insertAdjacentHTML('beforeend', `<div class="card card-pad trip-weather-overview"><div class="card-header"><h3>Trip Weather Risk</h3><button class="btn btn-outline btn-small" data-route="weather">Manage Conditions</button></div>${weatherSummaryCards(store.trips)}${store.trips.map((trip) => `<div class="weather-trip-row"><strong>${escapeHtml(formatDate(trip.tripDate))} · ${escapeHtml(trip.customer || 'Trip')}</strong>${weatherRiskBadge(trip)}</div>`).join('') || '<p class="empty-state">No scheduled trips.</p>'}</div>`); }
+  if (route === 'trips') { renderAssignmentBoard(); page.querySelector('.page-stack')?.insertAdjacentHTML('beforeend', renderFuelTrackingOverview()); page.querySelector('.page-stack')?.insertAdjacentHTML('beforeend', `<div class="card card-pad trip-weather-overview"><div class="card-header"><h3>Trip Weather Risk</h3><button class="btn btn-outline btn-small" type="button" onclick="refreshLiveWeather()">Refresh Forecast</button></div>${weatherSummaryCards(store.trips)}${store.trips.map((trip) => `<div class="weather-trip-row"><strong>${escapeHtml(formatDate(trip.tripDate))} · ${escapeHtml(trip.customer || 'Trip')}</strong>${weatherRiskBadge(trip)}</div>`).join('') || '<p class="empty-state">No scheduled trips.</p>'}</div>`); }
   if (route === 'crew') renderCrewDashboard();
   if (route === 'vessels') { renderVesselManagementPanel(); renderEntityIncidentHistory('vessel'); }
   if (route === 'crew') renderEntityIncidentHistory('crew');
@@ -1958,7 +1958,7 @@ function generateInvoiceFromBooking(bookingId, silent = false) {
   if (!booking) return toast('Booking not found.');
   let invoice = store.invoices.find((item) => item.bookingId === bookingId);
   const snap = bookingSnapshot(booking);
-  const paymentStatus = snap.balanceDue <= 0 ? 'Paid' : snap.depositPaid > 0 ? 'Deposit Paid' : 'Draft';
+  const paymentStatus = snap.balanceDue <= 0 ? 'Paid in Full' : snap.depositPaid > 0 ? 'Deposit Paid' : 'Deposit Due';
   if (invoice) Object.assign(invoice, { customerName: snap.customer, phone: snap.phone, email: snap.email, tripDate: snap.tripDate, startTime: snap.startTime, tourType: snap.tourType, guestCount: snap.passengers, pickupLocation: snap.pickupLocation, bookingSource: snap.bookingSource, tourPrice: snap.tourPrice, depositPaid: snap.depositPaid, balanceDue: snap.balanceDue, paymentStatus, notes: snap.notes });
   else {
     invoice = { id: makeId('invoices'), invoiceNumber: `INV-${new Date().toISOString().slice(0,10).replace(/-/g,'')}-${String(store.invoices.length + 1).padStart(3, '0')}`, documentType: 'Invoice', bookingId, customerName: snap.customer, phone: snap.phone, email: snap.email, tripDate: snap.tripDate, startTime: snap.startTime, tourType: snap.tourType, guestCount: snap.passengers, pickupLocation: snap.pickupLocation, bookingSource: snap.bookingSource, tourPrice: snap.tourPrice, depositPaid: snap.depositPaid, balanceDue: snap.balanceDue, paymentStatus, notes: snap.notes };
@@ -2006,7 +2006,7 @@ const WORKFLOW_PIPELINE = ['Quote','Invoice Sent','Deposit Due','Deposit Paid','
 
 function workflowPipelineStatus(booking, trip, invoice) {
   if (booking?.status === 'Cancelled' || trip?.status === 'Cancelled') return 'Cancelled';
-  if (trip?.status === 'Completed') return trip.postTripChecklistStatus === 'Complete' ? 'Closed Out' : 'Completed';
+  if (trip?.status === 'Completed') return trip.postTripChecklistStatus === 'Completed' ? 'Closed Out' : 'Completed';
   if (trip && calculateDispatchReadiness(trip) === 'Ready') return 'Ready';
   if (trip?.vessel && trip?.captain && trip?.mate) return 'Assigned';
   if (trip?.tripDate && trip?.startTime) return 'Scheduled';
