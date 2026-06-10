@@ -1,5 +1,6 @@
 const STORE_KEY = 'rat_ops_v1_store';
-const STORE_VERSION = 25;
+const STORE_VERSION = 26;
+const APP_RELEASE_LABEL = '2026-06-10 integrations-download';
 const STORE_BACKUP_KEY = `${STORE_KEY}_backup`;
 const STORE_RECOVERY_KEY = `${STORE_KEY}_recovery`;
 
@@ -123,7 +124,7 @@ const seedData = {
   chatPreferences: { generalEnabled: true, directEnabled: true, showUnreadBadges: true },
   whatsappTemplates: [],
   whatsappQueue: [],
-  whatsappSettings: { defaultCountryCode: '1', companyWhatsAppNumber: '', enableCustomerActions: true, enableCrewActions: true },
+  whatsappSettings: { defaultCountryCode: '1', companyWhatsAppNumber: '', enableCustomerActions: true, enableCrewActions: true, businessApiStatus: 'Manual Mode', lastStatusCheckAt: '' },
   gmailImports: [],
   customerProfiles: [],
   gmailOAuthStatus: 'Not Connected',
@@ -133,6 +134,7 @@ const seedData = {
   importRules: [],
   sourceRules: [],
   gmailImportSettings: { enabled: false, allowedSources: ['Viator','GetYourGuide','Tripadvisor','Airbnb Experiences','Website Contact Form','Direct Customer Email','Unknown'], defaultImportAction: 'Save as Draft', duplicateDetectionStrictness: 'Standard', reviewRequiredBeforeSave: true },
+  integrationStatus: { checkedAt: '', backendOnline: false, gmailConfigured: false, whatsappConfigured: false, release: '' },
   assistantProvider: 'Local Rule Based',
   assistantApiStatus: 'Local Only',
   externalAiEnabled: false,
@@ -313,7 +315,7 @@ function migrateStore(existing = {}) {
   next.auditTrail = Array.isArray(next.auditTrail) ? next.auditTrail : [];
   next.whatsappTemplates = normalizeWhatsAppTemplates(next.whatsappTemplates);
   next.whatsappQueue = Array.isArray(next.whatsappQueue) ? next.whatsappQueue : [];
-  next.whatsappSettings = { defaultCountryCode: '1', companyWhatsAppNumber: '', enableCustomerActions: true, enableCrewActions: true, ...(next.whatsappSettings || {}) };
+  next.whatsappSettings = { defaultCountryCode: '1', companyWhatsAppNumber: '', enableCustomerActions: true, enableCrewActions: true, businessApiStatus: 'Manual Mode', lastStatusCheckAt: '', ...(next.whatsappSettings || {}) };
   next.gmailImports = Array.isArray(next.gmailImports) ? next.gmailImports : [];
   next.customerProfiles = Array.isArray(next.customerProfiles) ? next.customerProfiles : [];
   next.gmailOAuthStatus = next.gmailOAuthStatus || 'Not Connected';
@@ -324,6 +326,7 @@ function migrateStore(existing = {}) {
   next.sourceRules = Array.isArray(next.sourceRules) ? next.sourceRules : [];
   next.gmailImportSettings = { enabled: false, allowedSources: ['Viator','GetYourGuide','Tripadvisor','Airbnb Experiences','Website Contact Form','Direct Customer Email','Unknown'], defaultImportAction: 'Save as Draft', duplicateDetectionStrictness: 'Standard', reviewRequiredBeforeSave: true, ...(next.gmailImportSettings || {}) };
   next.gmailImportSettings.reviewRequiredBeforeSave = true;
+  next.integrationStatus = { checkedAt: '', backendOnline: false, gmailConfigured: false, whatsappConfigured: false, release: '', ...(next.integrationStatus || {}) };
   next.assistantProvider = next.assistantProvider || 'Local Rule Based';
   next.assistantApiStatus = next.assistantApiStatus || 'Local Only';
   next.externalAiEnabled = false;
@@ -658,6 +661,7 @@ function init() {
   saveStore();
   renderRoute('dashboard');
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('service-worker.js').catch(console.warn);
+  refreshIntegrationStatus({ silent: true });
 }
 
 function renderLoginUsers() {
@@ -774,6 +778,9 @@ function wireEvents() {
     if (dashToggle) toggleDashboardCard(dashToggle.dataset.dashboardCardToggle);
     const dashMove = event.target.closest('[data-dashboard-card-move]');
     if (dashMove) moveDashboardCard(dashMove.dataset.dashboardCardMove, dashMove.dataset.direction);
+    if (event.target.closest('[data-install-app]')) promptAppInstall();
+    if (event.target.closest('[data-download-backup]')) exportStoreData();
+    if (event.target.closest('[data-refresh-integration-status]')) refreshIntegrationStatus();
     const chatOpen = event.target.closest('[data-chat-conversation]');
     if (chatOpen) openChatConversation(chatOpen.dataset.chatConversation);
     const chatDirect = event.target.closest('[data-chat-direct-user]');
@@ -822,7 +829,7 @@ function wireEvents() {
     deferredInstallPrompt = event;
     const button = document.getElementById('installBtn');
     button.hidden = false;
-    button.onclick = async () => { deferredInstallPrompt.prompt(); deferredInstallPrompt = null; button.hidden = true; };
+    button.onclick = promptAppInstall;
   });
 }
 
@@ -4106,8 +4113,59 @@ function renderLegacyAuditSummary() {
   return Object.entries(legacyFeatureAudit).map(([file, audit]) => `<details class="legacy-tool"><summary><strong>${escapeHtml(file)}</strong> · ${audit.sections.length} sections · ${audit.fields.length} fields/checks</summary><div class="placeholder-list"><p><strong>Sections:</strong> ${escapeHtml(audit.sections.join(', '))}</p><p><strong>Fields / checklist items:</strong> ${escapeHtml(audit.fields.join(', '))}</p><p><strong>Calculations:</strong> ${escapeHtml(audit.calculations.join(', '))}</p><p><strong>Alerts:</strong> ${escapeHtml(audit.alerts.join(', '))}</p><p><strong>Exports / workflows:</strong> ${escapeHtml(audit.exports.join(', '))}</p></div></details>`).join('');
 }
 
+function appInstallMode() {
+  return window.matchMedia?.('(display-mode: standalone)').matches || window.navigator.standalone ? 'Installed' : 'Browser';
+}
+
+async function promptAppInstall() {
+  const button = document.getElementById('installBtn');
+  if (deferredInstallPrompt) {
+    deferredInstallPrompt.prompt();
+    await deferredInstallPrompt.userChoice.catch(() => null);
+    deferredInstallPrompt = null;
+    if (button) button.hidden = true;
+    toast('Install prompt closed.');
+    return;
+  }
+  if (appInstallMode() === 'Installed') return toast('The app is already installed on this device.');
+  toast('Use your browser menu and choose Install app or Add to Home screen.');
+}
+
+function appDownloadSettingsMarkup() {
+  const swReady = 'serviceWorker' in navigator;
+  return `<section class="legacy-tool settings-span app-download-card"><div class="settings-card-head"><div><p class="eyebrow">Download / install</p><h3>Install Reel Adventure Tours</h3><p>Use this app from the browser, install it to the home screen, and keep a JSON backup of local operations data.</p></div><span class="badge ${appInstallMode() === 'Installed' ? 'green' : 'blue'}">${appInstallMode()}</span></div><div class="integration-readiness-grid"><span><small>Release</small><strong>${escapeHtml(APP_RELEASE_LABEL)}</strong></span><span><small>Offline shell</small><strong>${swReady ? 'Available' : 'Browser unsupported'}</strong></span><span><small>Local records</small><strong>${store.trips.length + store.bookings.length + store.invoices.length}</strong></span></div><div class="legacy-actions"><button class="btn btn-primary" data-install-app>Install App</button><button class="btn btn-outline" data-download-backup>Download Backup JSON</button><label class="btn btn-outline" for="importStoreFile">Import Backup<input id="importStoreFile" data-import-store type="file" accept="application/json" hidden></label></div><p class="notice success">For phones: open the live Render URL in Chrome or Safari, then choose Install App / Add to Home Screen from the browser menu if the prompt does not appear automatically.</p></section>`;
+}
+
+function integrationBadge(value) { return value ? '<span class="badge green">Configured</span>' : '<span class="badge gold">Needs credentials</span>'; }
+
+function integrationReadinessMarkup() {
+  const status = store.integrationStatus || {};
+  const gmailLive = Boolean(status.gmailConfigured);
+  const whatsappLive = Boolean(status.whatsappConfigured);
+  return `<section class="legacy-tool settings-span integration-status-card"><div class="settings-card-head"><div><p class="eyebrow">External sync readiness</p><h3>WhatsApp & Gmail Sync</h3><p>The app can run safely in manual mode now. Live Gmail sync and WhatsApp Business sending turn on only after credentials are configured in the backend environment.</p></div><button class="btn btn-outline btn-small" data-refresh-integration-status>Check Status</button></div><div class="integration-readiness-grid"><span><small>Backend</small><strong>${status.backendOnline ? 'Online' : 'Not checked'}</strong></span><span><small>Gmail OAuth</small><strong>${gmailLive ? 'Ready' : 'Manual import'}</strong>${integrationBadge(gmailLive)}</span><span><small>WhatsApp Business</small><strong>${whatsappLive ? 'Ready' : 'Manual send links'}</strong>${integrationBadge(whatsappLive)}</span><span><small>Last checked</small><strong>${escapeHtml(status.checkedAt ? new Date(status.checkedAt).toLocaleString() : 'Never')}</strong></span></div><div class="integration-checklist"><div><strong>Gmail needs</strong><p>Google OAuth client ID/secret, Gmail API enabled, redirect URI, token storage, and labels/rules for reviewed imports.</p></div><div><strong>WhatsApp needs</strong><p>Meta WhatsApp Business access token, phone number ID, business account ID, webhook verify token, and approved templates for automated sends.</p></div></div></section>`;
+}
+
+async function refreshIntegrationStatus(options = {}) {
+  try {
+    const response = await fetch('api/integrations/status', { cache: 'no-store' });
+    if (!response.ok) throw new Error(`Status check returned ${response.status}`);
+    const payload = await response.json();
+    store.integrationStatus = { checkedAt: payload.updatedAt || new Date().toISOString(), backendOnline: true, gmailConfigured: Boolean(payload.gmail?.configured), whatsappConfigured: Boolean(payload.whatsapp?.configured), release: payload.release || '' };
+    store.gmailOAuthStatus = store.integrationStatus.gmailConfigured ? 'Credentials Configured' : 'Not Connected';
+    store.whatsappSettings.businessApiStatus = store.integrationStatus.whatsappConfigured ? 'Credentials Configured' : 'Manual Mode';
+    store.whatsappSettings.lastStatusCheckAt = store.integrationStatus.checkedAt;
+    saveStore();
+    if (currentRoute === 'settings') renderRoute('settings');
+    if (!options.silent) toast('Integration status checked.');
+  } catch (error) {
+    store.integrationStatus = { ...(store.integrationStatus || {}), checkedAt: new Date().toISOString(), backendOnline: false };
+    saveStore();
+    if (!options.silent) toast('Integration status unavailable. Manual mode remains active.');
+  }
+}
+
 function settingsMarkup() {
-  return `<div class="grid settings-grid" style="margin-top:18px">${gmailImportSettingsMarkup()}${renderUserSettings()}${renderRoleSettings()}${renderChatPreferences()}<div class="legacy-tool dashboard-preferences-settings"><h3>Dashboard Preferences</h3>${renderDashboardCustomizer()}</div><div class="legacy-tool"><h3>Seed data</h3><p>${store.vessels.length} vessels, ${store.crew.length} crew members, and ${store.users.length} users loaded.</p></div><div class="legacy-tool"><h3>Local data</h3><div class="legacy-actions"><button class="btn btn-outline" data-export-store>Export JSON</button><label class="btn btn-outline" for="importStoreFile">Import JSON<input id="importStoreFile" data-import-store type="file" accept="application/json" hidden></label><button class="btn btn-danger" data-reset-store>Reset seed data</button></div></div><div class="legacy-tool archived-legacy-tools"><h3>Archived Legacy Tools</h3><p>Legacy tools are retained for reference only. Active operations should be completed through the main application tabs.</p><div class="legacy-list">${legacyTools.map((tool) => `<div class="legacy-tool"><h3>${tool.title}</h3><p>${tool.desc}</p><div class="legacy-actions"><a class="btn btn-outline btn-small" href="${tool.file}" target="_blank" rel="noopener">Open reference</a></div></div>`).join('')}</div></div></div>`;
+  return `<div class="grid settings-grid" style="margin-top:18px">${appDownloadSettingsMarkup()}${integrationReadinessMarkup()}${gmailImportSettingsMarkup()}${renderUserSettings()}${renderRoleSettings()}${renderChatPreferences()}<div class="legacy-tool dashboard-preferences-settings"><h3>Dashboard Preferences</h3>${renderDashboardCustomizer()}</div><div class="legacy-tool"><h3>Seed data</h3><p>${store.vessels.length} vessels, ${store.crew.length} crew members, and ${store.users.length} users loaded.</p></div><div class="legacy-tool"><h3>Local data</h3><div class="legacy-actions"><button class="btn btn-outline" data-export-store>Export JSON</button><label class="btn btn-outline" for="importStoreFileSettings">Import JSON<input id="importStoreFileSettings" data-import-store type="file" accept="application/json" hidden></label><button class="btn btn-danger" data-reset-store>Reset seed data</button></div></div><div class="legacy-tool archived-legacy-tools"><h3>Archived Legacy Tools</h3><p>Legacy tools are retained for reference only. Active operations should be completed through the main application tabs.</p><div class="legacy-list">${legacyTools.map((tool) => `<div class="legacy-tool"><h3>${tool.title}</h3><p>${tool.desc}</p><div class="legacy-actions"><a class="btn btn-outline btn-small" href="${tool.file}" target="_blank" rel="noopener">Open reference</a></div></div>`).join('')}</div></div></div>`;
 }
 
 function toast(message) {
@@ -4334,9 +4392,9 @@ function openWhatsAppMessage(id) { const item=store.whatsappQueue.find(x=>x.id==
 function updateWhatsAppStatus(id,status){const item=store.whatsappQueue.find(x=>x.id===id);if(!item||!WHATSAPP_STATUSES.includes(status))return;item.status=status;if(status==='Sent Manually')item.sentAt=new Date().toISOString();addAudit('updated','WhatsApp',`${item.category} marked ${status} for ${item.recipientName}.`,{messageId:id});if(['Sent Manually','Failed'].includes(status))addNotification(`WhatsApp message ${status.toLowerCase()}`,`${item.category} for ${item.recipientName}.`,status==='Failed'?'warning':'success',{category:'WhatsApp',messageId:id});saveStore();renderWhatsApp();}
 function copyWhatsAppText(text){if(navigator.clipboard?.writeText)navigator.clipboard.writeText(text);else{const area=document.createElement('textarea');area.value=text;document.body.appendChild(area);area.select();document.execCommand('copy');area.remove();}toast('Message copied.');}
 function whatsappQueueMarkup(){return `<div class="card table-card"><div class="card-header"><div><p class="eyebrow">Local queue</p><h3>WhatsApp Message Queue</h3></div><span class="badge blue">${store.whatsappQueue.length} messages</span></div><div class="whatsapp-queue-list">${store.whatsappQueue.length?store.whatsappQueue.map(item=>`<article class="whatsapp-queue-card"><div><span class="badge ${item.status==='Failed'?'red':item.status==='Sent Manually'?'green':'gold'}">${escapeHtml(item.status)}</span><h4>${escapeHtml(item.recipientName)} · ${escapeHtml(item.recipientRole)}</h4><p>${escapeHtml(item.category)} · ${escapeHtml(item.phoneNumber || 'Phone missing')}</p><small>${escapeHtml(new Date(item.createdAt).toLocaleString())} · ${escapeHtml(item.createdBy)}</small></div><div class="whatsapp-queue-actions"><button class="btn btn-primary btn-small" onclick="openWhatsAppMessage('${item.id}')">Open in WhatsApp</button><button class="btn btn-outline btn-small" onclick="copyWhatsAppText(store.whatsappQueue.find(x=>x.id==='${item.id}').messageBody)">Copy</button><select aria-label="Message status" onchange="updateWhatsAppStatus('${item.id}',this.value)">${WHATSAPP_STATUSES.map(s=>`<option ${s===item.status?'selected':''}>${s}</option>`).join('')}</select></div></article>`).join(''):'<p class="empty-state">No WhatsApp drafts yet.</p>'}</div></div>`;}
-function saveWhatsAppSettings(event){event.preventDefault();const data=Object.fromEntries(new FormData(event.target).entries());store.whatsappSettings={defaultCountryCode:data.defaultCountryCode.replace(/\D/g,''),companyWhatsAppNumber:data.companyWhatsAppNumber,enableCustomerActions:Boolean(data.enableCustomerActions),enableCrewActions:Boolean(data.enableCrewActions)};addAudit('updated','WhatsApp Settings','WhatsApp manual action settings updated.');saveStore();toast('WhatsApp settings saved.');}
+function saveWhatsAppSettings(event){event.preventDefault();const data=Object.fromEntries(new FormData(event.target).entries());store.whatsappSettings={...store.whatsappSettings,defaultCountryCode:data.defaultCountryCode.replace(/\D/g,''),companyWhatsAppNumber:data.companyWhatsAppNumber,enableCustomerActions:Boolean(data.enableCustomerActions),enableCrewActions:Boolean(data.enableCrewActions)};addAudit('updated','WhatsApp Settings','WhatsApp manual action settings updated.');saveStore();toast('WhatsApp settings saved.');}
 function saveWhatsAppTemplate(event,id){event.preventDefault();const template=store.whatsappTemplates.find(t=>t.id===id);if(!template)return;template.body=new FormData(event.target).get('body');template.updatedAt=new Date().toISOString();addAudit('updated','WhatsApp Templates',`${template.category} template updated.`,{templateId:id});saveStore();toast('WhatsApp template saved.');}
-function whatsappSettingsMarkup(){const s=store.whatsappSettings;return `<details class="card whatsapp-settings app-accordion" open><summary><div><p class="eyebrow">Manual integration controls</p><h3>WhatsApp Settings</h3></div><span class="chevron">⌄</span></summary><form onsubmit="saveWhatsAppSettings(event)"><div class="form-grid"><div class="field"><label>Default country code</label><input name="defaultCountryCode" value="${escapeHtml(s.defaultCountryCode)}" required></div><div class="field"><label>Company WhatsApp number</label><input name="companyWhatsAppNumber" type="tel" value="${escapeHtml(s.companyWhatsAppNumber)}"></div><label class="toggle-row"><input name="enableCustomerActions" type="checkbox" ${s.enableCustomerActions?'checked':''}> Enable customer WhatsApp actions</label><label class="toggle-row"><input name="enableCrewActions" type="checkbox" ${s.enableCrewActions?'checked':''}> Enable crew WhatsApp actions</label></div><button class="btn btn-primary">Save WhatsApp Settings</button></form><div class="whatsapp-template-list"><h3>Template management</h3><p class="template-variables"><strong>Variables:</strong> ${WHATSAPP_VARIABLES.map(v=>`{{${v}}}`).join(' · ')}</p>${store.whatsappTemplates.map(t=>`<details class="whatsapp-template-card"><summary><strong>${escapeHtml(t.category)}</strong><span class="chevron">⌄</span></summary><form onsubmit="saveWhatsAppTemplate(event,'${t.id}')"><textarea name="body" rows="4">${escapeHtml(t.body)}</textarea><button class="btn btn-outline btn-small">Save Template</button></form></details>`).join('')}</div></details>`;}
+function whatsappSettingsMarkup(){const s=store.whatsappSettings;return `<details class="card whatsapp-settings app-accordion" open><summary><div><p class="eyebrow">Manual controls · ${escapeHtml(s.businessApiStatus || 'Manual Mode')}</p><h3>WhatsApp Settings</h3></div><span class="chevron">⌄</span></summary><form onsubmit="saveWhatsAppSettings(event)"><div class="form-grid"><div class="field"><label>Default country code</label><input name="defaultCountryCode" value="${escapeHtml(s.defaultCountryCode)}" required></div><div class="field"><label>Company WhatsApp number</label><input name="companyWhatsAppNumber" type="tel" value="${escapeHtml(s.companyWhatsAppNumber)}"></div><label class="toggle-row"><input name="enableCustomerActions" type="checkbox" ${s.enableCustomerActions?'checked':''}> Enable customer WhatsApp actions</label><label class="toggle-row"><input name="enableCrewActions" type="checkbox" ${s.enableCrewActions?'checked':''}> Enable crew WhatsApp actions</label></div><p class="notice ${store.integrationStatus?.whatsappConfigured ? 'success' : 'warning'}"><strong>${store.integrationStatus?.whatsappConfigured ? 'Business API credentials detected:' : 'Manual mode active:'}</strong> ${store.integrationStatus?.whatsappConfigured ? 'the backend environment has the required WhatsApp credential placeholders populated.' : 'messages are reviewed, copied, or opened with wa.me links until Meta WhatsApp Business credentials are added.'}</p><button class="btn btn-primary">Save WhatsApp Settings</button></form><div class="whatsapp-template-list"><h3>Template management</h3><p class="template-variables"><strong>Variables:</strong> ${WHATSAPP_VARIABLES.map(v=>`{{${v}}}`).join(' · ')}</p>${store.whatsappTemplates.map(t=>`<details class="whatsapp-template-card"><summary><strong>${escapeHtml(t.category)}</strong><span class="chevron">⌄</span></summary><form onsubmit="saveWhatsAppTemplate(event,'${t.id}')"><textarea name="body" rows="4">${escapeHtml(t.body)}</textarea><button class="btn btn-outline btn-small">Save Template</button></form></details>`).join('')}</div></details>`;}
 function whatsappRouteCategory(route){return ({bookings:'Customer Booking Confirmation',invoices:'Invoice / Payment Reminder',trips:'Trip Reminder',dispatch:'Captain Assignment',calendar:'Trip Reminder','captain-dashboard':'Trip Reminder','mate-dashboard':'Trip Reminder','owner-dashboard':'Owner Assignment Alert',payroll:'Owner Payout Statement','pre-trip-checklist':'Pre Trip Checklist Reminder','post-trip-checklist':'Post Trip Checklist Reminder','incident-reports':'Incident Alert',weather:'Weather Alert','cruise-schedule':'Cruise Timing Alert'})[route];}
 function openWhatsAppComposer(category,tripId='',invoiceId=''){renderRoute('whatsapp');whatsappComposer(category,tripId,invoiceId);}
 function appendWhatsAppIntegrationActions(route){if(route==='whatsapp')return;const page=document.getElementById(`page-${route}`);if(!page)return;if(route==='settings'){page.insertAdjacentHTML('beforeend',whatsappSettingsMarkup());return;}const category=whatsappRouteCategory(route);if(!category)return;const role=activeRoleName(),person=activeRolePerson(role),trip=store.trips.find(t=>role==='Captain'?t.captain===person:role==='Mate'?t.mate===person:true)||store.trips[0]||{},invoice=store.invoices[0]||{};if(!whatsAppRoleCanCreate(category,trip))return;page.insertAdjacentHTML('afterbegin',`<div class="card whatsapp-action-strip"><div><strong>WhatsApp action</strong><span>${escapeHtml(category)} · manual preview required</span></div><button class="btn btn-primary" onclick="openWhatsAppComposer('${category}','${trip.id||''}','${route==='invoices'?(invoice.id||''):''}')">Preview WhatsApp Message</button></div>`);}

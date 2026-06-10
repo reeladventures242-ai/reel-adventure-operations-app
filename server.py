@@ -21,13 +21,15 @@ OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
 MET_NO_URL = "https://api.met.no/weatherapi/locationforecast/2.0/compact"
 BOATBOOKER_WIDGET_BUILDER_URL = "https://boatbooker.com/js/widgets/captainWeatherWidgetBuilder.js?v=1777446641"
 USER_AGENT = "ReelAdventureOperations/1.0 https://github.com/reeladventures242-ai/reel-adventure-operations-app"
-APP_RELEASE = "2026-06-10-api-cache-v3"
+APP_RELEASE = "2026-06-10-integrations-download-v1"
 CACHE_DIR = os.environ.get("CACHE_DIR", os.path.join(tempfile.gettempdir(), "reel-adventure-cache"))
 WEATHER_CACHE_FILE = os.path.join(CACHE_DIR, "weather-nassau.json")
 CRUISE_CACHE_FILE = os.path.join(CACHE_DIR, "cruise-nassau.json")
 WEATHER_CACHE_TTL_SECONDS = int(os.environ.get("WEATHER_CACHE_TTL_SECONDS", "1800"))
 WEATHER_FALLBACK_TTL_SECONDS = int(os.environ.get("WEATHER_FALLBACK_TTL_SECONDS", "600"))
 CRUISE_CACHE_TTL_SECONDS = int(os.environ.get("CRUISE_CACHE_TTL_SECONDS", "21600"))
+GMAIL_REQUIRED_ENV = ("GMAIL_CLIENT_ID", "GMAIL_CLIENT_SECRET", "GMAIL_REDIRECT_URI")
+WHATSAPP_REQUIRED_ENV = ("WHATSAPP_ACCESS_TOKEN", "WHATSAPP_PHONE_NUMBER_ID", "WHATSAPP_BUSINESS_ACCOUNT_ID")
 
 
 def request_json(url, data=None):
@@ -47,6 +49,11 @@ def request_text(url):
 
 def iso_now():
     return datetime.now(timezone.utc).isoformat()
+
+
+def env_readiness(required_names):
+    missing = [name for name in required_names if not os.environ.get(name)]
+    return {"configured": not missing, "missing": missing}
 
 
 def parse_iso(value):
@@ -370,11 +377,22 @@ class AppHandler(SimpleHTTPRequestHandler):
             if self.path.startswith("/api/cruise/nassau"):
                 self.send_json(cruise_schedule_payload())
                 return
+            if self.path.startswith("/api/integrations/status"):
+                self.send_json({
+                    "ok": True,
+                    "release": APP_RELEASE,
+                    "gmail": env_readiness(GMAIL_REQUIRED_ENV),
+                    "whatsapp": env_readiness(WHATSAPP_REQUIRED_ENV),
+                    "updatedAt": iso_now(),
+                })
+                return
             if self.path.startswith("/api/health"):
                 self.send_json({
                     "ok": True,
                     "release": APP_RELEASE,
                     "windyConfigured": bool(os.environ.get("WINDY_API_KEY")),
+                    "gmailConfigured": env_readiness(GMAIL_REQUIRED_ENV)["configured"],
+                    "whatsappConfigured": env_readiness(WHATSAPP_REQUIRED_ENV)["configured"],
                     "updatedAt": iso_now(),
                 })
                 return
