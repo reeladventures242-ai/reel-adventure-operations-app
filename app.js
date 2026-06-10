@@ -503,6 +503,10 @@ function generateWeatherAlerts() {
 }
 function openExternalSource(url) { window.open(url, '_blank', 'noopener,noreferrer'); }
 function integrationIsStale(integration, minutes = 30) { return !integration.lastSyncAt || Date.now() - new Date(integration.lastSyncAt).getTime() > minutes * 60000; }
+function weatherSyncStatusLabel(cacheStatus, count) {
+  const labels = { 'fresh': 'Live', 'fresh-cache': 'Cached', 'stale-cache': 'Cached', 'fallback': 'Fallback' };
+  return `${labels[cacheStatus] || 'Live'} · ${count} forecasts`;
+}
 async function refreshLiveWeather(silent = false) {
   const integration = store.weatherIntegration;
   if (integration.status === 'Refreshing') return;
@@ -513,9 +517,9 @@ async function refreshLiveWeather(silent = false) {
     if (!response.ok) throw new Error(`Weather service returned ${response.status}`);
     const data = await response.json();
     const imported = (data.records || []).map(normalizeWeatherRecord);
-    store.weatherRecords = [...imported, ...store.weatherRecords.filter((record) => !['Windy','Windy GFS','Open-Meteo'].includes(record.apiProvider))];
+    store.weatherRecords = [...imported, ...store.weatherRecords.filter((record) => !['Windy','Windy GFS','Open-Meteo','Fallback Nassau Weather'].includes(record.apiProvider))];
     integration.provider = data.provider || 'Live Nassau Weather';
-    integration.status = `Live · ${imported.length} forecasts`;
+    integration.status = weatherSyncStatusLabel(data.cacheStatus, imported.length);
     integration.lastSyncAt = data.updatedAt || new Date().toISOString();
     generateWeatherAlerts(); saveStore(); if (['dashboard','captain-dashboard','mate-dashboard','owner-dashboard'].includes(currentRoute)) renderRoute(currentRoute); if (!silent) toast(`${integration.provider} Nassau forecast refreshed.`);
   } catch (error) {
