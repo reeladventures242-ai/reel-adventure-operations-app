@@ -20,6 +20,7 @@ WINDY_URL = "https://api.windy.com/api/point-forecast/v2"
 OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
 BOATBOOKER_WIDGET_BUILDER_URL = "https://boatbooker.com/js/widgets/captainWeatherWidgetBuilder.js?v=1777446641"
 USER_AGENT = "ReelAdventureOperations/1.0 (+local operations app)"
+APP_RELEASE = "2026-06-10-api-cache-v2"
 CACHE_DIR = os.environ.get("CACHE_DIR", os.path.join(tempfile.gettempdir(), "reel-adventure-cache"))
 WEATHER_CACHE_FILE = os.path.join(CACHE_DIR, "weather-nassau.json")
 CRUISE_CACHE_FILE = os.path.join(CACHE_DIR, "cruise-nassau.json")
@@ -330,7 +331,12 @@ class AppHandler(SimpleHTTPRequestHandler):
                 self.send_json(cruise_schedule_payload())
                 return
             if self.path.startswith("/api/health"):
-                self.send_json({"ok": True, "windyConfigured": bool(os.environ.get("WINDY_API_KEY")), "updatedAt": iso_now()})
+                self.send_json({
+                    "ok": True,
+                    "release": APP_RELEASE,
+                    "windyConfigured": bool(os.environ.get("WINDY_API_KEY")),
+                    "updatedAt": iso_now(),
+                })
                 return
             super().do_GET()
         except (urllib.error.URLError, ValueError, KeyError, IndexError) as error:
