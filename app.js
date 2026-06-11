@@ -268,6 +268,7 @@ let activeChatConversationId = 'chat-general';
 let chatMobileThreadOpen = false;
 let chatFilters = { search: '', person: '', role: '' };
 let assistantState = { query: '', result: null };
+let sharedStoreSync = { enabled: location.protocol !== 'file:', applying: false, timer: null, inFlight: false, lastPulledAt: '', lastPushedAt: '', lastError: '' };
 
 function loadStore() {
   const raw = localStorage.getItem(STORE_KEY);
@@ -584,9 +585,83 @@ function renderDashboardWeatherWidget() {
 function activateDashboardWeatherWidget() {
   if (integrationIsStale(store.weatherIntegration)) setTimeout(() => refreshLiveWeather(true), 0);
 }
-function saveStore() {
+function saveStore(options = {}) {
   store.updatedAt = new Date().toISOString();
   localStorage.setItem(STORE_KEY, JSON.stringify(store));
+  if (!options.localOnly && !sharedStoreSync.applying) scheduleSharedStoreSync();
+}
+
+function storeTime(value) {
+  const time = new Date(value || 0).getTime();
+  return Number.isFinite(time) ? time : 0;
+}
+
+function shouldRenderAfterSharedSync() {
+  const active = document.activeElement;
+  if (active?.matches?.('input, textarea, select, [contenteditable="true"]')) return false;
+  return ['dashboard','calendar','chat','whatsapp','notifications','owner-dashboard','captain-dashboard','mate-dashboard'].includes(currentRoute);
+}
+
+function applySharedStore(remoteStore, reason = 'sync') {
+  if (!remoteStore || typeof remoteStore !== 'object') return false;
+  sharedStoreSync.applying = true;
+  const activeRoute = currentRoute || 'dashboard';
+  store = migrateStore(remoteStore);
+  localStorage.setItem(STORE_KEY, JSON.stringify(store));
+  sharedStoreSync.applying = false;
+  renderLoginUsers();
+  renderNav();
+  if (shouldRenderAfterSharedSync()) renderRoute(activeRoute);
+  if (reason === 'initial') toast('Shared operations database loaded.');
+  return true;
+}
+
+function scheduleSharedStoreSync(options = {}) {
+  if (!sharedStoreSync.enabled) return;
+  clearTimeout(sharedStoreSync.timer);
+  sharedStoreSync.timer = setTimeout(pushSharedStore, options.immediate ? 0 : 900);
+}
+
+async function pushSharedStore() {
+  if (!sharedStoreSync.enabled || sharedStoreSync.inFlight) return;
+  sharedStoreSync.inFlight = true;
+  try {
+    const response = await fetch('/api/store', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ store, clientUpdatedAt:store.updatedAt, user:currentUserLabel() }) });
+    const payload = await response.json();
+    if (!response.ok || payload.error) throw new Error(payload.error || `Shared sync returned ${response.status}`);
+    sharedStoreSync.lastPushedAt = payload.updatedAt || new Date().toISOString();
+    sharedStoreSync.lastError = '';
+    if (payload.store && storeTime(payload.store.updatedAt) >= storeTime(store.updatedAt)) applySharedStore(payload.store, 'push');
+  } catch (error) {
+    sharedStoreSync.lastError = error.message;
+    console.warn('Shared store sync failed.', error);
+  } finally {
+    sharedStoreSync.inFlight = false;
+  }
+}
+
+async function pullSharedStore(options = {}) {
+  if (!sharedStoreSync.enabled || sharedStoreSync.inFlight) return;
+  try {
+    const response = await fetch('/api/store', { cache:'no-store' });
+    const payload = await response.json();
+    if (!response.ok || payload.error) throw new Error(payload.error || `Shared store returned ${response.status}`);
+    sharedStoreSync.lastPulledAt = payload.serverUpdatedAt || new Date().toISOString();
+    sharedStoreSync.lastError = '';
+    if (payload.hasStore && payload.store && storeTime(payload.store.updatedAt) > storeTime(store.updatedAt)) {
+      applySharedStore(payload.store, options.initial ? 'initial' : 'pull');
+    } else if (!payload.hasStore && options.initial) {
+      scheduleSharedStoreSync({ immediate:true });
+    }
+  } catch (error) {
+    sharedStoreSync.lastError = error.message;
+    console.warn('Shared store pull failed.', error);
+  }
+}
+
+function sharedDatabaseStatusMarkup() {
+  const lastSync = sharedStoreSync.lastPushedAt || sharedStoreSync.lastPulledAt || store.serverSyncedAt || '';
+  return `<div class="legacy-tool"><h3>Shared Database Sync</h3><div class="gmail-readiness-grid"><span><small>Status</small><strong>${sharedStoreSync.lastError ? 'Needs attention' : sharedStoreSync.enabled ? 'Enabled' : 'Local file mode'}</strong></span><span><small>Last sync</small><strong>${escapeHtml(lastSync ? new Date(lastSync).toLocaleString() : 'Pending')}</strong></span><span><small>Rules engine</small><strong>${escapeHtml(store.notificationRulesLastRun ? `${store.notificationRulesLastRun.changes || 0} changes` : 'Pending')}</strong></span></div>${sharedStoreSync.lastError ? `<p class="notice warning">${escapeHtml(sharedStoreSync.lastError)}</p>` : '<p class="notice success">Bookings, trips, chat, alerts, and WhatsApp drafts sync through the shared backend database.</p>'}</div>`;
 }
 
 function currentUser() { return store.users?.find((user) => user.id === store.activeUserId) || store.users?.[0] || { id: '', name: 'Demo user', role: 'Admin' }; }
@@ -680,6 +755,8 @@ function init() {
   renderRoute('dashboard');
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('service-worker.js').catch(console.warn);
   refreshIntegrationStatus({ silent: true });
+  pullSharedStore({ initial: true });
+  if (sharedStoreSync.enabled) setInterval(() => pullSharedStore(), 15000);
 }
 
 function renderLoginUsers() {
@@ -4245,7 +4322,7 @@ async function syncOwnerGmail() {
 
 function settingsMarkup() {
   const ownerIntegrationTools = isCompanyOwnerUser() ? `${integrationReadinessMarkup()}${gmailImportSettingsMarkup()}` : '';
-  return `<div class="grid settings-grid" style="margin-top:18px">${appDownloadSettingsMarkup()}${ownerIntegrationTools}${renderUserSettings()}${renderRoleSettings()}${renderChatPreferences()}<div class="legacy-tool dashboard-preferences-settings"><h3>Dashboard Preferences</h3>${renderDashboardCustomizer()}</div><div class="legacy-tool"><h3>Seed data</h3><p>${store.vessels.length} vessels, ${store.crew.length} crew members, and ${store.users.length} users loaded.</p></div><div class="legacy-tool"><h3>Local data</h3><div class="legacy-actions"><button class="btn btn-outline" data-export-store>Export JSON</button><label class="btn btn-outline" for="importStoreFileSettings">Import JSON<input id="importStoreFileSettings" data-import-store type="file" accept="application/json" hidden></label><button class="btn btn-danger" data-reset-store>Reset seed data</button></div></div><div class="legacy-tool archived-legacy-tools"><h3>Archived Legacy Tools</h3><p>Legacy tools are retained for reference only. Active operations should be completed through the main application tabs.</p><div class="legacy-list">${legacyTools.map((tool) => `<div class="legacy-tool"><h3>${tool.title}</h3><p>${tool.desc}</p><div class="legacy-actions"><a class="btn btn-outline btn-small" href="${tool.file}" target="_blank" rel="noopener">Open reference</a></div></div>`).join('')}</div></div></div>`;
+  return `<div class="grid settings-grid" style="margin-top:18px">${appDownloadSettingsMarkup()}${sharedDatabaseStatusMarkup()}${ownerIntegrationTools}${renderUserSettings()}${renderRoleSettings()}${renderChatPreferences()}<div class="legacy-tool dashboard-preferences-settings"><h3>Dashboard Preferences</h3>${renderDashboardCustomizer()}</div><div class="legacy-tool"><h3>Seed data</h3><p>${store.vessels.length} vessels, ${store.crew.length} crew members, and ${store.users.length} users loaded.</p></div><div class="legacy-tool"><h3>Local data</h3><div class="legacy-actions"><button class="btn btn-outline" data-export-store>Export JSON</button><label class="btn btn-outline" for="importStoreFileSettings">Import JSON<input id="importStoreFileSettings" data-import-store type="file" accept="application/json" hidden></label><button class="btn btn-danger" data-reset-store>Reset seed data</button></div></div><div class="legacy-tool archived-legacy-tools"><h3>Archived Legacy Tools</h3><p>Legacy tools are retained for reference only. Active operations should be completed through the main application tabs.</p><div class="legacy-list">${legacyTools.map((tool) => `<div class="legacy-tool"><h3>${tool.title}</h3><p>${tool.desc}</p><div class="legacy-actions"><a class="btn btn-outline btn-small" href="${tool.file}" target="_blank" rel="noopener">Open reference</a></div></div>`).join('')}</div></div></div>`;
 }
 
 function toast(message) {

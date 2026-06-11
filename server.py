@@ -9,6 +9,7 @@ import json
 import os
 import re
 import secrets
+import sqlite3
 import tempfile
 import urllib.error
 import urllib.parse
@@ -30,6 +31,7 @@ CRUISE_CACHE_FILE = os.path.join(CACHE_DIR, "cruise-nassau.json")
 GMAIL_TOKEN_FILE = os.path.join(CACHE_DIR, "gmail-owner-token.json")
 GMAIL_STATE_FILE = os.path.join(CACHE_DIR, "gmail-oauth-state.json")
 WHATSAPP_WEBHOOK_FILE = os.path.join(CACHE_DIR, "whatsapp-webhook-events.json")
+DATABASE_PATH = os.environ.get("DATABASE_PATH", os.path.join(CACHE_DIR, "operations.sqlite3"))
 WEATHER_CACHE_TTL_SECONDS = int(os.environ.get("WEATHER_CACHE_TTL_SECONDS", "1800"))
 WEATHER_FALLBACK_TTL_SECONDS = int(os.environ.get("WEATHER_FALLBACK_TTL_SECONDS", "600"))
 CRUISE_CACHE_TTL_SECONDS = int(os.environ.get("CRUISE_CACHE_TTL_SECONDS", "21600"))
@@ -40,6 +42,238 @@ GMAIL_TOKEN_URL = "https://oauth2.googleapis.com/token"
 GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.readonly"
 GMAIL_API_ROOT = "https://gmail.googleapis.com/gmail/v1/users/me"
 WHATSAPP_GRAPH_VERSION = os.environ.get("WHATSAPP_GRAPH_VERSION", "v20.0")
+
+
+def db_connection():
+    os.makedirs(os.path.dirname(DATABASE_PATH), exist_ok=True)
+    conn = sqlite3.connect(DATABASE_PATH, timeout=20)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("CREATE TABLE IF NOT EXISTS app_state (id TEXT PRIMARY KEY, payload TEXT NOT NULL, updated_at TEXT NOT NULL)")
+    conn.execute("CREATE TABLE IF NOT EXISTS event_log (id TEXT PRIMARY KEY, kind TEXT NOT NULL, payload TEXT NOT NULL, created_at TEXT NOT NULL)")
+    return conn
+
+
+def database_status():
+    try:
+        with db_connection() as conn:
+            conn.execute("SELECT 1")
+        return {"configured": True, "provider": "SQLite", "path": DATABASE_PATH}
+    except sqlite3.Error as error:
+        return {"configured": False, "provider": "SQLite", "error": str(error)}
+
+
+def load_operations_state():
+    with db_connection() as conn:
+        row = conn.execute("SELECT payload, updated_at FROM app_state WHERE id = 'main'").fetchone()
+    if not row:
+        return {"hasStore": False, "store": None, "updatedAt": ""}
+    return {"hasStore": True, "store": json.loads(row["payload"]), "updatedAt": row["updated_at"]}
+
+
+def save_operations_state(store):
+    updated_at = iso_now()
+    payload = json.dumps(store, separators=(",", ":"))
+    with db_connection() as conn:
+        conn.execute(
+            "INSERT INTO app_state(id, payload, updated_at) VALUES('main', ?, ?) "
+            "ON CONFLICT(id) DO UPDATE SET payload = excluded.payload, updated_at = excluded.updated_at",
+            (payload, updated_at),
+        )
+    return updated_at
+
+
+def append_event_log(kind, payload):
+    try:
+        with db_connection() as conn:
+            conn.execute(
+                "INSERT INTO event_log(id, kind, payload, created_at) VALUES(?, ?, ?, ?)",
+                (f"event-{int(datetime.now(timezone.utc).timestamp() * 1000)}-{secrets.token_hex(3)}", kind, json.dumps(payload), iso_now()),
+            )
+    except sqlite3.Error:
+        pass
+
+
+def items_by_id(items):
+    return {str(item.get("id")): item for item in items or [] if isinstance(item, dict) and item.get("id")}
+
+
+def normalize_digits(value):
+    return re.sub(r"\D+", "", str(value or ""))
+
+
+def server_id(prefix):
+    return f"{prefix}-{int(datetime.now(timezone.utc).timestamp() * 1000)}-{secrets.token_hex(3)}"
+
+
+def owner_for_vessel(store, vessel_name):
+    return next((v.get("owner", "") for v in store.get("vessels", []) if v.get("name") == vessel_name), "")
+
+
+def crew_phone(store, name):
+    return next((c.get("phone", "") for c in store.get("crew", []) if c.get("name") == name), "")
+
+
+def user_phone(store, user):
+    if user.get("phone"):
+        return user.get("phone", "")
+    crew_id = user.get("linkedCrewProfileId", "")
+    return next((c.get("phone", "") for c in store.get("crew", []) if c.get("id") == crew_id), "")
+
+
+def ensure_notification(store, rule_key, title, message, level="info", recipient_role="All", recipient_name="", category="General", metadata=None):
+    notices = store.setdefault("notifications", [])
+    if any((notice.get("metadata") or {}).get("serverRuleKey") == rule_key for notice in notices):
+        return False
+    payload = {
+        "id": server_id("notice"),
+        "at": iso_now(),
+        "title": title,
+        "message": message,
+        "level": level,
+        "read": False,
+        "recipientRole": recipient_role,
+        "recipientName": recipient_name,
+        "category": category,
+        "metadata": {**(metadata or {}), "serverRuleKey": rule_key},
+    }
+    notices.insert(0, payload)
+    del notices[150:]
+    return True
+
+
+def ensure_whatsapp_draft(store, rule_key, category, recipient_role, recipient_name, phone_number, message_body, related_trip="", related_booking="", related_invoice=""):
+    queue = store.setdefault("whatsappQueue", [])
+    if any(item.get("serverRuleKey") == rule_key for item in queue):
+        return False
+    queue.insert(0, {
+        "id": server_id("wa-message"),
+        "category": category,
+        "recipientName": recipient_name or recipient_role or "Recipient",
+        "recipientRole": recipient_role or "Crew",
+        "phoneNumber": phone_number or "",
+        "messageBody": message_body,
+        "relatedTrip": related_trip,
+        "relatedBooking": related_booking,
+        "relatedInvoice": related_invoice,
+        "status": "Ready" if normalize_digits(phone_number) else "Draft",
+        "createdAt": iso_now(),
+        "sentAt": "",
+        "createdBy": "Notification Rules Engine",
+        "serverRuleKey": rule_key,
+    })
+    del queue[150:]
+    return True
+
+
+def trip_label(trip):
+    return f"{trip.get('customer') or 'Trip'} on {trip.get('tripDate') or 'date pending'} at {trip.get('startTime') or 'time pending'}"
+
+
+def queue_trip_role_messages(store, trip, reason):
+    trip_id = trip.get("id", "")
+    date_time = f"{trip.get('tripDate') or 'date pending'} {trip.get('startTime') or ''}".strip()
+    changes = 0
+    customer = trip.get("customer") or "A trip"
+    vessel = trip.get("vessel") or "unassigned vessel"
+    owner = owner_for_vessel(store, trip.get("vessel", ""))
+    recipients = [
+        ("Captain", trip.get("captain", ""), crew_phone(store, trip.get("captain", "")), "Captain Assignment", f"Hi {trip.get('captain') or 'Captain'}, {customer} is {reason} for {date_time}. Vessel: {vessel}."),
+        ("Mate", trip.get("mate", ""), crew_phone(store, trip.get("mate", "")), "Mate Assignment", f"Hi {trip.get('mate') or 'Mate'}, {customer} is {reason} for {date_time}. Vessel: {vessel}."),
+        ("Owner", owner, crew_phone(store, owner), "Owner Assignment Alert", f"Owner alert: {vessel} is {reason} for {customer} on {date_time}."),
+    ]
+    for role, name, phone, category, body in recipients:
+        if not name or name == "None":
+            continue
+        key = f"trip:{trip_id}:{reason}:{role}:{name}:{trip.get('tripDate')}:{trip.get('startTime')}:{trip.get('vessel')}"
+        changes += ensure_notification(store, key, f"{role} trip update", body, "info", role, name, "Assignment", {"tripId": trip_id, "vessel": trip.get("vessel", "")})
+        changes += ensure_whatsapp_draft(store, f"wa:{key}", category, role, name, phone, body, related_trip=trip_id, related_booking=trip.get("bookingId", ""))
+    return changes
+
+
+def apply_notification_rules(previous_store, next_store):
+    changes = 0
+    previous_store = previous_store or {}
+    previous_trips = items_by_id(previous_store.get("trips", []))
+    for trip in next_store.get("trips", []) or []:
+        if not isinstance(trip, dict) or not trip.get("id"):
+            continue
+        before = previous_trips.get(str(trip.get("id")))
+        if not before:
+            changes += queue_trip_role_messages(next_store, trip, "newly scheduled")
+            continue
+        watched = ("tripDate", "startTime", "vessel", "captain", "mate", "status")
+        if any(str(before.get(key, "")) != str(trip.get(key, "")) for key in watched):
+            changes += queue_trip_role_messages(next_store, trip, "updated")
+        if trip.get("payrollReady") and not before.get("payrollReady"):
+            for role_key, role in (("captain", "Captain"), ("mate", "Mate")):
+                name = trip.get(role_key, "")
+                if name and name != "None":
+                    body = f"Payroll update: payout is ready for {trip_label(trip)}."
+                    key = f"payroll-ready:{trip.get('id')}:{role}:{name}"
+                    changes += ensure_notification(next_store, key, "Payout ready", body, "success", role, name, "Payroll", {"tripId": trip.get("id")})
+                    changes += ensure_whatsapp_draft(next_store, f"wa:{key}", "Owner Payout Statement", role, name, crew_phone(next_store, name), body, related_trip=trip.get("id", ""))
+
+    previous_checklists = items_by_id(previous_store.get("checklistRecords", []))
+    trips = items_by_id(next_store.get("trips", []))
+    for record in next_store.get("checklistRecords", []) or []:
+        if not isinstance(record, dict) or not record.get("id") or str(record.get("id")) in previous_checklists:
+            continue
+        trip = trips.get(str(record.get("tripId"))) or {}
+        people = [("Captain", record.get("captain") or trip.get("captain", "")), ("Mate", record.get("mate") or trip.get("mate", "")), ("Owner", owner_for_vessel(next_store, record.get("vessel") or trip.get("vessel", "")))]
+        body = f"{record.get('type', 'Trip')} checklist is {record.get('status', 'saved')} for {record.get('vessel') or trip.get('vessel') or 'a vessel'}."
+        if record.get("restockAlerts"):
+            body += " Restock needed: " + "; ".join(record.get("restockAlerts", []))
+        for role, name in people:
+            if not name or name == "None":
+                continue
+            key = f"checklist:{record.get('id')}:{role}:{name}"
+            changes += ensure_notification(next_store, key, f"{record.get('type', 'Trip')} checklist update", body, "warning" if record.get("status") == "Needs Review" or record.get("restockAlerts") else "success", role, name, "Checklist", {"tripId": record.get("tripId", ""), "vessel": record.get("vessel", "")})
+            changes += ensure_whatsapp_draft(next_store, f"wa:{key}", f"{record.get('type', 'Trip')} Checklist Reminder", role, name, crew_phone(next_store, name), body, related_trip=record.get("tripId", ""))
+
+    previous_messages = items_by_id(previous_store.get("chatMessages", []))
+    conversations = items_by_id(next_store.get("chatConversations", []))
+    users = items_by_id(next_store.get("users", []))
+    for message in next_store.get("chatMessages", []) or []:
+        if not isinstance(message, dict) or not message.get("id") or str(message.get("id")) in previous_messages:
+            continue
+        conversation = conversations.get(str(message.get("conversationId"))) or {}
+        for user_id in conversation.get("participantUserIds", []) or []:
+            if user_id == message.get("senderUserId"):
+                continue
+            user = users.get(str(user_id)) or {}
+            if not user:
+                continue
+            body = f"{message.get('senderName') or 'Operations'}: {message.get('messageText') or ''}"
+            key = f"chat:{message.get('id')}:{user_id}"
+            changes += ensure_notification(next_store, key, "New chat message", body, "info", user.get("role", ""), user.get("name", ""), "Chat", {"conversationId": message.get("conversationId", "")})
+            changes += ensure_whatsapp_draft(next_store, f"wa:{key}", "Chat Notification", user.get("role", ""), user.get("name", ""), user_phone(next_store, user), body)
+
+    previous_incidents = items_by_id(previous_store.get("incidentReports", []))
+    for incident in next_store.get("incidentReports", []) or []:
+        if not isinstance(incident, dict) or not incident.get("id") or str(incident.get("id")) in previous_incidents:
+            continue
+        owner = owner_for_vessel(next_store, incident.get("vessel", ""))
+        body = f"Incident alert: {incident.get('severity', 'Incident')} {incident.get('category', '')} for {incident.get('vessel') or 'operations'}."
+        for role, name in (("Owner", owner), ("Captain", incident.get("captain", "")), ("Mate", incident.get("mate", ""))):
+            if not name:
+                continue
+            key = f"incident:{incident.get('id')}:{role}:{name}"
+            changes += ensure_notification(next_store, key, "Incident alert", body, "critical" if incident.get("severity") == "Critical" else "warning", role, name, "Incident", {"incidentId": incident.get("id"), "vessel": incident.get("vessel", "")})
+            changes += ensure_whatsapp_draft(next_store, f"wa:{key}", "Incident Alert", role, name, crew_phone(next_store, name), body, related_trip=str(incident.get("tripId", "")).split("|")[0])
+
+    previous_payments = items_by_id(previous_store.get("payrollPayments", []))
+    for payment in next_store.get("payrollPayments", []) or []:
+        if not isinstance(payment, dict) or not payment.get("id") or str(payment.get("id")) in previous_payments:
+            continue
+        person = payment.get("person") or payment.get("recipient") or payment.get("name") or ""
+        if not person:
+            continue
+        body = f"Payroll payment recorded for {person}: {payment.get('amountPaid') or payment.get('amount') or ''}."
+        key = f"payroll-payment:{payment.get('id')}:{person}"
+        changes += ensure_notification(next_store, key, "Payroll payment recorded", body, "success", "Crew", person, "Payroll", {"payrollPaymentId": payment.get("id")})
+        changes += ensure_whatsapp_draft(next_store, f"wa:{key}", "Owner Payout Statement", "Crew", person, crew_phone(next_store, person), body)
+    return changes
 
 
 def request_json(url, data=None):
@@ -591,12 +825,18 @@ class AppHandler(SimpleHTTPRequestHandler):
             if self.path.startswith("/api/cruise/nassau"):
                 self.send_json(cruise_schedule_payload())
                 return
+            if self.path.startswith("/api/store"):
+                payload = load_operations_state()
+                payload.update({"ok": True, "database": database_status(), "serverUpdatedAt": iso_now()})
+                self.send_json(payload)
+                return
             if self.path.startswith("/api/integrations/status"):
                 self.send_json({
                     "ok": True,
                     "release": APP_RELEASE,
                     "gmail": {**env_readiness(GMAIL_REQUIRED_ENV), **gmail_token_status()},
                     "whatsapp": {**env_readiness(WHATSAPP_REQUIRED_ENV), "webhookConfigured": bool(os.environ.get("WHATSAPP_WEBHOOK_VERIFY_TOKEN"))},
+                    "database": database_status(),
                     "updatedAt": iso_now(),
                 })
                 return
@@ -620,6 +860,7 @@ class AppHandler(SimpleHTTPRequestHandler):
                     "gmailConfigured": env_readiness(GMAIL_REQUIRED_ENV)["configured"],
                     "gmailConnected": gmail_token_status()["connected"],
                     "whatsappConfigured": env_readiness(WHATSAPP_REQUIRED_ENV)["configured"],
+                    "database": database_status(),
                     "updatedAt": iso_now(),
                 })
                 return
@@ -629,6 +870,22 @@ class AppHandler(SimpleHTTPRequestHandler):
 
     def do_POST(self):
         try:
+            if self.path.startswith("/api/store"):
+                body = self.read_json_body()
+                incoming = body.get("store") if isinstance(body, dict) else None
+                if not isinstance(incoming, dict):
+                    self.send_json({"error": "store object is required", "updatedAt": iso_now()}, 400)
+                    return
+                existing = load_operations_state()
+                previous_store = existing.get("store") if existing.get("hasStore") else None
+                incoming["updatedAt"] = incoming.get("updatedAt") or iso_now()
+                rule_changes = apply_notification_rules(previous_store, incoming)
+                incoming["serverSyncedAt"] = iso_now()
+                incoming["notificationRulesLastRun"] = {"at": iso_now(), "changes": rule_changes}
+                updated_at = save_operations_state(incoming)
+                append_event_log("store-sync", {"user": body.get("user", ""), "ruleChanges": rule_changes, "clientUpdatedAt": body.get("clientUpdatedAt", "")})
+                self.send_json({"ok": True, "store": incoming, "updatedAt": updated_at, "ruleChanges": rule_changes})
+                return
             if self.path.startswith("/api/whatsapp/send"):
                 self.send_json(whatsapp_send_message(self.read_json_body()))
                 return
