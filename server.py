@@ -15,6 +15,11 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+try:
+    import psycopg
+except ImportError:
+    psycopg = None
+
 ROOT = os.path.dirname(os.path.abspath(__file__))
 NASSAU_LAT = 25.056
 NASSAU_LON = -77.352
@@ -32,6 +37,7 @@ GMAIL_TOKEN_FILE = os.path.join(CACHE_DIR, "gmail-owner-token.json")
 GMAIL_STATE_FILE = os.path.join(CACHE_DIR, "gmail-oauth-state.json")
 WHATSAPP_WEBHOOK_FILE = os.path.join(CACHE_DIR, "whatsapp-webhook-events.json")
 DATABASE_PATH = os.environ.get("DATABASE_PATH", os.path.join(CACHE_DIR, "operations.sqlite3"))
+DATABASE_URL = os.environ.get("DATABASE_URL", "").strip()
 WEATHER_CACHE_TTL_SECONDS = int(os.environ.get("WEATHER_CACHE_TTL_SECONDS", "1800"))
 WEATHER_FALLBACK_TTL_SECONDS = int(os.environ.get("WEATHER_FALLBACK_TTL_SECONDS", "600"))
 CRUISE_CACHE_TTL_SECONDS = int(os.environ.get("CRUISE_CACHE_TTL_SECONDS", "21600"))
@@ -44,7 +50,18 @@ GMAIL_API_ROOT = "https://gmail.googleapis.com/gmail/v1/users/me"
 WHATSAPP_GRAPH_VERSION = os.environ.get("WHATSAPP_GRAPH_VERSION", "v20.0")
 
 
+def db_provider():
+    return "Postgres" if DATABASE_URL else "SQLite"
+
+
 def db_connection():
+    if DATABASE_URL:
+        if psycopg is None:
+            raise RuntimeError("DATABASE_URL is set but psycopg is not installed")
+        conn = psycopg.connect(DATABASE_URL)
+        conn.execute("CREATE TABLE IF NOT EXISTS app_state (id TEXT PRIMARY KEY, payload TEXT NOT NULL, updated_at TEXT NOT NULL)")
+        conn.execute("CREATE TABLE IF NOT EXISTS event_log (id TEXT PRIMARY KEY, kind TEXT NOT NULL, payload TEXT NOT NULL, created_at TEXT NOT NULL)")
+        return conn
     os.makedirs(os.path.dirname(DATABASE_PATH), exist_ok=True)
     conn = sqlite3.connect(DATABASE_PATH, timeout=20)
     conn.row_factory = sqlite3.Row
@@ -58,9 +75,14 @@ def database_status():
     try:
         with db_connection() as conn:
             conn.execute("SELECT 1")
-        return {"configured": True, "provider": "SQLite", "path": DATABASE_PATH}
-    except sqlite3.Error as error:
-        return {"configured": False, "provider": "SQLite", "error": str(error)}
+        status = {"configured": True, "provider": db_provider()}
+        if DATABASE_URL:
+            status["databaseUrlConfigured"] = True
+        else:
+            status["path"] = DATABASE_PATH
+        return status
+    except (sqlite3.Error, RuntimeError, psycopg.Error if psycopg else Exception) as error:
+        return {"configured": False, "provider": db_provider(), "error": str(error)}
 
 
 def load_operations_state():
@@ -68,29 +90,38 @@ def load_operations_state():
         row = conn.execute("SELECT payload, updated_at FROM app_state WHERE id = 'main'").fetchone()
     if not row:
         return {"hasStore": False, "store": None, "updatedAt": ""}
-    return {"hasStore": True, "store": json.loads(row["payload"]), "updatedAt": row["updated_at"]}
+    payload, updated_at = row["payload"] if isinstance(row, sqlite3.Row) else row[0], row["updated_at"] if isinstance(row, sqlite3.Row) else row[1]
+    return {"hasStore": True, "store": json.loads(payload), "updatedAt": updated_at}
 
 
 def save_operations_state(store):
     updated_at = iso_now()
     payload = json.dumps(store, separators=(",", ":"))
     with db_connection() as conn:
-        conn.execute(
-            "INSERT INTO app_state(id, payload, updated_at) VALUES('main', ?, ?) "
-            "ON CONFLICT(id) DO UPDATE SET payload = excluded.payload, updated_at = excluded.updated_at",
-            (payload, updated_at),
-        )
+        if DATABASE_URL:
+            conn.execute(
+                "INSERT INTO app_state(id, payload, updated_at) VALUES('main', %s, %s) "
+                "ON CONFLICT(id) DO UPDATE SET payload = excluded.payload, updated_at = excluded.updated_at",
+                (payload, updated_at),
+            )
+        else:
+            conn.execute(
+                "INSERT INTO app_state(id, payload, updated_at) VALUES('main', ?, ?) "
+                "ON CONFLICT(id) DO UPDATE SET payload = excluded.payload, updated_at = excluded.updated_at",
+                (payload, updated_at),
+            )
     return updated_at
 
 
 def append_event_log(kind, payload):
     try:
         with db_connection() as conn:
-            conn.execute(
-                "INSERT INTO event_log(id, kind, payload, created_at) VALUES(?, ?, ?, ?)",
-                (f"event-{int(datetime.now(timezone.utc).timestamp() * 1000)}-{secrets.token_hex(3)}", kind, json.dumps(payload), iso_now()),
-            )
-    except sqlite3.Error:
+            values = (f"event-{int(datetime.now(timezone.utc).timestamp() * 1000)}-{secrets.token_hex(3)}", kind, json.dumps(payload), iso_now())
+            if DATABASE_URL:
+                conn.execute("INSERT INTO event_log(id, kind, payload, created_at) VALUES(%s, %s, %s, %s)", values)
+            else:
+                conn.execute("INSERT INTO event_log(id, kind, payload, created_at) VALUES(?, ?, ?, ?)", values)
+    except Exception:
         pass
 
 
