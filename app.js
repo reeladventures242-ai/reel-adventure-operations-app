@@ -131,6 +131,8 @@ const seedData = {
   whatsappSettings: { defaultCountryCode: '1', companyWhatsAppNumber: '', enableCustomerActions: true, enableCrewActions: true, businessApiStatus: 'Manual Mode', lastStatusCheckAt: '' },
   gmailImports: [],
   customerProfiles: [],
+  autoOpsSettings: { enabled: true, gmailAutoCalendar: true, autoCalendarConfidence: 80, createWhatsAppDrafts: true, notifyCustomers: true, notifyCrew: true, chatWhatsAppDrafts: true },
+  autoOpsRuns: [],
   gmailOAuthStatus: 'Not Connected',
   gmailConnectedAccount: '',
   lastSyncTime: '',
@@ -323,6 +325,8 @@ function migrateStore(existing = {}) {
   next.whatsappSettings = { defaultCountryCode: '1', companyWhatsAppNumber: '', enableCustomerActions: true, enableCrewActions: true, businessApiStatus: 'Manual Mode', lastStatusCheckAt: '', ...(next.whatsappSettings || {}) };
   next.gmailImports = Array.isArray(next.gmailImports) ? next.gmailImports : [];
   next.customerProfiles = Array.isArray(next.customerProfiles) ? next.customerProfiles : [];
+  next.autoOpsSettings = { enabled: true, gmailAutoCalendar: true, autoCalendarConfidence: 80, createWhatsAppDrafts: true, notifyCustomers: true, notifyCrew: true, chatWhatsAppDrafts: true, ...(next.autoOpsSettings || {}) };
+  next.autoOpsRuns = Array.isArray(next.autoOpsRuns) ? next.autoOpsRuns : [];
   next.gmailOAuthStatus = next.gmailOAuthStatus || 'Not Connected';
   next.gmailConnectedAccount = next.gmailConnectedAccount || '';
   next.lastSyncTime = next.lastSyncTime || '';
@@ -798,6 +802,7 @@ function wireEvents() {
     if (event.target.closest('[data-refresh-integration-status]')) refreshIntegrationStatus();
     if (event.target.closest('[data-gmail-connect]')) connectOwnerGmail();
     if (event.target.closest('[data-gmail-sync]')) syncOwnerGmail();
+    if (event.target.closest('[data-run-auto-ops]')) runAutoOpsForGmailImports();
     const whatsappBusinessSend = event.target.closest('[data-whatsapp-business-send]');
     if (whatsappBusinessSend) sendWhatsAppBusinessMessage(whatsappBusinessSend.dataset.whatsappBusinessSend);
     const chatOpen = event.target.closest('[data-chat-conversation]');
@@ -1268,6 +1273,7 @@ function nextBookingOrderNumber() {
 function createBookingFromUpload(data) {
   const booking = { id: makeId('bookings'), order: data.quoteNumber || data.invoiceNumber || nextBookingOrderNumber(), customer: data.customerName || '', date: data.tripDate || '', time: data.startTime || data.departureTime || '', guests: Number(data.guestCount || 0), product: data.tourType || '', source: data.bookingSource || '', balance: Number(data.balanceDue || 0), status: Number(data.balanceDue || 0) > 0 ? 'Balance due' : 'Inquiry', notes: [data.specialRequests, data.notes].filter(Boolean).join('\n') };
   store.bookings.push(booking); synchronizeBookingWorkflow(booking); addAudit('created', 'Smart Document Intake', `Booking created from reviewed upload for ${booking.customer || 'customer'}.`, { bookingId: booking.id }); addNotification('Booking created from uploaded invoice.', `${booking.customer || 'Customer'} booking was created after review.`, 'success', { category: 'Upload', bookingId: booking.id });
+  return booking;
 }
 function createInvoiceFromUpload(data, linkCustomer = false) {
   const linked = linkCustomer ? findRelatedCustomerRecord(data) : {};
@@ -1295,6 +1301,7 @@ function createTripFromUpload(data, scheduleOnly = false) {
   if (!duplicate || pendingDuplicateAction !== 'update') store.trips.push(trip);
   addAudit(duplicate && pendingDuplicateAction === 'update' ? 'updated' : 'created', 'Smart Document Intake', `${scheduleOnly ? 'Trip added to calendar' : 'Trip created'} from upload for ${trip.customer || 'customer'}.`, { tripId: trip.id });
   addNotification(scheduleOnly ? 'Trip added to calendar.' : 'Trip created from upload.', `${trip.customer || 'Trip'} is scheduled for ${formatDate(trip.tripDate)}.`, 'success', { category: 'Upload', tripId: trip.id });
+  return trip;
 }
 
 function activeRoleName() {
@@ -4079,7 +4086,9 @@ function sendChatMessage(event) {
   if (!text) return toast('Enter a chat message before sending.');
   if (!conversation) return toast('Choose a visible conversation before sending.');
   const user = currentUser();
-  store.chatMessages.push({ id: makeId('chat-message'), conversationId: conversation.id, senderUserId: user.id, senderName: user.name, senderRole: user.role, messageText: text, createdAt: new Date().toISOString(), readBy: [user.id], attachments: [], metadata: { source: 'local-demo' } });
+  const message = { id: makeId('chat-message'), conversationId: conversation.id, senderUserId: user.id, senderName: user.name, senderRole: user.role, messageText: text, createdAt: new Date().toISOString(), readBy: [user.id], attachments: [], metadata: { source: 'local-demo' } };
+  store.chatMessages.push(message);
+  queueWhatsAppDraftsForChatMessage(conversation, message);
   addAudit('sent', 'Chat', `Sent a message in ${conversationLabel(conversation)}.`, { conversationId: conversation.id }); saveStore(); renderNav(); renderChat();
 }
 
@@ -4224,10 +4233,11 @@ async function syncOwnerGmail() {
     });
     store.lastSyncTime = payload.updatedAt || new Date().toISOString();
     store.syncCursor = `Last Gmail sync imported ${created} new message${created === 1 ? '' : 's'}`;
-    addAudit('synced','Gmail Import',`Owner Gmail sync imported ${created} new message(s).`,{count:created});
+    const autoResults = runAutoOpsForGmailImports({ silent:true });
+    addAudit('synced','Gmail Import',`Owner Gmail sync imported ${created} new message(s); Auto Operations created ${autoResults.length} calendar item(s).`,{count:created,autoCalendarCount:autoResults.length});
     saveStore();
     renderGmailImport();
-    toast(`Gmail sync complete: ${created} new message${created === 1 ? '' : 's'}.`);
+    toast(`Gmail sync complete: ${created} new message${created === 1 ? '' : 's'}, ${autoResults.length} auto-calendar item${autoResults.length === 1 ? '' : 's'}.`);
   } catch (error) {
     toast(`Gmail sync failed: ${error.message}`);
   }
@@ -4577,6 +4587,12 @@ function gmailDuplicateMatches(item) {
 function missingGmailImportFields(item) { return [['customerName','Customer Name'],['tourDate','Tour Date'],['startTime','Start Time'],['guestCount','Guest Count'],['tourType','Tour Type']].filter(([key]) => !item[key]).map(([,label]) => label); }
 function gmailImportFieldInput(key, label, item) { const type = key === 'tourDate' ? 'date' : key === 'startTime' ? 'time' : ['guestCount','totalPrice','deposit','balance'].includes(key) ? 'number' : key === 'receivedDate' ? 'text' : 'text'; return `<label class="gmail-review-field"><span>${escapeHtml(label)} <small>${escapeHtml(item.confidenceScores?.[key] || 'Low')} confidence</small></span><input name="${key}" type="${type}" value="${escapeHtml(item[key] || '')}"></label>`; }
 function gmailActionSelectMarkup(item) { const recommended = item.recommendedAction || gmailImportAiDecision(item).action; return `<div class="gmail-review-actions gmail-ai-actions"><div class="gmail-ai-decision"><p class="eyebrow">AI recommended action</p><h3>${escapeHtml(recommended)}</h3><p>${escapeHtml(item.aiDecisionReason || 'Based on the email context and extracted trip details.')}</p><div class="integration-readiness-grid"><span><small>Category</small><strong>${escapeHtml(item.aiCategory || 'Needs Review')}</strong></span><span><small>AI confidence</small><strong>${item.aiConfidenceScore || item.confidenceScore || 0}%</strong></span><span><small>Automation</small><strong>${item.autoActionReady ? 'Ready for calendar' : 'Review first'}</strong></span></div></div><input type="hidden" name="action" value="${escapeHtml(recommended)}"><details class="gmail-action-override"><summary>Change action</summary><label>Override<select name="actionOverride"><option value="">Use AI recommendation</option>${GMAIL_ACTION_OPTIONS.map((value) => `<option ${recommended === value ? 'selected' : ''}>${escapeHtml(value)}</option>`).join('')}</select></label></details><button class="btn btn-primary">${item.autoActionReady ? 'Apply AI Recommendation' : 'Confirm AI-Assisted Action'}</button></div>`; }
+function autoOpsStatusMarkup() {
+  const settings = store.autoOpsSettings || {};
+  const ready = (store.gmailImports || []).filter(autoOpsCanCreateCalendar).length;
+  const lastRun = store.autoOpsRuns?.[0];
+  return `<section class="card gmail-import-card auto-ops-card"><div class="card-header"><div><p class="eyebrow">Auto Operations Engine</p><h3>Gmail to Calendar + WhatsApp Drafts</h3></div><span class="badge ${settings.enabled ? 'green' : 'gold'}">${settings.enabled ? 'Enabled' : 'Paused'}</span></div><div class="integration-readiness-grid"><span><small>Ready now</small><strong>${ready}</strong></span><span><small>Calendar threshold</small><strong>${Number(settings.autoCalendarConfidence || 80)}%</strong></span><span><small>WhatsApp</small><strong>${settings.createWhatsAppDrafts ? 'Drafts only' : 'Off'}</strong></span><span><small>Last run</small><strong>${lastRun ? `${lastRun.processedCount} item(s)` : 'Never'}</strong></span></div><p class="notice ${ready ? 'success' : 'warning'}">${ready ? 'High-confidence complete Gmail records can be added to the calendar now. WhatsApp messages will be queued as drafts for review.' : 'No existing Gmail records are complete and high-confidence enough for automatic calendar creation right now.'}</p><button class="btn btn-primary btn-small" data-run-auto-ops>Run Auto Engine</button></section>`;
+}
 
 function renderGmailImport() {
   const page = document.getElementById('page-gmail-import');
@@ -4585,22 +4601,103 @@ function renderGmailImport() {
   const canSync = Boolean(store.integrationStatus?.gmailConnected);
   page.innerHTML = `<div class="page-stack gmail-import-page"><section class="card gmail-import-hero"><div><p class="eyebrow">Owner Gmail sync · review required</p><h3>Import & Review</h3><p>Connect the Owner Gmail account, sync recent booking emails into this queue, review every detected field, then choose what to create.</p></div><div class="gmail-live-actions"><span class="badge ${canSync ? 'green' : canConnect ? 'gold' : 'red'}">${escapeHtml(store.gmailOAuthStatus)}</span><button class="btn btn-primary btn-small" data-gmail-connect ${canConnect ? '' : 'disabled'}>Connect Gmail</button><button class="btn btn-outline btn-small" data-gmail-sync ${canSync ? '' : 'disabled'}>Sync Gmail</button></div></section>
   <details class="card app-accordion gmail-import-card" open><summary><div><h3>1. Manual Import</h3><p>Paste email text or use existing local OCR / PDF intake.</p></div><span class="chevron">⌄</span></summary><form class="gmail-paste-form" onsubmit="parseManualGmailImport(event)"><label><strong>Paste Email Text</strong><textarea name="emailText" rows="12" placeholder="Paste sender, subject, booking confirmation, customer details, date, time, guests, and payment details here…" required></textarea></label><button class="btn btn-primary">Parse & Review</button></form><div class="gmail-upload-actions"><label class="btn btn-outline">Upload Email Screenshot<input type="file" accept="image/png,image/jpeg" capture="environment" onchange="handleGmailImportFile(event,'Email Screenshot')" hidden></label><label class="btn btn-outline">Upload PDF Confirmation<input type="file" accept="application/pdf,.pdf" onchange="handleGmailImportFile(event,'PDF Confirmation')" hidden></label></div></details>
-  <div id="gmailReviewHost">${activeGmailImportId ? gmailReviewMarkup(imports.find((item) => item.id === activeGmailImportId)) : ''}</div>
+  ${autoOpsStatusMarkup()}<div id="gmailReviewHost">${activeGmailImportId ? gmailReviewMarkup(imports.find((item) => item.id === activeGmailImportId)) : ''}</div>
   <details class="card app-accordion gmail-import-card" open><summary><div><h3>Import Queue</h3><p>${imports.length} local email review record${imports.length === 1 ? '' : 's'}</p></div><span class="chevron">⌄</span></summary><div class="gmail-import-list">${imports.length ? imports.map((item) => `<article class="gmail-import-row"><div><span class="badge ${item.importStatus === 'Needs Review' ? 'gold' : item.importStatus.startsWith('Converted') ? 'green' : 'blue'}">${escapeHtml(item.importStatus)}</span><h4>${escapeHtml(item.customerName || item.subject || 'Untitled email')}</h4><p>${escapeHtml(item.source)} · ${escapeHtml(item.tourDate || 'Date missing')} · ${item.confidenceScore || 0}% confidence</p></div><button class="btn btn-outline btn-small" onclick="openGmailImportReview('${item.id}')">Review</button></article>`).join('') : '<p class="empty-state">No manual email imports yet.</p>'}</div></details></div>`;
 }
 
 function parseManualGmailImport(event) { event.preventDefault(); createGmailImportReview(new FormData(event.target).get('emailText'), 'Pasted Email Text', 'Manual paste'); }
 async function handleGmailImportFile(event, inputType) { const file = event.target.files?.[0]; if (!file) return; const extension = (file.name.split('.').pop() || '').toLowerCase(); try { toast('Reading file with local intake tools…'); const result = await extractUploadText(file, extension); createGmailImportReview(result.text, file.name, `${inputType} · ${result.method}`, result.warning); } catch (error) { toast('Could not parse file.'); } event.target.value = ''; }
-function createGmailImportReview(text, fileName, extractionMethod, warning = '') { const parsed = parseGmailImportText(text, fileName); const item = enrichGmailImportAi({ id: makeId('gmail-email'), emailId: makeId('email'), ...parsed.fields, rawMessagePreview: String(text || '').slice(0,1200), importStatus: missingGmailImportFields(parsed.fields).length ? 'Needs Review' : 'New', confidenceScore: parsed.confidenceScore, confidenceScores: parsed.confidenceScores, extractionMethod, extractionWarning: warning, createdAt: new Date().toISOString(), reviewRequired: true }); item.possibleDuplicates = gmailDuplicateMatches(item).map(({id,type,matchCount}) => ({id,type,matchCount})); store.gmailImports.unshift(item); activeGmailImportId = item.id; addAudit('parsed','Gmail Import',`Manual email parsed from ${item.source}; AI recommended ${item.recommendedAction}.`,{emailId:item.emailId,source:item.source,recommendedAction:item.recommendedAction,aiCategory:item.aiCategory}); saveStore(); renderGmailImport(); toast(`Email categorized as ${item.aiCategory}. Recommended: ${item.recommendedAction}.`); }
+function createGmailImportReview(text, fileName, extractionMethod, warning = '') { const parsed = parseGmailImportText(text, fileName); const item = enrichGmailImportAi({ id: makeId('gmail-email'), emailId: makeId('email'), ...parsed.fields, rawMessagePreview: String(text || '').slice(0,1200), importStatus: missingGmailImportFields(parsed.fields).length ? 'Needs Review' : 'New', confidenceScore: parsed.confidenceScore, confidenceScores: parsed.confidenceScores, extractionMethod, extractionWarning: warning, createdAt: new Date().toISOString(), reviewRequired: true }); item.possibleDuplicates = gmailDuplicateMatches(item).map(({id,type,matchCount}) => ({id,type,matchCount})); store.gmailImports.unshift(item); activeGmailImportId = item.id; addAudit('parsed','Gmail Import',`Manual email parsed from ${item.source}; AI recommended ${item.recommendedAction}.`,{emailId:item.emailId,source:item.source,recommendedAction:item.recommendedAction,aiCategory:item.aiCategory}); const autoResults = runAutoOpsForGmailImports({ silent:true }); saveStore(); renderGmailImport(); toast(autoResults.length ? `Auto Ops added this email to the calendar and queued WhatsApp drafts.` : `Email categorized as ${item.aiCategory}. Recommended: ${item.recommendedAction}.`); }
 function openGmailImportReview(id) { activeGmailImportId = id; renderGmailImport(); document.getElementById('gmailReviewHost')?.scrollIntoView({behavior:'smooth'}); }
 
 function gmailReviewMarkup(item) { if (!item) return ''; enrichGmailImportAi(item); const duplicates = gmailDuplicateMatches(item), missing = missingGmailImportFields(item); return `<section class="card gmail-review-screen"><div class="card-header"><div><p class="eyebrow">2. AI-assisted review</p><h3>${escapeHtml(item.subject || item.source || 'Imported Email')}</h3></div><span class="badge blue">${item.aiConfidenceScore || item.confidenceScore || 0}% AI confidence</span></div><form onsubmit="saveGmailImportReview(event,'${item.id}')"><div class="gmail-review-summary"><div><small>Detected Source</small><strong>${escapeHtml(item.source)}</strong></div><div><small>AI Category</small><strong>${escapeHtml(item.aiCategory || 'Needs Review')}</strong></div><div><small>Input Method</small><strong>${escapeHtml(item.extractionMethod)}</strong></div></div>${item.extractionWarning ? `<p class="notice warning">${escapeHtml(item.extractionWarning)}</p>` : ''}<details class="gmail-review-section" open><summary><strong>Extracted Fields</strong><span>${GMAIL_REVIEW_FIELDS.length} fields</span></summary><div class="gmail-review-grid">${GMAIL_REVIEW_FIELDS.map(([key,label]) => gmailImportFieldInput(key,label,item)).join('')}</div></details><details class="gmail-review-section" open><summary><strong>Possible Duplicates</strong><span>${duplicates.length}</span></summary>${duplicates.length ? `<div class="notice warning"><strong>Possible Duplicate Booking Found</strong>${duplicates.map((duplicate) => `<p>${escapeHtml(duplicate.type)} · ${escapeHtml(duplicate.name || 'Unnamed')} · ${duplicate.matchCount} matching fields</p>`).join('')}<label>Duplicate decision<select name="duplicateDecision"><option value="">Choose…</option><option>Update Existing</option><option>Create New</option><option>Cancel</option></select></label></div>` : '<p class="notice success">No possible duplicates detected.</p>'}</details><details class="gmail-review-section" open><summary><strong>Missing Fields</strong><span>${missing.length}</span></summary><p>${missing.length ? escapeHtml(missing.join(' · ')) : 'No core fields are missing.'}</p></details><details class="gmail-review-section"><summary><strong>Raw Message Preview</strong><span>Local only</span></summary><pre>${escapeHtml(item.rawMessagePreview)}</pre></details>${gmailActionSelectMarkup(item)}</form></section>`; }
 function gmailImportToUploadData(item) { return { customerName:item.customerName, phone:item.phone, email:item.email, bookingSource:item.source, tripDate:item.tourDate, startTime:item.startTime, duration:item.duration, guestCount:item.guestCount, tourType:item.tourType, tourPrice:item.totalPrice, depositPaid:item.deposit, balanceDue:item.balance, paymentStatus:item.paymentStatus, invoiceNumber:item.bookingReference, quoteNumber:item.bookingReference, notes:`Imported from ${item.source} email ${item.emailId}.` }; }
 function linkGmailImportCustomer(item) { const norm = (value) => String(value || '').toLowerCase().trim(); let profile = (store.customerProfiles || []).find((customer) => (item.email && norm(customer.email) === norm(item.email)) || (item.phone && normalizePhoneNumber(customer.phone) === normalizePhoneNumber(item.phone)) || (item.customerName && norm(customer.name) === norm(item.customerName))); if (!profile) { profile = { id:makeId('customer'), name:item.customerName || 'Imported Customer', phone:item.phone || '', email:item.email || '', source:item.source, createdAt:new Date().toISOString(), updatedAt:new Date().toISOString() }; store.customerProfiles.push(profile); } else { Object.assign(profile,{name:item.customerName || profile.name,phone:item.phone || profile.phone,email:item.email || profile.email,updatedAt:new Date().toISOString()}); } item.customerProfileId = profile.id; return profile; }
 function createGmailWhatsAppDraft(item, category) { const labels = { confirmation:'Customer Booking Confirmation', payment:'Invoice / Payment Reminder', meeting:'Meeting Point Message' }; const bodies = { confirmation:`Hi ${item.customerName || 'there'}, your ${item.tourType || 'tour'} is being reviewed for ${item.tourDate || 'your requested date'} at ${item.startTime || 'the requested time'}.`, payment:`Hi ${item.customerName || 'there'}, this is a payment reminder for your ${item.tourType || 'tour'}. Balance due: ${money(item.balance)}.`, meeting:`Hi ${item.customerName || 'there'}, we will confirm the meeting point for your ${item.tourType || 'tour'} on ${item.tourDate || 'your tour date'} shortly.` }; store.whatsappQueue.unshift({ id:makeId('wa-message'), category:labels[category], recipientName:item.customerName || 'Customer', recipientRole:'Customer', phoneNumber:item.phone || '', messageBody:bodies[category], status:'Draft', createdAt:new Date().toISOString(), createdBy:currentUserLabel(), linkedGmailImportId:item.id }); addNotification('WhatsApp draft created',`${labels[category]} created from reviewed email import.`, 'success',{category:'WhatsApp',emailId:item.emailId}); }
+function queueAutoWhatsAppDraft({ category, recipientName, recipientRole, phoneNumber, messageBody, relatedTrip = '', relatedBooking = '', relatedInvoice = '', linkedGmailImportId = '', linkedChatMessageId = '', createdBy = 'Auto Operations Engine' }) {
+  if (!store.autoOpsSettings?.createWhatsAppDrafts) return null;
+  const duplicate = store.whatsappQueue.find((item) => (linkedGmailImportId && item.linkedGmailImportId === linkedGmailImportId && item.category === category && item.recipientRole === recipientRole) || (linkedChatMessageId && item.linkedChatMessageId === linkedChatMessageId && item.recipientRole === recipientRole && item.recipientName === recipientName));
+  if (duplicate) return duplicate;
+  const item = { id:makeId('wa-message'), category, recipientName:recipientName || recipientRole || 'Recipient', recipientRole:recipientRole || 'Customer', phoneNumber:phoneNumber || '', messageBody, relatedTrip, relatedBooking, relatedInvoice, status:whatsappDigits(phoneNumber) ? 'Ready' : 'Draft', createdAt:new Date().toISOString(), sentAt:'', createdBy, linkedGmailImportId, linkedChatMessageId };
+  store.whatsappQueue.unshift(item);
+  addNotification('WhatsApp draft queued',`${category} draft queued for ${item.recipientName}.`,'info',{category:'WhatsApp',messageId:item.id,tripId:relatedTrip,emailId:linkedGmailImportId});
+  return item;
+}
+function queueTripWhatsAppDrafts(trip, source = {}) {
+  if (!trip || !store.autoOpsSettings?.createWhatsAppDrafts) return 0;
+  let count = 0;
+  const queueFromTemplate = (category) => {
+    const defaults = whatsappContextDefaults(category, trip.id, '');
+    if (!defaults.recipientName) return;
+    const draft = queueAutoWhatsAppDraft({ category, recipientName:defaults.recipientName, recipientRole:defaults.recipientRole, phoneNumber:defaults.phone, messageBody:defaults.body, relatedTrip:trip.id, relatedBooking:trip.bookingId || '', linkedGmailImportId:source.gmailImportId || '' });
+    if (draft) count += 1;
+  };
+  if (store.autoOpsSettings.notifyCustomers) queueFromTemplate('Customer Booking Confirmation');
+  if (store.autoOpsSettings.notifyCrew) {
+    if (trip.captain) queueFromTemplate('Captain Assignment');
+    if (trip.mate) queueFromTemplate('Mate Assignment');
+    if (trip.vessel) queueFromTemplate('Owner Assignment Alert');
+  }
+  return count;
+}
+function autoOpsCanCreateCalendar(item) {
+  if (!store.autoOpsSettings?.enabled || !store.autoOpsSettings?.gmailAutoCalendar) return false;
+  enrichGmailImportAi(item);
+  const alreadyDone = item.autoProcessedAt || ['Converted to Trip','Auto Calendar Created','Ignored'].includes(item.importStatus);
+  const complete = missingGmailImportFields(item).length === 0;
+  const confidence = Number(item.aiConfidenceScore || item.confidenceScore || 0);
+  const noDuplicates = gmailDuplicateMatches(item).length === 0;
+  return !alreadyDone && complete && noDuplicates && ['Add to Calendar','Create Trip'].includes(item.recommendedAction) && confidence >= Number(store.autoOpsSettings.autoCalendarConfidence || 80);
+}
+function processGmailImportAutomatically(item) {
+  if (!autoOpsCanCreateCalendar(item)) return null;
+  const mapped = gmailImportToUploadData(item);
+  linkGmailImportCustomer(item);
+  const previous = pendingDuplicateAction;
+  pendingDuplicateAction = 'new';
+  const trip = createTripFromUpload(mapped, true);
+  pendingDuplicateAction = previous;
+  item.importStatus = 'Auto Calendar Created';
+  item.reviewedAt = item.reviewedAt || new Date().toISOString();
+  item.reviewedBy = item.reviewedBy || 'Auto Operations Engine';
+  item.autoProcessedAt = new Date().toISOString();
+  item.autoProcessedBy = 'Auto Operations Engine';
+  item.linkedTripId = trip?.id || '';
+  const draftCount = queueTripWhatsAppDrafts(trip, { gmailImportId:item.id });
+  addAudit('automated','Auto Operations Engine',`Gmail import automatically added to calendar for ${item.customerName || 'customer'} and queued ${draftCount} WhatsApp draft(s).`,{emailId:item.emailId,tripId:trip?.id,draftCount,aiConfidenceScore:item.aiConfidenceScore});
+  return { itemId:item.id, tripId:trip?.id || '', draftCount };
+}
+function runAutoOpsForGmailImports(options = {}) {
+  const results = (store.gmailImports || []).map(processGmailImportAutomatically).filter(Boolean);
+  const run = { id:makeId('auto-ops-run'), createdAt:new Date().toISOString(), source:'Gmail Import', processedCount:results.length, results };
+  store.autoOpsRuns.unshift(run);
+  store.autoOpsRuns = store.autoOpsRuns.slice(0, 25);
+  if (results.length) addNotification('Auto Operations Engine updated calendar',`${results.length} Gmail item${results.length === 1 ? '' : 's'} added to the calendar.`, 'success',{category:'Auto Operations',runId:run.id});
+  saveStore();
+  if (currentRoute === 'gmail-import') renderGmailImport();
+  if (!options.silent) toast(results.length ? `Auto Ops created ${results.length} calendar item${results.length === 1 ? '' : 's'}.` : 'No Gmail items are ready for automatic calendar creation.');
+  return results;
+}
+function userPhoneNumber(user = {}) {
+  if (user.phone) return user.phone;
+  if (user.linkedCrewProfileId) return store.crew.find((person) => person.id === user.linkedCrewProfileId)?.phone || '';
+  return '';
+}
+function queueWhatsAppDraftsForChatMessage(conversation, message) {
+  if (!store.autoOpsSettings?.chatWhatsAppDrafts || !store.autoOpsSettings?.createWhatsAppDrafts || !conversation || !message) return 0;
+  const recipients = (conversation.participantUserIds || []).map((id) => store.users.find((user) => user.id === id)).filter((user) => user && user.id !== message.senderUserId && user.active !== false);
+  let count = 0;
+  recipients.forEach((user) => {
+    const body = `${message.senderName}: ${message.messageText}`;
+    const draft = queueAutoWhatsAppDraft({ category:'Chat Notification', recipientName:user.name, recipientRole:user.role, phoneNumber:userPhoneNumber(user), messageBody:body, linkedChatMessageId:message.id, createdBy:'Auto Operations Engine' });
+    if (draft) count += 1;
+  });
+  if (count) addAudit('queued','WhatsApp',`Queued ${count} WhatsApp chat notification draft(s).`,{conversationId:conversation.id,messageId:message.id});
+  return count;
+}
 function saveGmailImportReview(event, id) { event.preventDefault(); const item = store.gmailImports.find((record) => record.id === id); if (!item) return; const data = Object.fromEntries(new FormData(event.target).entries()); let action = data.actionOverride || data.action || item.recommendedAction || 'Save as Draft'; delete data.action; delete data.actionOverride; const duplicateDecision = data.duplicateDecision || ''; delete data.duplicateDecision; Object.assign(item,data); enrichGmailImportAi(item); action = action === 'Use AI recommendation' ? item.recommendedAction : action; const duplicates = gmailDuplicateMatches(item); if (duplicates.length && !duplicateDecision) return toast('Possible Duplicate Booking Found. Choose Update Existing, Create New, or Cancel.'); if (duplicateDecision === 'Cancel') return toast('Import action cancelled.'); item.possibleDuplicates = duplicates.map(({id,type,matchCount}) => ({id,type,matchCount})); item.reviewedAt = new Date().toISOString(); item.reviewedBy = currentUserLabel(); item.importStatus = 'Reviewed'; const mapped = gmailImportToUploadData(item); linkGmailImportCustomer(item);
   if (action === 'Create Booking') { createBookingFromUpload(mapped); item.importStatus = 'Converted to Booking'; }
-  else if (action === 'Create Trip' || action === 'Add to Calendar') { const previous = pendingDuplicateAction; pendingDuplicateAction = duplicateDecision === 'Update Existing' ? 'update' : 'new'; createTripFromUpload(mapped, action === 'Add to Calendar'); pendingDuplicateAction = previous; item.importStatus = 'Converted to Trip'; }
+  else if (action === 'Create Trip' || action === 'Add to Calendar') { const previous = pendingDuplicateAction; pendingDuplicateAction = duplicateDecision === 'Update Existing' ? 'update' : 'new'; const trip = createTripFromUpload(mapped, action === 'Add to Calendar'); pendingDuplicateAction = previous; item.linkedTripId = trip?.id || ''; queueTripWhatsAppDrafts(trip, { gmailImportId:item.id }); item.importStatus = 'Converted to Trip'; }
   else if (action === 'Create Invoice / Quote') { createInvoiceFromUpload({ ...mapped, documentType:'Quote' }, true); }
   else if (action === 'Save as Draft') item.importStatus = 'Reviewed';
   else if (action === 'Ignore') item.importStatus = 'Ignored';
