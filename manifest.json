@@ -1,25 +1,66 @@
 {
   "name": "Reel Adventure Tours Operations",
-  "short_name": "RAT Ops",
-  "description": "Mobile-first operations shell for Reel Adventure Tours.",
-  "start_url": "./index.html",
-  "scope": "./",
+  "short_name": "Reel Ops",
+  "description": "Installable operations app for Reel Adventure Tours bookings, trips, crew, messaging, and owner workflows.",
+  "id": "/",
+  "start_url": "/index.html",
+  "scope": "/",
   "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone", "browser"],
   "background_color": "#081d33",
   "theme_color": "#081d33",
   "orientation": "portrait-primary",
+  "categories": ["business", "productivity", "travel"],
+  "launch_handler": {
+    "client_mode": "navigate-existing"
+  },
   "icons": [
     {
-      "src": "Reel Adventure Tours Logo (2).jpg",
+      "src": "/icons/icon-192.png",
       "sizes": "192x192",
-      "type": "image/jpeg",
-      "purpose": "any maskable"
+      "type": "image/png",
+      "purpose": "any"
     },
     {
-      "src": "Reel Adventure Tours Logo (2).jpg",
+      "src": "/icons/icon-512.png",
       "sizes": "512x512",
-      "type": "image/jpeg",
-      "purpose": "any maskable"
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/maskable-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icons/maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Bookings",
+      "short_name": "Bookings",
+      "description": "Open the bookings workspace.",
+      "url": "/index.html#bookings",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "WhatsApp",
+      "short_name": "WhatsApp",
+      "description": "Open the WhatsApp messaging workspace.",
+      "url": "/index.html#whatsapp",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Gmail Import",
+      "short_name": "Gmail",
+      "description": "Open the Gmail import workspace.",
+      "url": "/index.html#gmail-import",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
     }
   ]
 }
