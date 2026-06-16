@@ -717,9 +717,9 @@ def cruise_schedule():
         month = now.month + offset
         year = now.year + (month - 1) // 12
         month = (month - 1) % 12 + 1
-        html = request_text(f"{CRUISEMAPPER_URL}?month={year:04d}-{month:02d}#schedule")
+        html_text = request_text(f"{CRUISEMAPPER_URL}?month={year:04d}-{month:02d}#schedule")
         parser = CruiseScheduleParser()
-        parser.feed(html)
+        parser.feed(html_text)
         rows.extend(parser.rows)
     unique = {f"{row['arrivalDate']}|{row['shipName']}": row for row in rows}
     return {"provider": "CruiseMapper", "sourceUrl": CRUISEMAPPER_URL, "updatedAt": iso_now(), "records": list(unique.values())}
@@ -929,7 +929,32 @@ class AppHandler(SimpleHTTPRequestHandler):
                 write_json_file(WHATSAPP_WEBHOOK_FILE, saved[-100:])
                 self.send_json({"ok": True, "updatedAt": iso_now()})
                 return
-            if self.path.startswith("/api/woodstock/sync"):                 body = self.read_json_body()                 api_url = str(body.get("apiUrl", "")).rstrip("/")                 api_key = str(body.get("apiKey", ""))                 last_sync = str(body.get("lastSyncAt", ""))                 if not api_url or not api_key:                     self.send_json({"error": "Missing apiUrl or apiKey."}, 400)                     return                 endpoint = f"{api_url}/bookings"                 if last_sync:                     endpoint += f"?updated_since={urllib.parse.quote(last_sync)}"                 req = urllib.request.Request(                     endpoint,                     headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json", "User-Agent": USER_AGENT}                 )                 with urllib.request.urlopen(req, timeout=15) as resp:                     raw = json.loads(resp.read().decode())                 bookings = raw.get("bookings") or raw.get("data") or (raw if isinstance(raw, list) else [])                 append_event_log("woodstock_sync", {"count": len(bookings), "apiUrl": api_url})                 self.send_json({"bookings": bookings, "count": len(bookings), "updatedAt": iso_now()})                 return             self.send_json({"error": "Unknown API route", "updatedAt": iso_now()}, 404)
+            if self.path.startswith("/api/woodstock/sync"):
+                body = self.read_json_body()
+                api_url = str(body.get("apiUrl", "")).rstrip("/")
+                api_key = str(body.get("apiKey", ""))
+                last_sync = str(body.get("lastSyncAt", ""))
+                if not api_url or not api_key:
+                    self.send_json({"error": "Missing apiUrl or apiKey."}, 400)
+                    return
+                endpoint = f"{api_url}/bookings"
+                if last_sync:
+                    endpoint += f"?updated_since={urllib.parse.quote(last_sync)}"
+                req = urllib.request.Request(
+                    endpoint,
+                    headers={
+                        "Authorization": f"Bearer {api_key}",
+                        "Accept": "application/json",
+                        "User-Agent": USER_AGENT,
+                    }
+                )
+                with urllib.request.urlopen(req, timeout=15) as resp:
+                    raw = json.loads(resp.read().decode())
+                bookings = raw.get("bookings") or raw.get("data") or (raw if isinstance(raw, list) else [])
+                append_event_log("woodstock_sync", {"count": len(bookings), "apiUrl": api_url})
+                self.send_json({"bookings": bookings, "count": len(bookings), "updatedAt": iso_now()})
+                return
+            self.send_json({"error": "Unknown API route", "updatedAt": iso_now()}, 404)
         except (urllib.error.URLError, ValueError, KeyError, json.JSONDecodeError) as error:
             self.send_json({"error": str(error), "updatedAt": iso_now()}, 502)
 
