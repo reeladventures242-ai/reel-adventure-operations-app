@@ -1203,7 +1203,7 @@ function cleanCustomerCandidate(value = '') {
 
 function extractCustomerName(source = '') {
   const directPatterns = [
-    /(?:customer|guest|client|lead\s*guest|booking\s*name|passenger|contact\s*name)(?:\s*name)?[\s:#-]+([^\n,;]+)/i,
+    /(?:customer|client|lead\s*guest|booking\s*name|passenger|contact\s*name|guest(?!\s*count))(?:\s*name)?[\s:#-]+([^\n,;]+)/i,
     /bill\s*to[\s:#-]+([^\n,;]+)/i
   ];
   for (const pattern of directPatterns) {
@@ -4579,19 +4579,79 @@ function detectGmailImportSource(text = '', sender = '', subject = '') {
   return 'Unknown';
 }
 
+function bookingMonthNumber(value = '') {
+  const key = String(value || '').toLowerCase().slice(0, 3);
+  return { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12 }[key] || 0;
+}
+
+function normalizeBookingYear(value = '') {
+  const digits = String(value || '').replace(/\D/g, '');
+  if (!digits) return '';
+  return digits.length === 2 ? 2000 + Number(digits) : Number(digits);
+}
+
+function bookingTitleDate(year, month, day) {
+  const fullYear = normalizeBookingYear(year);
+  const monthNumber = Number(month) || bookingMonthNumber(month);
+  const dayNumber = Number(day);
+  if (!fullYear || !monthNumber || !dayNumber) return '';
+  return `${fullYear}-${String(monthNumber).padStart(2, '0')}-${String(dayNumber).padStart(2, '0')}`;
+}
+
+function parseBookingTitleDateTime(...sources) {
+  const source = sources.filter(Boolean).map(String).join('\n');
+  const monthNames = 'Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?';
+  const timePattern = '(?:\\s*(?:@|at|-)\\s*(\\d{1,2})(?::?(\\d{2}))?\\s*(am|pm)?)?';
+  const weekdayPrefix = '(?:(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)(?:day)?\\s+)?';
+  const patterns = [
+    { order: 'day-month-year', pattern: new RegExp(`${weekdayPrefix}(\\d{1,2})(?:st|nd|rd|th)?[.\\-/\\s]+(${monthNames})[.\\-/\\s]+(?:'|\\u2019)?(\\d{2,4})${timePattern}`, 'i') },
+    { order: 'month-day-year', pattern: new RegExp(`${weekdayPrefix}(${monthNames})[.\\-/\\s]+(\\d{1,2})(?:st|nd|rd|th)?[,]?[.\\-/\\s]+(?:'|\\u2019)?(\\d{2,4})${timePattern}`, 'i') },
+    { order: 'numeric-month-day-year', pattern: new RegExp(`${weekdayPrefix}(\\d{1,2})[\\/-](\\d{1,2})[\\/-](?:'|\\u2019)?(\\d{2,4})${timePattern}`, 'i') }
+  ];
+  for (const { order, pattern } of patterns) {
+    const match = source.match(pattern);
+    if (!match) continue;
+    const tourDate = order === 'day-month-year'
+      ? bookingTitleDate(match[3], match[2], match[1])
+      : order === 'month-day-year'
+        ? bookingTitleDate(match[3], match[1], match[2])
+        : bookingTitleDate(match[3], match[1], match[2]);
+    const timeStartIndex = 4;
+    const hour = match[timeStartIndex];
+    const minute = match[timeStartIndex + 1] || '00';
+    const meridiem = match[timeStartIndex + 2] || '';
+    return { tourDate, startTime: hour ? normalizeTimeInput(`${hour}:${minute} ${meridiem}`) : '', confidence: tourDate ? 'High' : 'Low' };
+  }
+  const looseTime = source.match(/\b(?:@|at)\s*(\d{1,2})(?::?(\d{2}))?\s*(am|pm)?\b/i);
+  return { tourDate: '', startTime: looseTime ? normalizeTimeInput(`${looseTime[1]}:${looseTime[2] || '00'} ${looseTime[3] || ''}`) : '', confidence: 'Low' };
+}
+
+function extractGmailBookingReference(text = '', subject = '') {
+  const source = `${subject}\n${text}`;
+  const explicit = source.match(/\b(?:ext\.?\s*)?booking\s*ref(?:erence)?\s*[:#-]?\s*([A-Z0-9-]{5,})\b/i)
+    || source.match(/\b(?:reservation|confirmation|booking)\s*(?:number|id|#)\s*[:#-]?\s*([A-Z0-9-]{5,})\b/i);
+  if (explicit?.[1]) return explicit[1].trim();
+  const platformCode = source.match(/\b([A-Z]{2,5}-[A-Z]?\d{5,})\b/i);
+  return platformCode?.[1]?.trim() || '';
+}
+
 function parseGmailImportText(text = '', fileName = '') {
   const base = parseQuoteInvoiceText(text, fileName);
   const pick = (...patterns) => patterns.map((pattern) => String(text).match(pattern)?.[1]?.trim()).find(Boolean) || '';
   const sender = pick(/(?:from|sender|reply-to)\s*:\s*([^\n]+)/i);
   const subject = pick(/subject\s*:\s*([^\n]+)/i) || fileName;
   const source = detectGmailImportSource(text, sender, subject);
+  const titleDateTime = parseBookingTitleDateTime(subject, fileName, text);
   const totalPrice = base.tourPrice || pick(/(?:total price|total|amount)\s*[:#-]?\s*\$?([\d,.]+)/i);
   const deposit = base.depositPaid || pick(/deposit(?: paid)?\s*[:#-]?\s*\$?([\d,.]+)/i);
   const balance = base.balanceDue || pick(/balance(?: due)?\s*[:#-]?\s*\$?([\d,.]+)/i);
+  const bookingReference = base.invoiceNumber || base.quoteNumber || extractGmailBookingReference(text, subject) || pick(/(?:booking|reservation|confirmation)(?: reference| number| id| #)?\s*[:#-]?\s*([A-Z0-9-]{5,})/i);
   const fields = {
-    source, sender, subject, receivedDate: pick(/(?:received|sent|date)\s*:\s*([^\n]+)/i), customerName: base.customerName || '', phone: base.phone || '', email: base.email || '', tourType: base.tourType || '', tourDate: base.tripDate || '', startTime: base.startTime || base.departureTime || '', duration: base.duration || '', guestCount: base.guestCount || '', totalPrice, deposit, balance, paymentStatus: base.paymentStatus || '', bookingReference: base.invoiceNumber || base.quoteNumber || pick(/(?:booking|reservation|confirmation)(?: reference| number| id| #)?\s*[:#-]?\s*([A-Z0-9-]+)/i)
+    source, sender, subject, receivedDate: pick(/(?:received|sent|date)\s*:\s*([^\n]+)/i), customerName: base.customerName || '', phone: base.phone || '', email: base.email || '', tourType: base.tourType || '', tourDate: base.tripDate || titleDateTime.tourDate || '', startTime: base.startTime || base.departureTime || titleDateTime.startTime || '', duration: base.duration || '', guestCount: base.guestCount || '', totalPrice, deposit, balance, paymentStatus: base.paymentStatus || '', bookingReference
   };
   const confidenceScores = Object.fromEntries(GMAIL_REVIEW_FIELDS.map(([key]) => [key, fields[key] ? (['source','sender','subject','bookingReference'].includes(key) ? 'High' : 'Medium') : 'Low']));
+  if (titleDateTime.tourDate && fields.tourDate === titleDateTime.tourDate) confidenceScores.tourDate = 'High';
+  if (titleDateTime.startTime && fields.startTime === titleDateTime.startTime) confidenceScores.startTime = 'High';
   const completed = Object.values(fields).filter(Boolean).length;
   return { fields, confidenceScores, confidenceScore: Math.round(completed / Object.keys(fields).length * 100) };
 }
