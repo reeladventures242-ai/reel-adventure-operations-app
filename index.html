@@ -65,6 +65,10 @@
         </div>
         <div class="topbar-actions">
           <span id="activeRole" class="role-pill">Owner / Admin</span>
+          <!-- UPGRADE: WhatsApp Quick-Send button always visible in topbar -->
+          <button id="waQuickBtn" class="btn btn-whatsapp btn-small" onclick="openWhatsAppQuickSend()" title="Send WhatsApp message">
+            📲 WhatsApp
+          </button>
           <button id="installBtn" class="btn btn-outline btn-small" hidden>Install</button>
         </div>
       </header>
@@ -129,5 +133,6 @@
   </template>
 
   <script src="app.js" defer></script>
+  <script src="upgrades.js" defer></script>
 </body>
 </html>
