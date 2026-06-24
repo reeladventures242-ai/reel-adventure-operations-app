@@ -10,3 +10,9 @@ services:
     envVars:
       - key: SUPABASE_DATABASE_URL
         sync: false
+      - key: WHATSAPP_AUTO_SEND_ENABLED
+        value: "1"
+      - key: WHATSAPP_AUTO_SEND_LIMIT
+        value: "10"
+      - key: WHATSAPP_CUSTOMER_AUTO_SEND
+        value: "0"

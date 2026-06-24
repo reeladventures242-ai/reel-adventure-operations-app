@@ -37,3 +37,15 @@ The app can use Supabase Postgres as its shared production database.
 When `SUPABASE_DATABASE_URL` is set, it takes priority over `DATABASE_URL`. The server creates the required `app_state` and `event_log` tables automatically. You can also run `supabase/schema.sql` in the Supabase SQL editor if you want to create the tables manually before first launch.
 
 Do not commit Supabase passwords or service keys to GitHub. Use Render environment variables or GitHub repository secrets only.
+
+## WhatsApp notification automation
+
+The app stores WhatsApp queue items, delivery logs, and notification rules in the shared database. Owner, captain, and mate operational alerts can be marked for automatic WhatsApp Business delivery when the Meta credentials are configured.
+
+Production defaults:
+
+- `WHATSAPP_AUTO_SEND_ENABLED=1`: enables server-side processing for eligible operational alerts.
+- `WHATSAPP_AUTO_SEND_LIMIT=10`: caps each queue-processing run.
+- `WHATSAPP_CUSTOMER_AUTO_SEND=0`: keeps customer messages approval-required by default.
+
+Use the WhatsApp page to review queue counts, process ready messages, and inspect delivery logs. Customer confirmations, invoices, payment reminders, and meeting-point messages should remain approval-required until the templates and consent flow are finalized.

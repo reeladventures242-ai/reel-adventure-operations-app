@@ -51,6 +51,19 @@ GMAIL_TOKEN_URL = "https://oauth2.googleapis.com/token"
 GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.readonly"
 GMAIL_API_ROOT = "https://gmail.googleapis.com/gmail/v1/users/me"
 WHATSAPP_GRAPH_VERSION = os.environ.get("WHATSAPP_GRAPH_VERSION", "v20.0")
+WHATSAPP_AUTO_SEND_ENABLED = os.environ.get("WHATSAPP_AUTO_SEND_ENABLED", "1").strip().lower() not in ("0", "false", "no", "off")
+WHATSAPP_AUTO_SEND_LIMIT = max(1, int(os.environ.get("WHATSAPP_AUTO_SEND_LIMIT", "10")))
+WHATSAPP_CUSTOMER_AUTO_SEND = os.environ.get("WHATSAPP_CUSTOMER_AUTO_SEND", "0").strip().lower() in ("1", "true", "yes", "on")
+
+DEFAULT_NOTIFICATION_RULES = {
+    "tripAssignments": {"enabled": True, "autoSendWhatsApp": True, "roles": ["Owner", "Captain", "Mate"]},
+    "tripChanges": {"enabled": True, "autoSendWhatsApp": True, "roles": ["Owner", "Captain", "Mate"]},
+    "checklists": {"enabled": True, "autoSendWhatsApp": True, "roles": ["Owner", "Captain", "Mate"]},
+    "incidents": {"enabled": True, "autoSendWhatsApp": True, "roles": ["Owner", "Captain", "Mate"]},
+    "payroll": {"enabled": True, "autoSendWhatsApp": True, "roles": ["Owner", "Captain", "Mate", "Crew"]},
+    "chat": {"enabled": True, "autoSendWhatsApp": False, "roles": ["Owner", "Captain", "Mate", "Bookkeeper"]},
+    "customerMessages": {"enabled": True, "autoSendWhatsApp": WHATSAPP_CUSTOMER_AUTO_SEND, "roles": ["Customer"]},
+}
 
 
 def db_provider():
@@ -97,7 +110,56 @@ def load_operations_state():
     if not row:
         return {"hasStore": False, "store": None, "updatedAt": ""}
     payload, updated_at = row["payload"] if isinstance(row, sqlite3.Row) else row[0], row["updated_at"] if isinstance(row, sqlite3.Row) else row[1]
-    return {"hasStore": True, "store": json.loads(payload), "updatedAt": updated_at}
+    store = json.loads(payload)
+    normalize_server_store(store)
+    return {"hasStore": True, "store": store, "updatedAt": updated_at}
+
+
+def normalize_server_store(store):
+    if not isinstance(store, dict):
+        return {}
+    rules = store.get("notificationRules")
+    if not isinstance(rules, dict):
+        rules = {}
+    store["notificationRules"] = {key: {**value, **(rules.get(key) if isinstance(rules.get(key), dict) else {})} for key, value in DEFAULT_NOTIFICATION_RULES.items()}
+    store["whatsappQueue"] = normalize_whatsapp_queue(store.get("whatsappQueue", []))
+    store["whatsappDeliveryLog"] = store.get("whatsappDeliveryLog") if isinstance(store.get("whatsappDeliveryLog"), list) else []
+    store["users"] = store.get("users") if isinstance(store.get("users"), list) else []
+    return store
+
+
+def normalize_whatsapp_queue(queue):
+    normalized = []
+    for item in queue if isinstance(queue, list) else []:
+        if not isinstance(item, dict):
+            continue
+        status = item.get("status") or ("Ready" if normalize_digits(item.get("phoneNumber")) else "Draft")
+        normalized.append({
+            "id": item.get("id") or server_id("wa-message"),
+            "category": item.get("category", "Operations Alert"),
+            "recipientName": item.get("recipientName", ""),
+            "recipientRole": item.get("recipientRole", "Crew"),
+            "phoneNumber": item.get("phoneNumber", ""),
+            "messageBody": item.get("messageBody", ""),
+            "relatedTrip": item.get("relatedTrip", ""),
+            "relatedBooking": item.get("relatedBooking", ""),
+            "relatedInvoice": item.get("relatedInvoice", ""),
+            "status": status,
+            "createdAt": item.get("createdAt") or iso_now(),
+            "scheduledFor": item.get("scheduledFor", ""),
+            "sentAt": item.get("sentAt", ""),
+            "createdBy": item.get("createdBy", "Operations"),
+            "serverRuleKey": item.get("serverRuleKey", ""),
+            "autoSend": bool(item.get("autoSend")),
+            "approvalRequired": bool(item.get("approvalRequired", str(item.get("recipientRole", "")).lower() == "customer")),
+            "attemptCount": int(item.get("attemptCount") or 0),
+            "lastAttemptAt": item.get("lastAttemptAt", ""),
+            "lastError": item.get("lastError", ""),
+            "businessMessageId": item.get("businessMessageId", ""),
+            "linkedGmailImportId": item.get("linkedGmailImportId", ""),
+            "linkedChatMessageId": item.get("linkedChatMessageId", ""),
+        })
+    return normalized
 
 
 def load_app_state_record(record_id):
@@ -209,10 +271,36 @@ def ensure_notification(store, rule_key, title, message, level="info", recipient
     return True
 
 
+def notification_rule(store, rule_name):
+    rules = store.setdefault("notificationRules", {})
+    rule = rules.get(rule_name)
+    if not isinstance(rule, dict):
+        rule = {}
+    return {**DEFAULT_NOTIFICATION_RULES.get(rule_name, {"enabled": True, "autoSendWhatsApp": False, "roles": []}), **rule}
+
+
+def rule_enabled(store, rule_name):
+    return bool(notification_rule(store, rule_name).get("enabled", True))
+
+
+def should_auto_send(store, rule_name, recipient_role):
+    role = str(recipient_role or "").strip()
+    rule = notification_rule(store, rule_name)
+    if not WHATSAPP_AUTO_SEND_ENABLED or not rule.get("enabled", True) or not rule.get("autoSendWhatsApp"):
+        return False
+    if role == "Customer" and not WHATSAPP_CUSTOMER_AUTO_SEND:
+        return False
+    roles = rule.get("roles") if isinstance(rule.get("roles"), list) else []
+    return not roles or role in roles
+
+
 def ensure_whatsapp_draft(store, rule_key, category, recipient_role, recipient_name, phone_number, message_body, related_trip="", related_booking="", related_invoice=""):
     queue = store.setdefault("whatsappQueue", [])
     if any(item.get("serverRuleKey") == rule_key for item in queue):
         return False
+    rule_name = whatsapp_rule_name_for_category(category)
+    auto_send = should_auto_send(store, rule_name, recipient_role)
+    approval_required = str(recipient_role or "").strip() == "Customer" and not WHATSAPP_CUSTOMER_AUTO_SEND
     queue.insert(0, {
         "id": server_id("wa-message"),
         "category": category,
@@ -225,19 +313,81 @@ def ensure_whatsapp_draft(store, rule_key, category, recipient_role, recipient_n
         "relatedInvoice": related_invoice,
         "status": "Ready" if normalize_digits(phone_number) else "Draft",
         "createdAt": iso_now(),
+        "scheduledFor": "",
         "sentAt": "",
         "createdBy": "Notification Rules Engine",
         "serverRuleKey": rule_key,
+        "autoSend": auto_send,
+        "approvalRequired": approval_required,
+        "attemptCount": 0,
+        "lastAttemptAt": "",
+        "lastError": "",
     })
     del queue[150:]
     return True
+
+
+def whatsapp_rule_name_for_category(category):
+    value = str(category or "").lower()
+    if "checklist" in value:
+        return "checklists"
+    if "incident" in value or "weather" in value or "cruise" in value:
+        return "incidents"
+    if "payout" in value or "payroll" in value or "payment" in value:
+        return "payroll"
+    if "chat" in value:
+        return "chat"
+    if "customer" in value or "meeting" in value or "quote" in value or "invoice" in value or "trip reminder" in value:
+        return "customerMessages"
+    if "assignment" in value or "owner assignment" in value:
+        return "tripAssignments"
+    return "tripChanges"
 
 
 def trip_label(trip):
     return f"{trip.get('customer') or 'Trip'} on {trip.get('tripDate') or 'date pending'} at {trip.get('startTime') or 'time pending'}"
 
 
+def trip_start_datetime(trip):
+    date = str(trip.get("tripDate") or trip.get("date") or "").strip()
+    time = str(trip.get("startTime") or trip.get("time") or "09:00").strip() or "09:00"
+    if not date:
+        return None
+    parsed = parse_iso(f"{date}T{time}:00") or parse_iso(f"{date}T09:00:00")
+    return parsed.replace(tzinfo=timezone.utc) if parsed and parsed.tzinfo is None else parsed
+
+
+def add_scheduled_trip_prompts(store, trip):
+    if not rule_enabled(store, "checklists"):
+        return 0
+    start = trip_start_datetime(trip)
+    if not start:
+        return 0
+    trip_id = trip.get("id", "")
+    vessel = trip.get("vessel") or "assigned vessel"
+    label = trip_label(trip)
+    changes = 0
+    schedules = [
+        ("Pre Trip Checklist Reminder", start - timedelta(hours=18), f"Pre-trip checklist reminder for {label}. Vessel: {vessel}."),
+        ("Post Trip Checklist Reminder", start + timedelta(hours=float(trip.get("hours") or 4) + 1), f"Post-trip checklist reminder for {label}. Please complete the return checklist."),
+    ]
+    for category, scheduled_for, body in schedules:
+        for role_key, role in (("captain", "Captain"), ("mate", "Mate")):
+            name = trip.get(role_key, "")
+            if not name or name == "None":
+                continue
+            key = f"scheduled:{category}:{trip_id}:{role}:{name}:{scheduled_for.isoformat()}"
+            if ensure_notification(store, key, category, body, "info", role, name, "Checklist", {"tripId": trip_id, "scheduledFor": scheduled_for.isoformat()}):
+                changes += 1
+            if ensure_whatsapp_draft(store, f"wa:{key}", category, role, name, crew_phone(store, name), body, related_trip=trip_id, related_booking=trip.get("bookingId", "")):
+                store["whatsappQueue"][0]["scheduledFor"] = scheduled_for.isoformat()
+                changes += 1
+    return changes
+
+
 def queue_trip_role_messages(store, trip, reason):
+    if not rule_enabled(store, "tripAssignments" if reason == "newly scheduled" else "tripChanges"):
+        return 0
     trip_id = trip.get("id", "")
     date_time = f"{trip.get('tripDate') or 'date pending'} {trip.get('startTime') or ''}".strip()
     changes = 0
@@ -260,6 +410,7 @@ def queue_trip_role_messages(store, trip, reason):
 
 def apply_notification_rules(previous_store, next_store):
     changes = 0
+    normalize_server_store(next_store)
     previous_store = previous_store or {}
     previous_trips = items_by_id(previous_store.get("trips", []))
     for trip in next_store.get("trips", []) or []:
@@ -268,11 +419,15 @@ def apply_notification_rules(previous_store, next_store):
         before = previous_trips.get(str(trip.get("id")))
         if not before:
             changes += queue_trip_role_messages(next_store, trip, "newly scheduled")
+            changes += add_scheduled_trip_prompts(next_store, trip)
             continue
         watched = ("tripDate", "startTime", "vessel", "captain", "mate", "status")
         if any(str(before.get(key, "")) != str(trip.get(key, "")) for key in watched):
             changes += queue_trip_role_messages(next_store, trip, "updated")
+        changes += add_scheduled_trip_prompts(next_store, trip)
         if trip.get("payrollReady") and not before.get("payrollReady"):
+            if not rule_enabled(next_store, "payroll"):
+                continue
             for role_key, role in (("captain", "Captain"), ("mate", "Mate")):
                 name = trip.get(role_key, "")
                 if name and name != "None":
@@ -284,7 +439,7 @@ def apply_notification_rules(previous_store, next_store):
     previous_checklists = items_by_id(previous_store.get("checklistRecords", []))
     trips = items_by_id(next_store.get("trips", []))
     for record in next_store.get("checklistRecords", []) or []:
-        if not isinstance(record, dict) or not record.get("id") or str(record.get("id")) in previous_checklists:
+        if not rule_enabled(next_store, "checklists") or not isinstance(record, dict) or not record.get("id") or str(record.get("id")) in previous_checklists:
             continue
         trip = trips.get(str(record.get("tripId"))) or {}
         people = [("Captain", record.get("captain") or trip.get("captain", "")), ("Mate", record.get("mate") or trip.get("mate", "")), ("Owner", owner_for_vessel(next_store, record.get("vessel") or trip.get("vessel", "")))]
@@ -302,7 +457,7 @@ def apply_notification_rules(previous_store, next_store):
     conversations = items_by_id(next_store.get("chatConversations", []))
     users = items_by_id(next_store.get("users", []))
     for message in next_store.get("chatMessages", []) or []:
-        if not isinstance(message, dict) or not message.get("id") or str(message.get("id")) in previous_messages:
+        if not rule_enabled(next_store, "chat") or not isinstance(message, dict) or not message.get("id") or str(message.get("id")) in previous_messages:
             continue
         conversation = conversations.get(str(message.get("conversationId"))) or {}
         for user_id in conversation.get("participantUserIds", []) or []:
@@ -318,7 +473,7 @@ def apply_notification_rules(previous_store, next_store):
 
     previous_incidents = items_by_id(previous_store.get("incidentReports", []))
     for incident in next_store.get("incidentReports", []) or []:
-        if not isinstance(incident, dict) or not incident.get("id") or str(incident.get("id")) in previous_incidents:
+        if not rule_enabled(next_store, "incidents") or not isinstance(incident, dict) or not incident.get("id") or str(incident.get("id")) in previous_incidents:
             continue
         owner = owner_for_vessel(next_store, incident.get("vessel", ""))
         body = f"Incident alert: {incident.get('severity', 'Incident')} {incident.get('category', '')} for {incident.get('vessel') or 'operations'}."
@@ -331,7 +486,7 @@ def apply_notification_rules(previous_store, next_store):
 
     previous_payments = items_by_id(previous_store.get("payrollPayments", []))
     for payment in next_store.get("payrollPayments", []) or []:
-        if not isinstance(payment, dict) or not payment.get("id") or str(payment.get("id")) in previous_payments:
+        if not rule_enabled(next_store, "payroll") or not isinstance(payment, dict) or not payment.get("id") or str(payment.get("id")) in previous_payments:
             continue
         person = payment.get("person") or payment.get("recipient") or payment.get("name") or ""
         if not person:
@@ -511,6 +666,73 @@ def whatsapp_send_message(payload):
         "text": {"preview_url": False, "body": body},
     })
     return {"ok": True, "provider": "Meta WhatsApp Cloud API", "result": result, "updatedAt": iso_now()}
+
+
+def whatsapp_queue_item_ready(item, now=None, include_manual=False):
+    now = now or datetime.now(timezone.utc)
+    if str(item.get("status")) != "Ready":
+        return False
+    if not normalize_digits(item.get("phoneNumber")) or not str(item.get("messageBody", "")).strip():
+        return False
+    if item.get("approvalRequired") and not include_manual:
+        return False
+    if not item.get("autoSend") and not include_manual:
+        return False
+    scheduled = parse_iso(item.get("scheduledFor"))
+    return not scheduled or scheduled <= now
+
+
+def delivery_log_entry(item, status, detail):
+    return {
+        "id": server_id("wa-delivery"),
+        "messageId": item.get("id", ""),
+        "category": item.get("category", ""),
+        "recipientName": item.get("recipientName", ""),
+        "recipientRole": item.get("recipientRole", ""),
+        "status": status,
+        "detail": detail,
+        "at": iso_now(),
+    }
+
+
+def process_whatsapp_queue(limit=None, include_manual=False):
+    state = load_operations_state()
+    if not state.get("hasStore"):
+        return {"ok": True, "processed": 0, "sent": 0, "failed": 0, "results": [], "updatedAt": iso_now()}
+    store = state.get("store") or {}
+    normalize_server_store(store)
+    limit = max(1, int(limit or WHATSAPP_AUTO_SEND_LIMIT))
+    results = []
+    sent = failed = 0
+    now = datetime.now(timezone.utc)
+    for item in store.get("whatsappQueue", []):
+        if len(results) >= limit:
+            break
+        if not whatsapp_queue_item_ready(item, now, include_manual):
+            continue
+        item["attemptCount"] = int(item.get("attemptCount") or 0) + 1
+        item["lastAttemptAt"] = iso_now()
+        try:
+            response = whatsapp_send_message(item)
+            business_id = (((response.get("result") or {}).get("messages") or [{}])[0] or {}).get("id", "")
+            item["status"] = "Sent via Business API"
+            item["sentAt"] = response.get("updatedAt") or iso_now()
+            item["businessMessageId"] = business_id
+            item["lastError"] = ""
+            sent += 1
+            results.append({"messageId": item.get("id"), "ok": True, "businessMessageId": business_id})
+            store["whatsappDeliveryLog"].insert(0, delivery_log_entry(item, "Sent", business_id or "Sent via Business API"))
+        except Exception as error:
+            item["status"] = "Failed"
+            item["lastError"] = str(error)
+            failed += 1
+            results.append({"messageId": item.get("id"), "ok": False, "error": str(error)})
+            store["whatsappDeliveryLog"].insert(0, delivery_log_entry(item, "Failed", str(error)))
+    store["whatsappDeliveryLog"] = store.get("whatsappDeliveryLog", [])[:200]
+    store["whatsappAutomationLastRun"] = {"at": iso_now(), "processed": len(results), "sent": sent, "failed": failed}
+    updated_at = save_operations_state(store)
+    append_event_log("whatsapp-queue-process", store["whatsappAutomationLastRun"])
+    return {"ok": True, "processed": len(results), "sent": sent, "failed": failed, "results": results, "store": store, "updatedAt": updated_at}
 
 
 def parse_iso(value):
@@ -922,7 +1144,7 @@ class AppHandler(SimpleHTTPRequestHandler):
                     "ok": True,
                     "release": APP_RELEASE,
                     "gmail": {**env_readiness(GMAIL_REQUIRED_ENV), **gmail_token_status()},
-                    "whatsapp": {**env_readiness(WHATSAPP_REQUIRED_ENV), "webhookConfigured": bool(os.environ.get("WHATSAPP_WEBHOOK_VERIFY_TOKEN"))},
+                    "whatsapp": {**env_readiness(WHATSAPP_REQUIRED_ENV), "webhookConfigured": bool(os.environ.get("WHATSAPP_WEBHOOK_VERIFY_TOKEN")), "autoSendEnabled": WHATSAPP_AUTO_SEND_ENABLED, "customerAutoSend": WHATSAPP_CUSTOMER_AUTO_SEND},
                     "database": database_status(),
                     "updatedAt": iso_now(),
                 })
@@ -947,6 +1169,7 @@ class AppHandler(SimpleHTTPRequestHandler):
                     "gmailConfigured": env_readiness(GMAIL_REQUIRED_ENV)["configured"],
                     "gmailConnected": gmail_token_status()["connected"],
                     "whatsappConfigured": env_readiness(WHATSAPP_REQUIRED_ENV)["configured"],
+                    "whatsappAutoSendEnabled": WHATSAPP_AUTO_SEND_ENABLED,
                     "database": database_status(),
                     "updatedAt": iso_now(),
                 })
@@ -975,6 +1198,10 @@ class AppHandler(SimpleHTTPRequestHandler):
                 return
             if self.path.startswith("/api/whatsapp/send"):
                 self.send_json(whatsapp_send_message(self.read_json_body()))
+                return
+            if self.path.startswith("/api/whatsapp/process-queue"):
+                body = self.read_json_body()
+                self.send_json(process_whatsapp_queue(body.get("limit"), bool(body.get("includeManual"))))
                 return
             if self.path.startswith("/api/whatsapp/webhook"):
                 event = self.read_json_body()
