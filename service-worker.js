@@ -1,4 +1,4 @@
-const CACHE_NAME = 'rat-ops-pwa-v16-20260610';
+const CACHE_NAME = 'rat-ops-pwa-v17-production-sync';
 const APP_ASSETS = [
   '/',
   '/index.html',

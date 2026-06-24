@@ -268,7 +268,8 @@ let activeChatConversationId = 'chat-general';
 let chatMobileThreadOpen = false;
 let chatFilters = { search: '', person: '', role: '' };
 let assistantState = { query: '', result: null };
-let sharedStoreSync = { enabled: location.protocol !== 'file:', applying: false, timer: null, inFlight: false, lastPulledAt: '', lastPushedAt: '', lastError: '' };
+const PRODUCTION_MODE = location.protocol !== 'file:';
+let sharedStoreSync = { enabled: PRODUCTION_MODE, bootstrapComplete: !PRODUCTION_MODE, applying: false, timer: null, inFlight: false, lastPulledAt: '', lastPushedAt: '', lastError: '' };
 
 function loadStore() {
   const raw = localStorage.getItem(STORE_KEY);
@@ -382,13 +383,13 @@ function migrateUsers(existingUsers = [], crew = [], vessels = []) {
   });
   const byLink = new Map(normalizedExisting.map((user) => [user.linkedCrewProfileId || `owner:${user.linkedVesselOwnerProfileId || ''}`, user]));
   const users = normalizedExisting;
-  if (!users.some((user) => user.role === 'Admin')) users.unshift({ id: 'user-admin', name: 'Operations Admin', role: 'Admin', phone: '', email: 'admin@reeladventure.demo', active: true, linkedCrewProfileId: '', linkedVesselOwnerProfileId: '', demoPin: '0000', lastLoginAt: '', metadata: { source: 'seed' } });
+  if (!users.some((user) => user.role === 'Admin')) users.unshift({ id: 'user-admin', name: 'Operations Admin', role: 'Admin', phone: '', email: '', active: true, linkedCrewProfileId: '', linkedVesselOwnerProfileId: '', demoPin: '0000', lastLoginAt: '', metadata: { source: 'system' } });
   if (!users.some((user) => user.role === 'Owner' && (user.name === COMPANY_OWNER_NAME || user.linkedVesselOwnerProfileId === COMPANY_OWNER_NAME))) {
     const eugene = crew.find((person) => person.name === COMPANY_OWNER_NAME);
     users.push({ id: 'user-owner-eugene', name: COMPANY_OWNER_NAME, role: 'Owner', phone: eugene?.phone || '', email: eugene?.email || '', active: true, linkedCrewProfileId: eugene?.id || '', linkedVesselOwnerProfileId: COMPANY_OWNER_NAME, demoPin: '0000', lastLoginAt: '', metadata: { source: 'companyOwner' } });
   }
-  if (!users.some((user) => user.role === 'Mate')) users.push({ id: 'user-mate-demo', name: 'Demo Mate', role: 'Mate', phone: '', email: 'mate@reeladventure.demo', active: true, linkedCrewProfileId: '', linkedVesselOwnerProfileId: '', demoPin: '0000', lastLoginAt: '', metadata: { source: 'seed' } });
-  if (!users.some((user) => user.role === 'Bookkeeper')) users.push({ id: 'user-bookkeeper', name: 'Demo Bookkeeper', role: 'Bookkeeper', phone: '', email: 'bookkeeper@reeladventure.demo', active: true, linkedCrewProfileId: '', linkedVesselOwnerProfileId: '', demoPin: '0000', lastLoginAt: '', metadata: { source: 'seed' } });
+  if (!users.some((user) => user.role === 'Mate')) users.push({ id: 'user-mate-operations', name: 'Mate User', role: 'Mate', phone: '', email: '', active: true, linkedCrewProfileId: '', linkedVesselOwnerProfileId: '', demoPin: '0000', lastLoginAt: '', metadata: { source: 'system' } });
+  if (!users.some((user) => user.role === 'Bookkeeper')) users.push({ id: 'user-bookkeeper', name: 'Bookkeeper User', role: 'Bookkeeper', phone: '', email: '', active: true, linkedCrewProfileId: '', linkedVesselOwnerProfileId: '', demoPin: '0000', lastLoginAt: '', metadata: { source: 'system' } });
   crew.forEach((person) => {
     if (byLink.has(person.id) || users.some((user) => user.linkedCrewProfileId === person.id)) return;
     const role = ['Captain', 'Mate'].includes(person.role) ? person.role : 'Captain';
@@ -588,7 +589,7 @@ function activateDashboardWeatherWidget() {
 function saveStore(options = {}) {
   store.updatedAt = new Date().toISOString();
   localStorage.setItem(STORE_KEY, JSON.stringify(store));
-  if (!options.localOnly && !sharedStoreSync.applying) scheduleSharedStoreSync();
+  if (!options.localOnly && !sharedStoreSync.applying && sharedStoreSync.bootstrapComplete) scheduleSharedStoreSync();
 }
 
 function storeTime(value) {
@@ -642,29 +643,34 @@ async function pushSharedStore() {
 
 async function pullSharedStore(options = {}) {
   if (!sharedStoreSync.enabled || sharedStoreSync.inFlight) return;
+  let completed = false;
   try {
     const response = await fetch('/api/store', { cache:'no-store' });
     const payload = await response.json();
     if (!response.ok || payload.error) throw new Error(payload.error || `Shared store returned ${response.status}`);
     sharedStoreSync.lastPulledAt = payload.serverUpdatedAt || new Date().toISOString();
     sharedStoreSync.lastError = '';
-    if (payload.hasStore && payload.store && storeTime(payload.store.updatedAt) > storeTime(store.updatedAt)) {
+    if (payload.hasStore && payload.store && (options.initial || storeTime(payload.store.updatedAt) > storeTime(store.updatedAt))) {
       applySharedStore(payload.store, options.initial ? 'initial' : 'pull');
     } else if (!payload.hasStore && options.initial) {
       scheduleSharedStoreSync({ immediate:true });
     }
+    completed = true;
+    sharedStoreSync.bootstrapComplete = true;
   } catch (error) {
     sharedStoreSync.lastError = error.message;
     console.warn('Shared store pull failed.', error);
+  } finally {
+    if (options.initial) sharedStoreSync.bootstrapComplete = completed;
   }
 }
 
 function sharedDatabaseStatusMarkup() {
   const lastSync = sharedStoreSync.lastPushedAt || sharedStoreSync.lastPulledAt || store.serverSyncedAt || '';
-  return `<div class="legacy-tool"><h3>Shared Database Sync</h3><div class="gmail-readiness-grid"><span><small>Status</small><strong>${sharedStoreSync.lastError ? 'Needs attention' : sharedStoreSync.enabled ? 'Enabled' : 'Local file mode'}</strong></span><span><small>Last sync</small><strong>${escapeHtml(lastSync ? new Date(lastSync).toLocaleString() : 'Pending')}</strong></span><span><small>Rules engine</small><strong>${escapeHtml(store.notificationRulesLastRun ? `${store.notificationRulesLastRun.changes || 0} changes` : 'Pending')}</strong></span></div>${sharedStoreSync.lastError ? `<p class="notice warning">${escapeHtml(sharedStoreSync.lastError)}</p>` : '<p class="notice success">Bookings, trips, chat, alerts, and WhatsApp drafts sync through the shared backend database.</p>'}</div>`;
+  return `<div class="legacy-tool"><h3>Shared Database Sync</h3><div class="gmail-readiness-grid"><span><small>Status</small><strong>${sharedStoreSync.lastError ? 'Needs attention' : sharedStoreSync.enabled ? 'Live database' : 'Backend unavailable'}</strong></span><span><small>Last sync</small><strong>${escapeHtml(lastSync ? new Date(lastSync).toLocaleString() : 'Pending')}</strong></span><span><small>Rules engine</small><strong>${escapeHtml(store.notificationRulesLastRun ? `${store.notificationRulesLastRun.changes || 0} changes` : 'Pending')}</strong></span></div>${sharedStoreSync.lastError ? `<p class="notice warning">${escapeHtml(sharedStoreSync.lastError)}</p>` : '<p class="notice success">Bookings, trips, chat, alerts, and WhatsApp drafts sync through the shared backend database.</p>'}</div>`;
 }
 
-function currentUser() { return store.users?.find((user) => user.id === store.activeUserId) || store.users?.[0] || { id: '', name: 'Demo user', role: 'Admin' }; }
+function currentUser() { return store.users?.find((user) => user.id === store.activeUserId) || store.users?.[0] || { id: '', name: 'Operations user', role: 'Admin' }; }
 function currentUserLabel() { const user = currentUser(); return `${user.name} · ${user.role}`; }
 
 
@@ -743,19 +749,19 @@ function getOptions(kind) {
   return maps[kind] || [];
 }
 
-function init() {
+async function init() {
+  wireEvents();
+  if (sharedStoreSync.enabled) await pullSharedStore({ initial: true });
   renderLoginUsers();
   renderNav();
-  wireEvents();
   let lastVoiceScroll = 0; window.addEventListener('scroll', () => { const fab = document.querySelector('.voice-fab'); const current = window.scrollY; fab?.classList.toggle('auto-minimized', current > lastVoiceScroll && current > 80); lastVoiceScroll = current; }, { passive: true });
   generateChecklistReminders();
   generateWeatherAlerts();
   generateMaintenanceNotifications();
-  saveStore();
+  saveStore({ localOnly: sharedStoreSync.enabled && !sharedStoreSync.bootstrapComplete });
   renderRoute('dashboard');
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('service-worker.js').catch(console.warn);
   refreshIntegrationStatus({ silent: true });
-  pullSharedStore({ initial: true });
   if (sharedStoreSync.enabled) setInterval(() => pullSharedStore(), 15000);
 }
 
@@ -824,7 +830,7 @@ function wireEvents() {
     document.getElementById('roleSelect').value = user.role;
     document.getElementById('activeRole').textContent = `${user.name} · ${user.role}`;
     renderNav(); renderRoute(currentRoute);
-    toast(`Signed in as ${user.name}. Demo authentication only.`);
+    toast(`Signed in as ${user.name}. Live operations workspace loaded.`);
   });
   document.getElementById('menuBtn').addEventListener('click', toggleSidebar);
   document.getElementById('sidebarOverlay').addEventListener('click', closeSidebar);
@@ -847,7 +853,7 @@ function wireEvents() {
     const dispatchViewButton = event.target.closest('[data-dispatch-view]');
     if (dispatchViewButton) { assignmentViewMode = dispatchViewButton.dataset.dispatchView; renderAssignmentBoard(document.getElementById(currentRoute === 'dispatch' ? 'page-dispatch' : 'page-trips')); }
     if (event.target.closest('[data-export-store]')) exportStoreData();
-    if (event.target.closest('[data-reset-store]')) { addAudit('reset', 'Settings', 'Reset local data to seed defaults.'); localStorage.removeItem(STORE_KEY); store = seedStore({ auditTrail: store.auditTrail, notifications: store.notifications }); renderRoute(currentRoute); toast('Seed data restored.'); }
+    if (event.target.closest('[data-reset-store]')) toast('Production mode is active. Workspace reset is disabled.');
     if (event.target.closest('[data-mark-notices-read]')) markNotificationsRead();
     const markNotice = event.target.closest('[data-mark-notice-read]');
     if (markNotice) markNotificationRead(markNotice.dataset.markNoticeRead);
@@ -2869,7 +2875,7 @@ function normalizeInventoryItem(item = {}) {
     recommendedStock: Number(item.recommendedStock ?? minimumRequiredStock),
     status: inventoryStatus({ ...item, currentStock, minimumRequiredStock }),
     lastUpdated: item.lastUpdated || new Date().toISOString(),
-    updatedBy: item.updatedBy || 'Seed data',
+    updatedBy: item.updatedBy || 'System',
     linkedVessel: item.linkedVessel || '',
     linkedTrip: item.linkedTrip || '',
     restockNeeded: currentStock <= minimumRequiredStock ? 'Yes' : 'No'
@@ -3555,7 +3561,7 @@ function exportStoreData() {
   link.download = `reel-adventure-operations-${new Date().toISOString().slice(0, 10)}.json`;
   link.click();
   URL.revokeObjectURL(link.href);
-  addAudit('exported', 'Settings', 'Exported local operations data.', { bytes: payload.length });
+  addAudit('exported', 'Settings', 'Exported operations workspace data.', { bytes: payload.length });
   addNotification('Export ready', 'Operations data was exported to a JSON file.', 'success');
   saveStore();
   renderRoute(currentRoute);
@@ -3569,10 +3575,10 @@ function importStoreData(file) {
       const parsed = JSON.parse(reader.result);
       store = migrateStore(parsed.store || parsed);
       addAudit('imported', 'Settings', `Imported operations data from ${file.name}.`, { file: file.name });
-      addNotification('Import complete', `${file.name} replaced the local operations data.`, 'success');
+      addNotification('Import complete', `${file.name} updated the operations workspace data.`, 'success');
       saveStore();
       renderRoute(currentRoute);
-      toast('Import complete. Local data updated.');
+      toast('Import complete. Workspace data updated.');
     } catch (error) {
       console.warn('Import failed', error);
       toast('Import failed. Choose a valid JSON export.');
@@ -4067,7 +4073,7 @@ function renderFuelReports() {
 }
 
 
-// Native reports dashboard uses current local app data.
+// Native reports dashboard uses current shared app data.
 function renderReports() {
   const trips = store.trips || [];
   const canViewProfitability = ['Admin', 'Owner', 'Bookkeeper', VESSEL_OWNER_ROLE].includes(activeRoleName());
@@ -4163,7 +4169,7 @@ function sendChatMessage(event) {
   if (!text) return toast('Enter a chat message before sending.');
   if (!conversation) return toast('Choose a visible conversation before sending.');
   const user = currentUser();
-  const message = { id: makeId('chat-message'), conversationId: conversation.id, senderUserId: user.id, senderName: user.name, senderRole: user.role, messageText: text, createdAt: new Date().toISOString(), readBy: [user.id], attachments: [], metadata: { source: 'local-demo' } };
+  const message = { id: makeId('chat-message'), conversationId: conversation.id, senderUserId: user.id, senderName: user.name, senderRole: user.role, messageText: text, createdAt: new Date().toISOString(), readBy: [user.id], attachments: [], metadata: { source: 'live-chat' } };
   store.chatMessages.push(message);
   queueWhatsAppDraftsForChatMessage(conversation, message);
   addAudit('sent', 'Chat', `Sent a message in ${conversationLabel(conversation)}.`, { conversationId: conversation.id }); saveStore(); renderNav(); renderChat();
@@ -4198,7 +4204,7 @@ function updateChatPreference(key, value) { store.chatPreferences[key] = value; 
 
 function renderUserSettings() {
   const owners = [...new Set(store.vessels.map((vessel) => vessel.owner).filter(Boolean))];
-  return `<div class="legacy-tool settings-span"><div class="card-header"><h3>Users</h3><button class="btn btn-outline btn-small" data-create-linked-users>Sync Crew & Owners</button></div><div class="responsive-table-wrap"><table><thead><tr><th>User</th><th>Role</th><th>Active</th><th>Linked crew</th><th>Linked owner</th><th>Demo PIN</th><th>Last login</th></tr></thead><tbody>${store.users.map((user) => `<tr><td><strong>${escapeHtml(user.name)}</strong><br><small>${escapeHtml(user.email || user.phone || user.id)}</small></td><td><select data-user-role="${user.id}">${['Admin','Owner',VESSEL_OWNER_ROLE,'Captain','Mate','Bookkeeper'].map((role) => `<option ${user.role === role ? 'selected' : ''}>${role}</option>`).join('')}</select></td><td><button class="btn btn-small ${user.active === false ? 'btn-danger' : 'btn-outline'}" data-user-active-toggle="${user.id}">${user.active === false ? 'Inactive' : 'Active'}</button></td><td><select data-user-link-crew="${user.id}"><option value="">Not linked</option>${store.crew.map((crew) => `<option value="${crew.id}" ${user.linkedCrewProfileId === crew.id ? 'selected' : ''}>${escapeHtml(crew.name)}</option>`).join('')}</select></td><td><select data-user-link-owner="${user.id}"><option value="">Not linked</option>${owners.map((owner) => `<option ${user.linkedVesselOwnerProfileId === owner ? 'selected' : ''}>${escapeHtml(owner)}</option>`).join('')}</select></td><td><form data-demo-pin-form="${user.id}"><input name="demoPin" value="${escapeHtml(user.demoPin || '')}" placeholder="Demo PIN"><button class="btn btn-outline btn-small">Save</button></form></td><td>${user.lastLoginAt ? new Date(user.lastLoginAt).toLocaleString() : 'Never'}</td></tr>`).join('')}</tbody></table></div></div>`;
+  return `<div class="legacy-tool settings-span"><div class="card-header"><h3>Users</h3><button class="btn btn-outline btn-small" data-create-linked-users>Sync Crew & Owners</button></div><div class="responsive-table-wrap"><table><thead><tr><th>User</th><th>Role</th><th>Active</th><th>Linked crew</th><th>Linked owner</th><th>Access PIN</th><th>Last login</th></tr></thead><tbody>${store.users.map((user) => `<tr><td><strong>${escapeHtml(user.name)}</strong><br><small>${escapeHtml(user.email || user.phone || user.id)}</small></td><td><select data-user-role="${user.id}">${['Admin','Owner',VESSEL_OWNER_ROLE,'Captain','Mate','Bookkeeper'].map((role) => `<option ${user.role === role ? 'selected' : ''}>${role}</option>`).join('')}</select></td><td><button class="btn btn-small ${user.active === false ? 'btn-danger' : 'btn-outline'}" data-user-active-toggle="${user.id}">${user.active === false ? 'Inactive' : 'Active'}</button></td><td><select data-user-link-crew="${user.id}"><option value="">Not linked</option>${store.crew.map((crew) => `<option value="${crew.id}" ${user.linkedCrewProfileId === crew.id ? 'selected' : ''}>${escapeHtml(crew.name)}</option>`).join('')}</select></td><td><select data-user-link-owner="${user.id}"><option value="">Not linked</option>${owners.map((owner) => `<option ${user.linkedVesselOwnerProfileId === owner ? 'selected' : ''}>${escapeHtml(owner)}</option>`).join('')}</select></td><td><form data-demo-pin-form="${user.id}"><input name="demoPin" value="${escapeHtml(user.demoPin || '')}" placeholder="Access PIN"><button class="btn btn-outline btn-small">Save</button></form></td><td>${user.lastLoginAt ? new Date(user.lastLoginAt).toLocaleString() : 'Never'}</td></tr>`).join('')}</tbody></table></div></div>`;
 }
 
 function renderRoleSettings() { return `<div class="legacy-tool"><h3>Roles</h3><div class="stat-list">${['Admin — all users and participating chats','Owner — admin and assigned vessel crews','Captain — admin, assigned mates, permitted owners','Mate — admin and assigned captains','Bookkeeper — general chat and admin direct messages'].map((text) => `<div class="stat-row"><span>${escapeHtml(text)}</span></div>`).join('')}</div></div>`; }
@@ -4216,8 +4222,8 @@ function renderPlaceholder(route) {
     inventory: ['Inventory placeholder for supplies, parts, and vessel consumables.'],
     'pre-trip-checklist': ['Native pre-trip checklist records are available here for daily dispatch readiness.'],
     'post-trip-checklist': ['Native post-trip checklist records are available here for completion and archive workflows.'],
-    reports: ['Reports use current local app data for revenue, balances, payroll, expenses, and trip readiness.'],
-    settings: ['Local storage tools, seed data summaries, and phase guardrails.']
+    reports: ['Reports use live shared operations data for revenue, balances, payroll, expenses, and trip readiness.'],
+    settings: ['Production workspace settings, shared database status, user profiles, and integration controls.']
   };
   const lines = map[route] || ['Operational module ready.'];
   const extra = route === 'settings' ? settingsMarkup() : '';
@@ -4252,7 +4258,7 @@ async function promptAppInstall() {
 
 function appDownloadSettingsMarkup() {
   const swReady = 'serviceWorker' in navigator;
-  return `<section class="legacy-tool settings-span app-download-card"><div class="settings-card-head"><div><p class="eyebrow">Download / install</p><h3>Install Reel Adventure Tours</h3><p>Use this app from the browser, install it to the home screen, and keep a JSON backup of local operations data.</p></div><span class="badge ${appInstallMode() === 'Installed' ? 'green' : 'blue'}">${appInstallMode()}</span></div><div class="integration-readiness-grid"><span><small>Release</small><strong>${escapeHtml(APP_RELEASE_LABEL)}</strong></span><span><small>Offline shell</small><strong>${swReady ? 'Available' : 'Browser unsupported'}</strong></span><span><small>Local records</small><strong>${store.trips.length + store.bookings.length + store.invoices.length}</strong></span></div><div class="legacy-actions"><button class="btn btn-primary" data-install-app>Install App</button><button class="btn btn-outline" data-download-backup>Download Backup JSON</button><label class="btn btn-outline" for="importStoreFile">Import Backup<input id="importStoreFile" data-import-store type="file" accept="application/json" hidden></label></div><p class="notice success">For phones: open the live Render URL in Chrome or Safari, then choose Install App / Add to Home Screen from the browser menu if the prompt does not appear automatically.</p></section>`;
+  return `<section class="legacy-tool settings-span app-download-card"><div class="settings-card-head"><div><p class="eyebrow">Download / install</p><h3>Install Reel Adventure Tours</h3><p>Use the live operations app from the browser, install it to the home screen, and keep a JSON backup when needed.</p></div><span class="badge ${appInstallMode() === 'Installed' ? 'green' : 'blue'}">${appInstallMode()}</span></div><div class="integration-readiness-grid"><span><small>Release</small><strong>${escapeHtml(APP_RELEASE_LABEL)}</strong></span><span><small>Offline shell</small><strong>${swReady ? 'Available' : 'Browser unsupported'}</strong></span><span><small>Operations records</small><strong>${store.trips.length + store.bookings.length + store.invoices.length}</strong></span></div><div class="legacy-actions"><button class="btn btn-primary" data-install-app>Install App</button><button class="btn btn-outline" data-download-backup>Download Backup JSON</button><label class="btn btn-outline" for="importStoreFile">Import Backup<input id="importStoreFile" data-import-store type="file" accept="application/json" hidden></label></div><p class="notice success">For phones: open the live Render URL in Chrome or Safari, then choose Install App / Add to Home Screen from the browser menu if the prompt does not appear automatically.</p></section>`;
 }
 
 function integrationBadge(value) { return value ? '<span class="badge green">Configured</span>' : '<span class="badge gold">Needs credentials</span>'; }
@@ -4322,7 +4328,7 @@ async function syncOwnerGmail() {
 
 function settingsMarkup() {
   const ownerIntegrationTools = isCompanyOwnerUser() ? `${integrationReadinessMarkup()}${gmailImportSettingsMarkup()}` : '';
-  return `<div class="grid settings-grid" style="margin-top:18px">${appDownloadSettingsMarkup()}${sharedDatabaseStatusMarkup()}${ownerIntegrationTools}${renderUserSettings()}${renderRoleSettings()}${renderChatPreferences()}<div class="legacy-tool dashboard-preferences-settings"><h3>Dashboard Preferences</h3>${renderDashboardCustomizer()}</div><div class="legacy-tool"><h3>Seed data</h3><p>${store.vessels.length} vessels, ${store.crew.length} crew members, and ${store.users.length} users loaded.</p></div><div class="legacy-tool"><h3>Local data</h3><div class="legacy-actions"><button class="btn btn-outline" data-export-store>Export JSON</button><label class="btn btn-outline" for="importStoreFileSettings">Import JSON<input id="importStoreFileSettings" data-import-store type="file" accept="application/json" hidden></label><button class="btn btn-danger" data-reset-store>Reset seed data</button></div></div><div class="legacy-tool archived-legacy-tools"><h3>Archived Legacy Tools</h3><p>Legacy tools are retained for reference only. Active operations should be completed through the main application tabs.</p><div class="legacy-list">${legacyTools.map((tool) => `<div class="legacy-tool"><h3>${tool.title}</h3><p>${tool.desc}</p><div class="legacy-actions"><a class="btn btn-outline btn-small" href="${tool.file}" target="_blank" rel="noopener">Open reference</a></div></div>`).join('')}</div></div></div>`;
+  return `<div class="grid settings-grid" style="margin-top:18px">${appDownloadSettingsMarkup()}${sharedDatabaseStatusMarkup()}${ownerIntegrationTools}${renderUserSettings()}${renderRoleSettings()}${renderChatPreferences()}<div class="legacy-tool dashboard-preferences-settings"><h3>Dashboard Preferences</h3>${renderDashboardCustomizer()}</div><div class="legacy-tool"><h3>Workspace Data</h3><p>${store.vessels.length} vessels, ${store.crew.length} crew members, and ${store.users.length} user profiles are loaded from the shared operations workspace.</p></div><div class="legacy-tool"><h3>Data Management</h3><div class="legacy-actions"><button class="btn btn-outline" data-export-store>Export JSON</button><label class="btn btn-outline" for="importStoreFileSettings">Import JSON<input id="importStoreFileSettings" data-import-store type="file" accept="application/json" hidden></label></div><p class="notice success">Production mode is active. Shared records sync through the backend database.</p></div><div class="legacy-tool archived-legacy-tools"><h3>Archived Legacy Tools</h3><p>Legacy tools are retained for reference only. Active operations should be completed through the main application tabs.</p><div class="legacy-list">${legacyTools.map((tool) => `<div class="legacy-tool"><h3>${tool.title}</h3><p>${tool.desc}</p><div class="legacy-actions"><a class="btn btn-outline btn-small" href="${tool.file}" target="_blank" rel="noopener">Open reference</a></div></div>`).join('')}</div></div></div>`;
 }
 
 function toast(message) {
@@ -4913,5 +4919,5 @@ function openAssistantAction(route,id='',date='') { if(date){store.calendarState
 function renderAssistantCard(card) { return `<article class="assistant-result-card"><div><h4>${escapeHtml(card.title)}</h4><dl>${Object.entries(card.fields||{}).map(([k,v])=>`<div><dt>${escapeHtml(k)}</dt><dd>${escapeHtml(v||'—')}</dd></div>`).join('')}</dl></div>${card.action?`<button class="btn btn-primary btn-small" onclick="openAssistantAction('${card.action.route}','${card.action.id||''}','${card.action.date||''}')">${escapeHtml(card.action.label)}</button>`:''}</article>`; }
 function renderOperationsAssistant() {
   const page=document.getElementById('page-operations-assistant'), result=assistantState.result;
-  page.innerHTML=`<div class="page-stack assistant-page"><section class="card assistant-hero"><div><p class="eyebrow">Local rule-based assistant</p><h3>Operations Query</h3><p>Ask business questions using data already stored in this browser. No external AI service is connected and no app data leaves this device.</p></div><span class="badge green">Local Only</span></section><form class="card assistant-search" onsubmit="submitAssistantQuery(event)"><label for="assistantQuery">What do you need to know?</label><div><input id="assistantQuery" name="assistantQuery" type="search" value="${escapeHtml(assistantState.query)}" placeholder="Show trips needing captains." required><button class="btn btn-primary">Ask Operations</button></div></form><section class="assistant-prompts" aria-label="Suggested questions">${assistantSuggestedQuestions.map(([label,q])=>`<button class="assistant-chip" onclick="askOperations('${q.replace(/'/g,"\\'")}')">${escapeHtml(label)}</button>`).join('')}</section>${result?`<details class="card assistant-results" open><summary><div><p class="eyebrow">${escapeHtml(result.category)}</p><h3>${escapeHtml(result.title)}</h3><p>${escapeHtml(result.summary)}</p></div><span class="badge blue">${result.cards.length} result${result.cards.length===1?'':'s'}</span></summary><div class="assistant-result-list">${result.cards.length?result.cards.map(renderAssistantCard).join(''):'<p class="empty-state">No matching records are visible to your role.</p>'}</div></details>`:'<div class="card card-pad empty-state">Choose a suggested question or type your own operations question.</div>'}<details class="card assistant-readiness"><summary><div><h3>Future AI Readiness</h3><p>External AI remains disabled.</p></div><span class="chevron">⌄</span></summary><dl><div><dt>assistantProvider</dt><dd>${escapeHtml(store.assistantProvider)}</dd></div><div><dt>assistantApiStatus</dt><dd>${escapeHtml(store.assistantApiStatus)}</dd></div><div><dt>externalAiEnabled</dt><dd>${String(store.externalAiEnabled)}</dd></div><div><dt>lastAssistantSync</dt><dd>${escapeHtml(store.lastAssistantSync||'Never')}</dd></div><div><dt>assistantQueryLog</dt><dd>${store.assistantQueryLog.length} local entries</dd></div></dl></details></div>`;
+  page.innerHTML=`<div class="page-stack assistant-page"><section class="card assistant-hero"><div><p class="eyebrow">Workspace rule-based assistant</p><h3>Operations Query</h3><p>Ask business questions using the live shared operations workspace. External AI remains disabled.</p></div><span class="badge green">Workspace Rules</span></section><form class="card assistant-search" onsubmit="submitAssistantQuery(event)"><label for="assistantQuery">What do you need to know?</label><div><input id="assistantQuery" name="assistantQuery" type="search" value="${escapeHtml(assistantState.query)}" placeholder="Show trips needing captains." required><button class="btn btn-primary">Ask Operations</button></div></form><section class="assistant-prompts" aria-label="Suggested questions">${assistantSuggestedQuestions.map(([label,q])=>`<button class="assistant-chip" onclick="askOperations('${q.replace(/'/g,"\\'")}')">${escapeHtml(label)}</button>`).join('')}</section>${result?`<details class="card assistant-results" open><summary><div><p class="eyebrow">${escapeHtml(result.category)}</p><h3>${escapeHtml(result.title)}</h3><p>${escapeHtml(result.summary)}</p></div><span class="badge blue">${result.cards.length} result${result.cards.length===1?'':'s'}</span></summary><div class="assistant-result-list">${result.cards.length?result.cards.map(renderAssistantCard).join(''):'<p class="empty-state">No matching records are visible to your role.</p>'}</div></details>`:'<div class="card card-pad empty-state">Choose a suggested question or type your own operations question.</div>'}<details class="card assistant-readiness"><summary><div><h3>Future AI Readiness</h3><p>External AI remains disabled.</p></div><span class="chevron">⌄</span></summary><dl><div><dt>assistantProvider</dt><dd>${escapeHtml(store.assistantProvider)}</dd></div><div><dt>assistantApiStatus</dt><dd>${escapeHtml(store.assistantApiStatus)}</dd></div><div><dt>externalAiEnabled</dt><dd>${String(store.externalAiEnabled)}</dd></div><div><dt>lastAssistantSync</dt><dd>${escapeHtml(store.lastAssistantSync||'Never')}</dd></div><div><dt>assistantQueryLog</dt><dd>${store.assistantQueryLog.length} entries</dd></div></dl></details></div>`;
 }
