@@ -94,6 +94,36 @@ def load_operations_state():
     return {"hasStore": True, "store": json.loads(payload), "updatedAt": updated_at}
 
 
+def load_app_state_record(record_id):
+    with db_connection() as conn:
+        placeholder = "%s" if DATABASE_URL else "?"
+        row = conn.execute(f"SELECT payload FROM app_state WHERE id = {placeholder}", (record_id,)).fetchone()
+    if not row:
+        return {}
+    payload = row["payload"] if isinstance(row, sqlite3.Row) else row[0]
+    parsed = json.loads(payload or "{}")
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def save_app_state_record(record_id, payload):
+    updated_at = iso_now()
+    body = json.dumps(payload, separators=(",", ":"))
+    with db_connection() as conn:
+        if DATABASE_URL:
+            conn.execute(
+                "INSERT INTO app_state(id, payload, updated_at) VALUES(%s, %s, %s) "
+                "ON CONFLICT(id) DO UPDATE SET payload = excluded.payload, updated_at = excluded.updated_at",
+                (record_id, body, updated_at),
+            )
+        else:
+            conn.execute(
+                "INSERT INTO app_state(id, payload, updated_at) VALUES(?, ?, ?) "
+                "ON CONFLICT(id) DO UPDATE SET payload = excluded.payload, updated_at = excluded.updated_at",
+                (record_id, body, updated_at),
+            )
+    return updated_at
+
+
 def save_operations_state(store):
     updated_at = iso_now()
     payload = json.dumps(store, separators=(",", ":"))
@@ -353,8 +383,23 @@ def env_readiness(required_names):
 
 
 def gmail_token_payload():
+    try:
+        payload = load_app_state_record("gmail_owner_token")
+        if isinstance(payload, dict) and payload:
+            return payload
+    except Exception:
+        pass
     payload = read_json_file(GMAIL_TOKEN_FILE) or {}
-    return payload if isinstance(payload, dict) else {}
+    if isinstance(payload, dict) and payload:
+        try:
+            save_app_state_record("gmail_owner_token", payload)
+        except Exception:
+            pass
+        return payload
+    refresh_token = os.environ.get("GMAIL_REFRESH_TOKEN", "").strip()
+    if refresh_token:
+        return {"refresh_token": refresh_token, "updatedAt": "env:GMAIL_REFRESH_TOKEN"}
+    return {}
 
 
 def save_gmail_token(payload):
@@ -365,6 +410,11 @@ def save_gmail_token(payload):
     existing = gmail_token_payload()
     if "refresh_token" not in token and existing.get("refresh_token"):
         token["refresh_token"] = existing["refresh_token"]
+    token["updatedAt"] = token.get("updatedAt") or iso_now()
+    try:
+        save_app_state_record("gmail_owner_token", token)
+    except Exception:
+        pass
     write_json_file(GMAIL_TOKEN_FILE, token)
     return token
 
