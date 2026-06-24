@@ -37,7 +37,10 @@ GMAIL_TOKEN_FILE = os.path.join(CACHE_DIR, "gmail-owner-token.json")
 GMAIL_STATE_FILE = os.path.join(CACHE_DIR, "gmail-oauth-state.json")
 WHATSAPP_WEBHOOK_FILE = os.path.join(CACHE_DIR, "whatsapp-webhook-events.json")
 DATABASE_PATH = os.environ.get("DATABASE_PATH", os.path.join(CACHE_DIR, "operations.sqlite3"))
-DATABASE_URL = os.environ.get("DATABASE_URL", "").strip()
+SUPABASE_DATABASE_URL = os.environ.get("SUPABASE_DATABASE_URL", "").strip()
+DATABASE_URL = (SUPABASE_DATABASE_URL or os.environ.get("DATABASE_URL", "")).strip()
+if SUPABASE_DATABASE_URL and DATABASE_URL and "sslmode=" not in DATABASE_URL:
+    DATABASE_URL = f"{DATABASE_URL}{'&' if '?' in DATABASE_URL else '?'}sslmode=require"
 WEATHER_CACHE_TTL_SECONDS = int(os.environ.get("WEATHER_CACHE_TTL_SECONDS", "1800"))
 WEATHER_FALLBACK_TTL_SECONDS = int(os.environ.get("WEATHER_FALLBACK_TTL_SECONDS", "600"))
 CRUISE_CACHE_TTL_SECONDS = int(os.environ.get("CRUISE_CACHE_TTL_SECONDS", "21600"))
@@ -51,6 +54,8 @@ WHATSAPP_GRAPH_VERSION = os.environ.get("WHATSAPP_GRAPH_VERSION", "v20.0")
 
 
 def db_provider():
+    if SUPABASE_DATABASE_URL:
+        return "Supabase Postgres"
     return "Postgres" if DATABASE_URL else "SQLite"
 
 
@@ -78,6 +83,7 @@ def database_status():
         status = {"configured": True, "provider": db_provider()}
         if DATABASE_URL:
             status["databaseUrlConfigured"] = True
+            status["supabaseConfigured"] = bool(SUPABASE_DATABASE_URL)
         else:
             status["path"] = DATABASE_PATH
         return status

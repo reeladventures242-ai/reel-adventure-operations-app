@@ -1,3 +1,6 @@
 __pycache__/
 *.pyc
 .runtime-cache/
+.env
+.env.*
+!.env.example
