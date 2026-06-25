@@ -1,10 +1,11 @@
-const CACHE_NAME = 'rat-ops-pwa-v17-production-sync';
+const CACHE_NAME = 'rat-ops-pwa-v18-viator-sync';
 const APP_ASSETS = [
   '/',
   '/index.html',
   '/offline.html',
-  '/styles.css',
-  '/app.js',
+  '/styles.css?v=20260624-viator-sync',
+  '/app.js?v=20260624-viator-sync',
+  '/upgrades.js?v=20260624-viator-sync',
   '/manifest.json',
   '/icons/icon-192.png',
   '/icons/icon-512.png',
@@ -47,6 +48,17 @@ self.addEventListener('fetch', (event) => {
   if (event.request.mode === 'navigate') {
     event.respondWith(
       fetch(event.request).catch(() => caches.match('/index.html').then((cached) => cached || caches.match('/offline.html')))
+    );
+    return;
+  }
+  if (['/app.js', '/styles.css', '/upgrades.js'].includes(requestUrl.pathname)) {
+    event.respondWith(
+      fetch(event.request).then((response) => {
+        if (!response || response.status !== 200 || response.type !== 'basic') return response;
+        const copy = response.clone();
+        caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+        return response;
+      }).catch(() => caches.match(event.request))
     );
     return;
   }
