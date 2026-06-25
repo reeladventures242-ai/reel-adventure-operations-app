@@ -1635,7 +1635,7 @@ function renderOperationsSnapshot(metrics) {
 
 function dashboardMetrics() {
   const todayKey = new Date().toISOString().slice(0, 10);
-  const scheduledTrips = store.trips.filter((t) => t.status === 'Scheduled').sort(byDate);
+  const scheduledTrips = store.trips.filter((t) => t.status === 'Scheduled' && (!t.tripDate || String(t.tripDate) >= todayKey)).sort(byDate);
   const todayTrips = scheduledTrips.filter((trip) => trip.tripDate === todayKey);
   const readyTrips = scheduledTrips.filter((trip) => calculateDispatchReadiness(trip) === 'Dispatch Ready');
   const notReadyTrips = scheduledTrips.filter((trip) => calculateDispatchReadiness(trip) === 'Not Ready');

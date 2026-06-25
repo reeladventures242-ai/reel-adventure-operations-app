@@ -295,6 +295,7 @@ def validate_phase_4e_mobile_redesign() -> tuple[bool, str]:
         "Notifications grouped inbox exists": (app_js, "groupNotificationsByAge"),
         "Notification quick actions exist": (app_js, "Open Related Trip"),
         "Owner dashboard alert cards exist": (app_js, "Outstanding owner payouts"),
+        "Past trips excluded from active assignment alerts": (app_js, "t.status === 'Scheduled' && (!t.tripDate || String(t.tripDate) >= todayKey)"),
         "Crew large action buttons exist": (app_js, "Voice Fill Notes"),
         "Legacy archive still in Settings": (app_js, "Archived Legacy Tools"),
         "No primary workflow depends on legacy tools": (app_js, "Active operations should be completed through the main application tabs."),
