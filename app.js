@@ -4325,7 +4325,7 @@ async function syncOwnerGmail() {
   if (!isCompanyOwnerUser()) return toast('Gmail sync is owner-only.');
   try {
     toast('Syncing Gmail...');
-    const response = await fetch('api/gmail/sync', { cache: 'no-store' });
+    const response = await fetch('api/gmail/sync?maxResults=200', { cache: 'no-store' });
     const payload = await response.json();
     if (!response.ok || payload.error) throw new Error(payload.error || `Gmail sync returned ${response.status}`);
     const existing = new Map((store.gmailImports || []).map((item) => [item.emailId || item.gmailMessageId, item]));

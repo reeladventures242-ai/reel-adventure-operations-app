@@ -656,11 +656,18 @@ def gmail_payload_text(payload):
     return "\n".join(chunk.strip() for chunk in chunks if chunk.strip())
 
 
-def gmail_sync_payload():
+def gmail_sync_payload(params=None):
+    params = params or {}
     token = gmail_access_token()
+    max_results = params.get("maxResults", [os.environ.get("GMAIL_SYNC_MAX_RESULTS", "200")])[0]
+    default_query = os.environ.get(
+        "GMAIL_SYNC_QUERY",
+        'newer_than:365d ("New booking" OR "Ext. booking ref" OR "Product booking ref" OR "Booking Reference" OR "Viator booking" OR "VIA-" OR "REE-T" OR reservation OR confirmation)',
+    )
+    query_text = params.get("q", [default_query])[0]
     query = urllib.parse.urlencode({
-        "maxResults": os.environ.get("GMAIL_SYNC_MAX_RESULTS", "50"),
-        "q": os.environ.get("GMAIL_SYNC_QUERY", "newer_than:180d (booking OR booked OR reservation OR confirmation OR confirmed OR invoice OR quote OR order OR voucher OR itinerary OR Viator OR GetYourGuide OR Tripadvisor OR Airbnb OR FareHarbor OR Peek OR Xola OR Bokun OR Rezdy)"),
+        "maxResults": max_results,
+        "q": query_text,
     })
     listing = request_authed_json(f"{GMAIL_API_ROOT}/messages?{query}", token)
     messages = []
@@ -1190,7 +1197,7 @@ class AppHandler(SimpleHTTPRequestHandler):
                 self.handle_gmail_oauth_callback()
                 return
             if self.path.startswith("/api/gmail/sync"):
-                self.send_json(gmail_sync_payload())
+                self.send_json(gmail_sync_payload(urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)))
                 return
             if self.path.startswith("/api/whatsapp/webhook"):
                 self.handle_whatsapp_webhook_verify()
