@@ -2,6 +2,7 @@
 """Serve the operations app with live Nassau weather and cruise schedule APIs."""
 
 from datetime import datetime, timedelta, timezone
+import base64
 from html.parser import HTMLParser
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 import html
@@ -612,21 +613,54 @@ def gmail_access_token():
 
 def gmail_message_text(message):
     headers = {item.get("name", "").lower(): item.get("value", "") for item in message.get("payload", {}).get("headers", [])}
+    body_text = gmail_payload_text(message.get("payload", {}))
     parts = [
         f"From: {headers.get('from', '')}",
         f"Subject: {headers.get('subject', '')}",
         f"Date: {headers.get('date', '')}",
         "",
         message.get("snippet", ""),
+        "",
+        body_text,
     ]
     return "\n".join(parts).strip()
+
+
+def gmail_decode_part(data):
+    if not data:
+        return ""
+    try:
+        padded = data + "=" * (-len(data) % 4)
+        return base64.urlsafe_b64decode(padded.encode()).decode("utf-8", errors="replace")
+    except (ValueError, TypeError):
+        return ""
+
+
+def gmail_payload_text(payload):
+    if not isinstance(payload, dict):
+        return ""
+    mime_type = payload.get("mimeType", "")
+    body_data = (payload.get("body") or {}).get("data", "")
+    chunks = []
+    if body_data and (mime_type.startswith("text/") or not payload.get("parts")):
+        text = gmail_decode_part(body_data)
+        if mime_type == "text/html":
+            text = re.sub(r"<br\s*/?>", "\n", text, flags=re.I)
+            text = re.sub(r"<[^>]+>", " ", text)
+            text = html.unescape(text)
+        chunks.append(text)
+    for part in payload.get("parts", []) or []:
+        nested = gmail_payload_text(part)
+        if nested:
+            chunks.append(nested)
+    return "\n".join(chunk.strip() for chunk in chunks if chunk.strip())
 
 
 def gmail_sync_payload():
     token = gmail_access_token()
     query = urllib.parse.urlencode({
-        "maxResults": os.environ.get("GMAIL_SYNC_MAX_RESULTS", "10"),
-        "q": os.environ.get("GMAIL_SYNC_QUERY", "newer_than:30d (booking OR reservation OR confirmation OR invoice OR quote OR Viator OR GetYourGuide OR Tripadvisor OR Airbnb)"),
+        "maxResults": os.environ.get("GMAIL_SYNC_MAX_RESULTS", "50"),
+        "q": os.environ.get("GMAIL_SYNC_QUERY", "newer_than:180d (booking OR booked OR reservation OR confirmation OR confirmed OR invoice OR quote OR order OR voucher OR itinerary OR Viator OR GetYourGuide OR Tripadvisor OR Airbnb OR FareHarbor OR Peek OR Xola OR Bokun OR Rezdy)"),
     })
     listing = request_authed_json(f"{GMAIL_API_ROOT}/messages?{query}", token)
     messages = []
@@ -634,7 +668,7 @@ def gmail_sync_payload():
         msg_id = item.get("id")
         if not msg_id:
             continue
-        meta_query = urllib.parse.urlencode({"format": "metadata", "metadataHeaders": ["From", "Subject", "Date"]}, doseq=True)
+        meta_query = urllib.parse.urlencode({"format": "full", "metadataHeaders": ["From", "Subject", "Date"]}, doseq=True)
         message = request_authed_json(f"{GMAIL_API_ROOT}/messages/{urllib.parse.quote(msg_id)}?{meta_query}", token)
         headers = {header.get("name", ""): header.get("value", "") for header in message.get("payload", {}).get("headers", [])}
         messages.append({

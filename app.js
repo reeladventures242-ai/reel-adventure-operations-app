@@ -4328,23 +4328,37 @@ async function syncOwnerGmail() {
     const response = await fetch('api/gmail/sync', { cache: 'no-store' });
     const payload = await response.json();
     if (!response.ok || payload.error) throw new Error(payload.error || `Gmail sync returned ${response.status}`);
-    const existing = new Set((store.gmailImports || []).map((item) => item.emailId || item.gmailMessageId));
-    let created = 0;
+    const existing = new Map((store.gmailImports || []).map((item) => [item.emailId || item.gmailMessageId, item]));
+    let created = 0, refreshed = 0;
     (payload.messages || []).forEach((message) => {
-      if (existing.has(message.id)) return;
       const parsed = parseGmailImportText(message.rawText || message.snippet || '', message.subject || 'Live Gmail Message');
+      const current = existing.get(message.id);
+      if (current) {
+        const beforeMissing = missingGmailImportFields(current).length;
+        Object.entries(parsed.fields).forEach(([key, value]) => { if (value && !current[key]) current[key] = value; });
+        current.confidenceScores = { ...(current.confidenceScores || {}), ...parsed.confidenceScores };
+        current.confidenceScore = Math.max(Number(current.confidenceScore || 0), parsed.confidenceScore);
+        current.rawMessagePreview = String(message.rawText || message.snippet || current.rawMessagePreview || '').slice(0,1200);
+        enrichGmailImportAi(current);
+        const afterMissing = missingGmailImportFields(current).length;
+        if (afterMissing < beforeMissing) {
+          current.importStatus = afterMissing ? 'Needs Review' : 'New';
+          refreshed += 1;
+        }
+        return;
+      }
       const item = enrichGmailImportAi({ id: makeId('gmail-email'), emailId: message.id, gmailMessageId: message.id, threadId: message.threadId || '', ...parsed.fields, source: parsed.fields.source === 'Unknown' ? 'Live Gmail API' : parsed.fields.source, sender: parsed.fields.sender || message.sender || '', subject: parsed.fields.subject || message.subject || '', receivedDate: parsed.fields.receivedDate || message.receivedDate || '', rawMessagePreview: String(message.rawText || message.snippet || '').slice(0,1200), importStatus: missingGmailImportFields(parsed.fields).length ? 'Needs Review' : 'New', confidenceScore: parsed.confidenceScore, confidenceScores: parsed.confidenceScores, extractionMethod: 'Live Gmail API', extractionWarning: '', createdAt: new Date().toISOString(), reviewRequired: true });
       item.possibleDuplicates = gmailDuplicateMatches(item).map(({id,type,matchCount}) => ({id,type,matchCount}));
       store.gmailImports.unshift(item);
       created += 1;
     });
     store.lastSyncTime = payload.updatedAt || new Date().toISOString();
-    store.syncCursor = `Last Gmail sync imported ${created} new message${created === 1 ? '' : 's'}`;
+    store.syncCursor = `Last Gmail sync imported ${created} new message${created === 1 ? '' : 's'} and refreshed ${refreshed} existing record${refreshed === 1 ? '' : 's'}`;
     const autoResults = runAutoOpsForGmailImports({ silent:true });
-    addAudit('synced','Gmail Import',`Owner Gmail sync imported ${created} new message(s); Auto Operations created ${autoResults.length} calendar item(s).`,{count:created,autoCalendarCount:autoResults.length});
+    addAudit('synced','Gmail Import',`Owner Gmail sync imported ${created} new message(s), refreshed ${refreshed}, and Auto Operations created ${autoResults.length} calendar item(s).`,{count:created,refreshed,autoCalendarCount:autoResults.length});
     saveStore();
     renderGmailImport();
-    toast(`Gmail sync complete: ${created} new message${created === 1 ? '' : 's'}, ${autoResults.length} auto-calendar item${autoResults.length === 1 ? '' : 's'}.`);
+    toast(`Gmail sync complete: ${created} new, ${refreshed} refreshed, ${autoResults.length} auto-calendar item${autoResults.length === 1 ? '' : 's'}.`);
   } catch (error) {
     toast(`Gmail sync failed: ${error.message}`);
   }
@@ -4675,13 +4689,14 @@ function bookingTitleDate(year, month, day) {
 }
 
 function parseBookingTitleDateTime(...sources) {
-  const source = sources.filter(Boolean).map(String).join('\n');
+  const source = sources.filter(Boolean).map(String).join('\n').replace(/\u00a0/g, ' ');
   const monthNames = 'Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?';
-  const timePattern = '(?:\\s*(?:@|at|-)\\s*(\\d{1,2})(?::?(\\d{2}))?\\s*(am|pm)?)?';
+  const timePattern = '(?:\\s*(?:@|at|from|starts?|departure(?:\\s*time)?|time|-)\\s*(\\d{1,2})(?::?(\\d{2}))?\\s*(am|pm|a\\.m\\.|p\\.m\\.)?)?';
   const weekdayPrefix = '(?:(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)(?:day)?\\s+)?';
   const patterns = [
     { order: 'day-month-year', pattern: new RegExp(`${weekdayPrefix}(\\d{1,2})(?:st|nd|rd|th)?[.\\-/\\s]+(${monthNames})[.\\-/\\s]+(?:'|\\u2019)?(\\d{2,4})${timePattern}`, 'i') },
     { order: 'month-day-year', pattern: new RegExp(`${weekdayPrefix}(${monthNames})[.\\-/\\s]+(\\d{1,2})(?:st|nd|rd|th)?[,]?[.\\-/\\s]+(?:'|\\u2019)?(\\d{2,4})${timePattern}`, 'i') },
+    { order: 'year-month-day', pattern: new RegExp(`\\b(20\\d{2})[\\/-](\\d{1,2})[\\/-](\\d{1,2})${timePattern}`, 'i') },
     { order: 'numeric-month-day-year', pattern: new RegExp(`${weekdayPrefix}(\\d{1,2})[\\/-](\\d{1,2})[\\/-](?:'|\\u2019)?(\\d{2,4})${timePattern}`, 'i') }
   ];
   for (const { order, pattern } of patterns) {
@@ -4689,6 +4704,8 @@ function parseBookingTitleDateTime(...sources) {
     if (!match) continue;
     const tourDate = order === 'day-month-year'
       ? bookingTitleDate(match[3], match[2], match[1])
+      : order === 'year-month-day'
+        ? bookingTitleDate(match[1], match[2], match[3])
       : order === 'month-day-year'
         ? bookingTitleDate(match[3], match[1], match[2])
         : bookingTitleDate(match[3], match[1], match[2]);
@@ -4698,8 +4715,46 @@ function parseBookingTitleDateTime(...sources) {
     const meridiem = match[timeStartIndex + 2] || '';
     return { tourDate, startTime: hour ? normalizeTimeInput(`${hour}:${minute} ${meridiem}`) : '', confidence: tourDate ? 'High' : 'Low' };
   }
-  const looseTime = source.match(/\b(?:@|at)\s*(\d{1,2})(?::?(\d{2}))?\s*(am|pm)?\b/i);
+  const labeledDate = source.match(new RegExp(`(?:tour|trip|booking|reservation|activity|event|departure|start)\\s*date\\s*[:#-]?\\s*([^\\n]+?(?:\\d{2,4}|${monthNames}[^\\n]*\\d{1,2}))`, 'i'));
+  if (labeledDate?.[1]) {
+    const nested = parseBookingTitleDateTime(labeledDate[1]);
+    if (nested.tourDate) return nested;
+  }
+  const looseTime = source.match(/\b(?:@|at|from|starts?|departure(?:\s*time)?|time)\s*[:#-]?\s*(\d{1,2})(?::?(\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)?\b/i);
   return { tourDate: '', startTime: looseTime ? normalizeTimeInput(`${looseTime[1]}:${looseTime[2] || '00'} ${looseTime[3] || ''}`) : '', confidence: 'Low' };
+}
+
+function pickGmailField(source, ...patterns) {
+  return patterns.map((pattern) => String(source || '').match(pattern)?.[1]?.trim()).find(Boolean) || '';
+}
+
+function inferGmailCustomerName(text = '', subject = '') {
+  const source = `${subject}\n${text}`;
+  return pickGmailField(source,
+    /(?:customer|guest|traveler|traveller|client|lead|name)\s*(?:name)?\s*[:#-]\s*([^\n<]+)/i,
+    /(?:booked\s+by|reserved\s+by|ordered\s+by)\s*[:#-]?\s*([^\n<]+)/i,
+    /(?:new booking|reservation|order)\s*(?:for|from)\s+([A-Z][A-Za-z' -]{2,60})/i
+  ).replace(/\s{2,}/g, ' ').trim();
+}
+
+function inferGmailTourType(text = '', subject = '') {
+  const source = `${subject}\n${text}`;
+  return pickGmailField(source,
+    /(?:tour|activity|experience|product|package|service|item)\s*(?:name|type)?\s*[:#-]\s*([^\n<]+)/i,
+    /\b((?:\d+(?:\.\d+)?\s*(?:hour|hr)s?\s*)?(?:private\s*)?(?:island|swimming pigs|snorkel|harbour|harbor|charter|excursion|tour|adventure)[^\n<]{0,80})/i
+  );
+}
+
+function inferGmailGuestCount(text = '') {
+  const source = String(text || '');
+  const direct = pickGmailField(source,
+    /(?:guest\s*count|guests?|passengers?|travelers?|travellers?|pax|party\s*size|group\s*size|participants?|adults?)\s*[:#-]\s*(\d+)/i,
+    /\b(\d+)\s*(?:guests?|passengers?|travelers?|travellers?|pax|participants?|adults?)\b/i
+  );
+  if (direct) return direct;
+  const adults = Number(pickGmailField(source, /adults?\s*[:#-]\s*(\d+)/i) || 0);
+  const children = Number(pickGmailField(source, /(?:children|kids?)\s*[:#-]\s*(\d+)/i) || 0);
+  return adults + children ? String(adults + children) : '';
 }
 
 function extractGmailBookingReference(text = '', subject = '') {
@@ -4718,12 +4773,29 @@ function parseGmailImportText(text = '', fileName = '') {
   const subject = pick(/subject\s*:\s*([^\n]+)/i) || fileName;
   const source = detectGmailImportSource(text, sender, subject);
   const titleDateTime = parseBookingTitleDateTime(subject, fileName, text);
+  const combined = `${subject}\n${fileName}\n${text}`;
   const totalPrice = base.tourPrice || pick(/(?:total price|total|amount)\s*[:#-]?\s*\$?([\d,.]+)/i);
   const deposit = base.depositPaid || pick(/deposit(?: paid)?\s*[:#-]?\s*\$?([\d,.]+)/i);
   const balance = base.balanceDue || pick(/balance(?: due)?\s*[:#-]?\s*\$?([\d,.]+)/i);
   const bookingReference = base.invoiceNumber || base.quoteNumber || extractGmailBookingReference(text, subject) || pick(/(?:booking|reservation|confirmation)(?: reference| number| id| #)?\s*[:#-]?\s*([A-Z0-9-]{5,})/i);
   const fields = {
-    source, sender, subject, receivedDate: pick(/(?:received|sent|date)\s*:\s*([^\n]+)/i), customerName: base.customerName || '', phone: base.phone || '', email: base.email || '', tourType: base.tourType || '', tourDate: base.tripDate || titleDateTime.tourDate || '', startTime: base.startTime || base.departureTime || titleDateTime.startTime || '', duration: base.duration || '', guestCount: base.guestCount || '', totalPrice, deposit, balance, paymentStatus: base.paymentStatus || '', bookingReference
+    source,
+    sender,
+    subject,
+    receivedDate: pick(/(?:received|sent|date)\s*:\s*([^\n]+)/i),
+    customerName: base.customerName || inferGmailCustomerName(combined, subject),
+    phone: base.phone || pickGmailField(combined, /(?:phone|mobile|telephone|contact)\s*[:#-]\s*([+()\d .-]{7,})/i),
+    email: base.email || pickGmailField(combined, /(?:email|e-mail)\s*[:#-]\s*([^\s<]+@[^\s>]+)/i, /\b([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})\b/i),
+    tourType: base.tourType || inferGmailTourType(combined, subject),
+    tourDate: base.tripDate || titleDateTime.tourDate || '',
+    startTime: base.startTime || base.departureTime || titleDateTime.startTime || '',
+    duration: base.duration || pickGmailField(combined, /(?:duration|length)\s*[:#-]\s*(\d+(?:\.\d+)?)\s*(?:hours?|hrs?)?/i, /\b(\d+(?:\.\d+)?)\s*(?:hour|hr)s?\b/i),
+    guestCount: base.guestCount || inferGmailGuestCount(combined),
+    totalPrice,
+    deposit,
+    balance,
+    paymentStatus: base.paymentStatus || '',
+    bookingReference
   };
   const confidenceScores = Object.fromEntries(GMAIL_REVIEW_FIELDS.map(([key]) => [key, fields[key] ? (['source','sender','subject','bookingReference'].includes(key) ? 'High' : 'Medium') : 'Low']));
   if (titleDateTime.tourDate && fields.tourDate === titleDateTime.tourDate) confidenceScores.tourDate = 'High';
