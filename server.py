@@ -55,14 +55,16 @@ WHATSAPP_GRAPH_VERSION = os.environ.get("WHATSAPP_GRAPH_VERSION", "v20.0")
 WHATSAPP_AUTO_SEND_ENABLED = os.environ.get("WHATSAPP_AUTO_SEND_ENABLED", "1").strip().lower() not in ("0", "false", "no", "off")
 WHATSAPP_AUTO_SEND_LIMIT = max(1, int(os.environ.get("WHATSAPP_AUTO_SEND_LIMIT", "10")))
 WHATSAPP_CUSTOMER_AUTO_SEND = os.environ.get("WHATSAPP_CUSTOMER_AUTO_SEND", "0").strip().lower() in ("1", "true", "yes", "on")
+COMPANY_OWNER_NAME = os.environ.get("COMPANY_OWNER_NAME", "Eugene").strip() or "Eugene"
+VESSEL_OWNER_ROLE = "Vessel Owner"
 
 DEFAULT_NOTIFICATION_RULES = {
-    "tripAssignments": {"enabled": True, "autoSendWhatsApp": True, "roles": ["Owner", "Captain", "Mate"]},
-    "tripChanges": {"enabled": True, "autoSendWhatsApp": True, "roles": ["Owner", "Captain", "Mate"]},
-    "checklists": {"enabled": True, "autoSendWhatsApp": True, "roles": ["Owner", "Captain", "Mate"]},
-    "incidents": {"enabled": True, "autoSendWhatsApp": True, "roles": ["Owner", "Captain", "Mate"]},
-    "payroll": {"enabled": True, "autoSendWhatsApp": True, "roles": ["Owner", "Captain", "Mate", "Crew"]},
-    "chat": {"enabled": True, "autoSendWhatsApp": False, "roles": ["Owner", "Captain", "Mate", "Bookkeeper"]},
+    "tripAssignments": {"enabled": True, "autoSendWhatsApp": True, "roles": ["Owner", "Vessel Owner", "Captain", "Mate"]},
+    "tripChanges": {"enabled": True, "autoSendWhatsApp": True, "roles": ["Owner", "Vessel Owner", "Captain", "Mate"]},
+    "checklists": {"enabled": True, "autoSendWhatsApp": True, "roles": ["Owner", "Vessel Owner", "Captain", "Mate"]},
+    "incidents": {"enabled": True, "autoSendWhatsApp": True, "roles": ["Owner", "Vessel Owner", "Captain", "Mate"]},
+    "payroll": {"enabled": True, "autoSendWhatsApp": True, "roles": ["Owner", "Vessel Owner", "Captain", "Mate", "Crew"]},
+    "chat": {"enabled": True, "autoSendWhatsApp": False, "roles": ["Owner", "Vessel Owner", "Captain", "Mate", "Bookkeeper"]},
     "customerMessages": {"enabled": True, "autoSendWhatsApp": WHATSAPP_CUSTOMER_AUTO_SEND, "roles": ["Customer"]},
 }
 
@@ -332,6 +334,10 @@ def owner_for_vessel(store, vessel_name):
     return next((v.get("owner", "") for v in store.get("vessels", []) if v.get("name") == vessel_name), "")
 
 
+def is_company_owner(name):
+    return str(name or "").strip().lower() == COMPANY_OWNER_NAME.lower()
+
+
 def crew_phone(store, name):
     return next((c.get("phone", "") for c in store.get("crew", []) if c.get("name") == name), "")
 
@@ -488,10 +494,12 @@ def queue_trip_role_messages(store, trip, reason):
     vessel = trip.get("vessel") or "unassigned vessel"
     owner = owner_for_vessel(store, trip.get("vessel", ""))
     recipients = [
+        ("Owner", COMPANY_OWNER_NAME, crew_phone(store, COMPANY_OWNER_NAME), "Owner Booking Alert", f"Owner alert: {customer} is {reason} for {date_time}. Vessel: {vessel}."),
         ("Captain", trip.get("captain", ""), crew_phone(store, trip.get("captain", "")), "Captain Assignment", f"Hi {trip.get('captain') or 'Captain'}, {customer} is {reason} for {date_time}. Vessel: {vessel}."),
         ("Mate", trip.get("mate", ""), crew_phone(store, trip.get("mate", "")), "Mate Assignment", f"Hi {trip.get('mate') or 'Mate'}, {customer} is {reason} for {date_time}. Vessel: {vessel}."),
-        ("Owner", owner, crew_phone(store, owner), "Owner Assignment Alert", f"Owner alert: {vessel} is {reason} for {customer} on {date_time}."),
     ]
+    if owner and not is_company_owner(owner):
+        recipients.append((VESSEL_OWNER_ROLE, owner, crew_phone(store, owner), "Owner Assignment Alert", f"Owner alert: {vessel} is {reason} for {customer} on {date_time}."))
     for role, name, phone, category, body in recipients:
         if not name or name == "None":
             continue
@@ -535,7 +543,10 @@ def apply_notification_rules(previous_store, next_store):
         if not rule_enabled(next_store, "checklists") or not isinstance(record, dict) or not record.get("id") or str(record.get("id")) in previous_checklists:
             continue
         trip = trips.get(str(record.get("tripId"))) or {}
-        people = [("Captain", record.get("captain") or trip.get("captain", "")), ("Mate", record.get("mate") or trip.get("mate", "")), ("Owner", owner_for_vessel(next_store, record.get("vessel") or trip.get("vessel", "")))]
+        vessel_owner = owner_for_vessel(next_store, record.get("vessel") or trip.get("vessel", ""))
+        people = [("Captain", record.get("captain") or trip.get("captain", "")), ("Mate", record.get("mate") or trip.get("mate", ""))]
+        if vessel_owner and not is_company_owner(vessel_owner):
+            people.append((VESSEL_OWNER_ROLE, vessel_owner))
         body = f"{record.get('type', 'Trip')} checklist is {record.get('status', 'saved')} for {record.get('vessel') or trip.get('vessel') or 'a vessel'}."
         if record.get("restockAlerts"):
             body += " Restock needed: " + "; ".join(record.get("restockAlerts", []))
@@ -570,7 +581,10 @@ def apply_notification_rules(previous_store, next_store):
             continue
         owner = owner_for_vessel(next_store, incident.get("vessel", ""))
         body = f"Incident alert: {incident.get('severity', 'Incident')} {incident.get('category', '')} for {incident.get('vessel') or 'operations'}."
-        for role, name in (("Owner", owner), ("Captain", incident.get("captain", "")), ("Mate", incident.get("mate", ""))):
+        people = [("Captain", incident.get("captain", "")), ("Mate", incident.get("mate", ""))]
+        if owner and not is_company_owner(owner):
+            people.append((VESSEL_OWNER_ROLE, owner))
+        for role, name in people:
             if not name:
                 continue
             key = f"incident:{incident.get('id')}:{role}:{name}"

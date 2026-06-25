@@ -136,12 +136,12 @@ const seedData = {
   customerProfiles: [],
   autoOpsSettings: { enabled: true, gmailAutoCalendar: true, autoCalendarConfidence: 80, createWhatsAppDrafts: true, notifyCustomers: true, notifyCrew: true, chatWhatsAppDrafts: true },
   notificationRules: {
-    tripAssignments: { enabled: true, autoSendWhatsApp: true, roles: ['Owner','Captain','Mate'] },
-    tripChanges: { enabled: true, autoSendWhatsApp: true, roles: ['Owner','Captain','Mate'] },
-    checklists: { enabled: true, autoSendWhatsApp: true, roles: ['Owner','Captain','Mate'] },
-    incidents: { enabled: true, autoSendWhatsApp: true, roles: ['Owner','Captain','Mate'] },
-    payroll: { enabled: true, autoSendWhatsApp: true, roles: ['Owner','Captain','Mate','Crew'] },
-    chat: { enabled: true, autoSendWhatsApp: false, roles: ['Owner','Captain','Mate','Bookkeeper'] },
+    tripAssignments: { enabled: true, autoSendWhatsApp: true, roles: ['Owner','Vessel Owner','Captain','Mate'] },
+    tripChanges: { enabled: true, autoSendWhatsApp: true, roles: ['Owner','Vessel Owner','Captain','Mate'] },
+    checklists: { enabled: true, autoSendWhatsApp: true, roles: ['Owner','Vessel Owner','Captain','Mate'] },
+    incidents: { enabled: true, autoSendWhatsApp: true, roles: ['Owner','Vessel Owner','Captain','Mate'] },
+    payroll: { enabled: true, autoSendWhatsApp: true, roles: ['Owner','Vessel Owner','Captain','Mate','Crew'] },
+    chat: { enabled: true, autoSendWhatsApp: false, roles: ['Owner','Vessel Owner','Captain','Mate','Bookkeeper'] },
     customerMessages: { enabled: true, autoSendWhatsApp: false, roles: ['Customer'] }
   },
   autoOpsRuns: [],
@@ -249,12 +249,12 @@ const ownerOnlyIntegrationRoutes = new Set(['whatsapp', 'gmail-import']);
 const WHATSAPP_VARIABLES = ['Customer Name','Trip Date','Start Time','End Time','Tour Type','Guest Count','Vessel','Captain','Mate','Meeting Point','Balance Due','Deposit Paid','Payment Link','Cruise Ship','All Aboard Time','Weather Risk','Checklist Link','Invoice Link','Receipt Link'];
 const WHATSAPP_STATUSES = ['Draft','Ready','Opened in WhatsApp','Sent Manually','Sent via Business API','Failed','Cancelled'];
 const DEFAULT_NOTIFICATION_RULES = {
-  tripAssignments: { label: 'Trip assignments', enabled: true, autoSendWhatsApp: true, roles: ['Owner','Captain','Mate'] },
-  tripChanges: { label: 'Trip changes', enabled: true, autoSendWhatsApp: true, roles: ['Owner','Captain','Mate'] },
-  checklists: { label: 'Checklist reminders', enabled: true, autoSendWhatsApp: true, roles: ['Owner','Captain','Mate'] },
-  incidents: { label: 'Incident alerts', enabled: true, autoSendWhatsApp: true, roles: ['Owner','Captain','Mate'] },
-  payroll: { label: 'Payroll and payout notices', enabled: true, autoSendWhatsApp: true, roles: ['Owner','Captain','Mate','Crew'] },
-  chat: { label: 'Chat prompts', enabled: true, autoSendWhatsApp: false, roles: ['Owner','Captain','Mate','Bookkeeper'] },
+  tripAssignments: { label: 'Trip assignments', enabled: true, autoSendWhatsApp: true, roles: ['Owner','Vessel Owner','Captain','Mate'] },
+  tripChanges: { label: 'Trip changes', enabled: true, autoSendWhatsApp: true, roles: ['Owner','Vessel Owner','Captain','Mate'] },
+  checklists: { label: 'Checklist reminders', enabled: true, autoSendWhatsApp: true, roles: ['Owner','Vessel Owner','Captain','Mate'] },
+  incidents: { label: 'Incident alerts', enabled: true, autoSendWhatsApp: true, roles: ['Owner','Vessel Owner','Captain','Mate'] },
+  payroll: { label: 'Payroll and payout notices', enabled: true, autoSendWhatsApp: true, roles: ['Owner','Vessel Owner','Captain','Mate','Crew'] },
+  chat: { label: 'Chat prompts', enabled: true, autoSendWhatsApp: false, roles: ['Owner','Vessel Owner','Captain','Mate','Bookkeeper'] },
   customerMessages: { label: 'Customer messages', enabled: true, autoSendWhatsApp: false, roles: ['Customer'] }
 };
 const DEFAULT_WHATSAPP_TEMPLATES = [
@@ -3979,7 +3979,7 @@ function renderOwnerDashboard() {
   dashboardFilters.owner = '';
   const ownerVessels = store.vessels.filter((vessel) => vessel.owner === selected).map((vessel) => vessel.name);
   const trips = store.trips.filter((trip) => ownerVessels.includes(trip.vessel)).sort(byDate);
-  const notices = (store.notifications || []).filter((notice) => notice.recipientRole === 'Owner' || ownerVessels.includes(notice.metadata?.vessel));
+  const notices = (store.notifications || []).filter((notice) => selected === COMPANY_OWNER_NAME ? notice.recipientRole === 'Owner' || ownerVessels.includes(notice.metadata?.vessel) : (notice.recipientRole === VESSEL_OWNER_ROLE && notice.recipientName === selected) || ownerVessels.includes(notice.metadata?.vessel));
   const ownerPayroll = payrollEntries().filter((entry) => entry.role === 'Owner' && entry.person === selected);
   const outstanding = ownerPayroll.reduce((sum, entry) => sum + entry.outstanding, 0);
   const checklistDone = trips.filter((trip) => latestChecklistStatus(trip, 'Pre Trip') === 'Completed').length;
@@ -4627,14 +4627,14 @@ function whatsappContextDefaults(category = 'Customer Booking Confirmation', tri
   let recipientRole = 'Customer', recipientName = trip.customer || invoice.customer || invoice.customerName || '', phone = trip.phone || invoice.phone || '';
   if (category === 'Captain Assignment') { recipientRole = 'Captain'; recipientName = trip.captain || ''; phone = whatsappCrewPhone(recipientName); }
   if (category === 'Mate Assignment') { recipientRole = 'Mate'; recipientName = trip.mate || ''; phone = whatsappCrewPhone(recipientName); }
-  if (['Owner Assignment Alert','Owner Payout Statement'].includes(category)) { recipientRole = 'Owner'; recipientName = store.vessels.find((v) => v.name === trip.vessel)?.owner || ''; phone = whatsappCrewPhone(recipientName); }
+  if (['Owner Assignment Alert','Owner Payout Statement'].includes(category)) { recipientName = store.vessels.find((v) => v.name === trip.vessel)?.owner || ''; recipientRole = recipientName === COMPANY_OWNER_NAME ? 'Owner' : VESSEL_OWNER_ROLE; phone = whatsappCrewPhone(recipientName); }
   return { trip, invoice, recipientRole, recipientName, phone, body: renderWhatsAppTemplate(whatsappTemplate(category).body, whatsappValues(trip, invoice)) };
 }
 function whatsappComposer(category = 'Customer Booking Confirmation', tripId = '', invoiceId = '') {
   const page = document.getElementById('page-whatsapp'); if (!page) return;
   const d = whatsappContextDefaults(category, tripId, invoiceId);
   const liveReady = Boolean(store.integrationStatus?.whatsappConfigured);
-  page.innerHTML = `<div class="page-stack whatsapp-page"><div class="card whatsapp-hero"><div><p class="eyebrow">${liveReady ? 'Business API connected' : 'Manual messaging framework'}</p><h3>Message Composer</h3><p>${liveReady ? 'Operations alerts can be queued, approved, and sent through WhatsApp Business from the shared database.' : 'Messages open in WhatsApp only after a user reviews and taps the button.'}</p></div><span class="badge ${liveReady ? 'green' : 'gold'}">${liveReady ? 'Live send ready' : 'Manual send only'}</span></div>${whatsappAutomationMarkup()}${whatsappInboxMarkup()}<form class="card whatsapp-composer whatsapp-bottom-sheet" onsubmit="createWhatsAppDraft(event)"><div class="form-grid"><div class="field"><label>Message Category</label><select name="category" onchange="refreshWhatsAppComposer(this.form)">${store.whatsappTemplates.map(t=>`<option ${t.category===category?'selected':''}>${escapeHtml(t.category)}</option>`).join('')}</select></div><div class="field"><label>Linked Trip</label><select name="relatedTrip" onchange="refreshWhatsAppComposer(this.form)"><option value="">— None —</option>${store.trips.map(t=>`<option value="${t.id}" ${t.id===tripId?'selected':''}>${escapeHtml(`${t.customer || 'Trip'} · ${t.tripDate || 'No date'}`)}</option>`).join('')}</select></div><div class="field"><label>Linked Invoice / Quote</label><select name="relatedInvoice" onchange="refreshWhatsAppComposer(this.form)"><option value="">— None —</option>${store.invoices.map(i=>`<option value="${i.id}" ${i.id===invoiceId?'selected':''}>${escapeHtml(i.invoiceNumber || i.quoteNumber || i.customer || i.id)}</option>`).join('')}</select></div><div class="field"><label>Recipient Role</label><select name="recipientRole">${['Customer','Captain','Mate','Owner','Admin'].map(r=>`<option ${r===d.recipientRole?'selected':''}>${r}</option>`).join('')}</select></div><div class="field"><label>Recipient</label><input name="recipientName" value="${escapeHtml(d.recipientName)}" required></div><div class="field"><label>Phone Number</label><input name="phoneNumber" type="tel" value="${escapeHtml(d.phone)}" placeholder="242-555-0123"></div><div class="field field-wide"><label>Message Body</label><textarea name="messageBody" rows="7" oninput="updateWhatsAppLivePreview(this.form)" required>${escapeHtml(d.body)}</textarea></div></div><div class="whatsapp-preview-card" data-whatsapp-live-preview>${whatsappPreviewMarkup({...d, category, relatedTrip:tripId, relatedInvoice:invoiceId, messageBody:d.body, phoneNumber:d.phone})}</div><div class="form-actions whatsapp-mobile-actions"><button class="btn btn-primary">Save Draft</button><button class="btn btn-outline" type="button" onclick="copyWhatsAppText(this.form.messageBody.value)">Copy Message</button></div></form>${whatsappQueueMarkup()}</div>`;
+  page.innerHTML = `<div class="page-stack whatsapp-page"><div class="card whatsapp-hero"><div><p class="eyebrow">${liveReady ? 'Business API connected' : 'Manual messaging framework'}</p><h3>Message Composer</h3><p>${liveReady ? 'Operations alerts can be queued, approved, and sent through WhatsApp Business from the shared database.' : 'Messages open in WhatsApp only after a user reviews and taps the button.'}</p></div><span class="badge ${liveReady ? 'green' : 'gold'}">${liveReady ? 'Live send ready' : 'Manual send only'}</span></div>${whatsappAutomationMarkup()}${whatsappInboxMarkup()}<form class="card whatsapp-composer whatsapp-bottom-sheet" onsubmit="createWhatsAppDraft(event)"><div class="form-grid"><div class="field"><label>Message Category</label><select name="category" onchange="refreshWhatsAppComposer(this.form)">${store.whatsappTemplates.map(t=>`<option ${t.category===category?'selected':''}>${escapeHtml(t.category)}</option>`).join('')}</select></div><div class="field"><label>Linked Trip</label><select name="relatedTrip" onchange="refreshWhatsAppComposer(this.form)"><option value="">— None —</option>${store.trips.map(t=>`<option value="${t.id}" ${t.id===tripId?'selected':''}>${escapeHtml(`${t.customer || 'Trip'} · ${t.tripDate || 'No date'}`)}</option>`).join('')}</select></div><div class="field"><label>Linked Invoice / Quote</label><select name="relatedInvoice" onchange="refreshWhatsAppComposer(this.form)"><option value="">— None —</option>${store.invoices.map(i=>`<option value="${i.id}" ${i.id===invoiceId?'selected':''}>${escapeHtml(i.invoiceNumber || i.quoteNumber || i.customer || i.id)}</option>`).join('')}</select></div><div class="field"><label>Recipient Role</label><select name="recipientRole">${['Customer','Captain','Mate','Owner',VESSEL_OWNER_ROLE,'Admin'].map(r=>`<option ${r===d.recipientRole?'selected':''}>${r}</option>`).join('')}</select></div><div class="field"><label>Recipient</label><input name="recipientName" value="${escapeHtml(d.recipientName)}" required></div><div class="field"><label>Phone Number</label><input name="phoneNumber" type="tel" value="${escapeHtml(d.phone)}" placeholder="242-555-0123"></div><div class="field field-wide"><label>Message Body</label><textarea name="messageBody" rows="7" oninput="updateWhatsAppLivePreview(this.form)" required>${escapeHtml(d.body)}</textarea></div></div><div class="whatsapp-preview-card" data-whatsapp-live-preview>${whatsappPreviewMarkup({...d, category, relatedTrip:tripId, relatedInvoice:invoiceId, messageBody:d.body, phoneNumber:d.phone})}</div><div class="form-actions whatsapp-mobile-actions"><button class="btn btn-primary">Save Draft</button><button class="btn btn-outline" type="button" onclick="copyWhatsAppText(this.form.messageBody.value)">Copy Message</button></div></form>${whatsappQueueMarkup()}</div>`;
 }
 function renderWhatsApp() { store.whatsappTemplates = normalizeWhatsAppTemplates(store.whatsappTemplates); whatsappComposer(); }
 function refreshWhatsAppComposer(form) { whatsappComposer(form.category.value, form.relatedTrip.value, form.relatedInvoice.value); }
