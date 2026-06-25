@@ -4737,6 +4737,40 @@ function pickGmailField(source, ...patterns) {
   return patterns.map((pattern) => String(source || '').match(pattern)?.[1]?.trim()).find(Boolean) || '';
 }
 
+const VIATOR_TABLE_STOPS = ['Booking ref\\.?', 'Product booking ref\\.?', 'Ext\\. booking ref', 'Product', 'Supplier', 'Sold by', 'Booking channel', 'Customer email', 'Customer phone', 'Customer', 'Date', 'Rate', 'PAX', 'Guided languages', 'Extras', 'Created'];
+function gmailTableValue(source = '', labelPattern = '', stopPatterns = VIATOR_TABLE_STOPS) {
+  const compact = String(source || '').replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim();
+  const stops = stopPatterns.filter((pattern) => pattern !== labelPattern).join('|');
+  const pattern = new RegExp(`\\b(?:${labelPattern})\\b\\s*[:#-]?\\s*([\\s\\S]{1,350}?)(?=\\s+\\b(?:${stops})\\b\\s*[:#-]?|$)`, 'i');
+  return (compact.match(pattern)?.[1] || '').replace(/\s{2,}/g, ' ').trim();
+}
+
+function extractViatorBookingFields(text = '', subject = '') {
+  const bodySource = String(text || '').replace(/^Subject:\s*.*$/im, '');
+  const source = `${subject}\n${bodySource}`;
+  const customer = gmailTableValue(source, 'Customer(?!\\s*(?:email|phone))');
+  const customerEmail = gmailTableValue(source, 'Customer\\s+email');
+  const customerPhone = gmailTableValue(source, 'Customer\\s+phone');
+  const dateText = gmailTableValue(source, 'Date');
+  const productText = gmailTableValue(source, 'Product');
+  const rateText = gmailTableValue(source, 'Rate');
+  const paxText = gmailTableValue(source, 'PAX');
+  const extRef = pickGmailField(bodySource, /\bExt\.?\s*booking\s*ref\s*[:#-]?\s*([A-Z0-9-]{5,})/i) || gmailTableValue(source, 'Ext\\. booking ref');
+  const bookingRef = pickGmailField(bodySource, /\bBooking\s*ref\.?\s*[:#-]?\s*([A-Z0-9-]{5,})/i) || gmailTableValue(source, 'Booking ref\\.?');
+  const productRef = pickGmailField(bodySource, /\bProduct\s*booking\s*ref\.?\s*[:#-]?\s*([A-Z0-9-]{5,})/i) || gmailTableValue(source, 'Product booking ref\\.?');
+  const dateTime = parseBookingTitleDateTime(dateText, subject);
+  return {
+    customerName: customer,
+    phone: customerPhone,
+    email: customerEmail,
+    tourDate: dateTime.tourDate,
+    startTime: dateTime.startTime,
+    tourType: rateText || productText,
+    guestCount: pickGmailField(paxText, /(\d+)\s*PAX\s*in\s*All/i, /\b(\d+)\s*(?:PAX|guests?|passengers?)\b/i),
+    bookingReference: extRef || bookingRef || productRef,
+  };
+}
+
 function inferGmailCustomerName(text = '', subject = '') {
   const source = `${subject}\n${text}`;
   return pickGmailField(source,
@@ -4783,23 +4817,24 @@ function parseGmailImportText(text = '', fileName = '') {
   const source = detectGmailImportSource(text, sender, subject);
   const titleDateTime = parseBookingTitleDateTime(subject, fileName, text);
   const combined = `${subject}\n${fileName}\n${text}`;
+  const viatorFields = extractViatorBookingFields(combined, subject);
   const totalPrice = base.tourPrice || pick(/(?:total price|total|amount)\s*[:#-]?\s*\$?([\d,.]+)/i);
   const deposit = base.depositPaid || pick(/deposit(?: paid)?\s*[:#-]?\s*\$?([\d,.]+)/i);
   const balance = base.balanceDue || pick(/balance(?: due)?\s*[:#-]?\s*\$?([\d,.]+)/i);
-  const bookingReference = base.invoiceNumber || base.quoteNumber || extractGmailBookingReference(text, subject) || pick(/(?:booking|reservation|confirmation)(?: reference| number| id| #)?\s*[:#-]?\s*([A-Z0-9-]{5,})/i);
+  const bookingReference = viatorFields.bookingReference || base.invoiceNumber || base.quoteNumber || extractGmailBookingReference(text, subject) || pick(/(?:booking|reservation|confirmation)(?: reference| number| id| #)?\s*[:#-]?\s*([A-Z0-9-]{5,})/i);
   const fields = {
     source,
     sender,
     subject,
     receivedDate: pick(/(?:received|sent|date)\s*:\s*([^\n]+)/i),
-    customerName: base.customerName || inferGmailCustomerName(combined, subject),
-    phone: base.phone || pickGmailField(combined, /(?:phone|mobile|telephone|contact)\s*[:#-]\s*([+()\d .-]{7,})/i),
-    email: base.email || pickGmailField(combined, /(?:email|e-mail)\s*[:#-]\s*([^\s<]+@[^\s>]+)/i, /\b([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})\b/i),
-    tourType: base.tourType || inferGmailTourType(combined, subject),
-    tourDate: base.tripDate || titleDateTime.tourDate || '',
-    startTime: base.startTime || base.departureTime || titleDateTime.startTime || '',
+    customerName: viatorFields.customerName || base.customerName || inferGmailCustomerName(combined, subject),
+    phone: viatorFields.phone || base.phone || pickGmailField(combined, /(?:phone|mobile|telephone|contact)\s*[:#-]\s*([+()\d .-]{7,})/i),
+    email: viatorFields.email || base.email || pickGmailField(combined, /(?:email|e-mail)\s*[:#-]\s*([^\s<]+@[^\s>]+)/i, /\b([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})\b/i),
+    tourType: viatorFields.tourType || base.tourType || inferGmailTourType(combined, subject),
+    tourDate: viatorFields.tourDate || base.tripDate || titleDateTime.tourDate || '',
+    startTime: viatorFields.startTime || base.startTime || base.departureTime || titleDateTime.startTime || '',
     duration: base.duration || pickGmailField(combined, /(?:duration|length)\s*[:#-]\s*(\d+(?:\.\d+)?)\s*(?:hours?|hrs?)?/i, /\b(\d+(?:\.\d+)?)\s*(?:hour|hr)s?\b/i),
-    guestCount: base.guestCount || inferGmailGuestCount(combined),
+    guestCount: viatorFields.guestCount || base.guestCount || inferGmailGuestCount(combined),
     totalPrice,
     deposit,
     balance,
