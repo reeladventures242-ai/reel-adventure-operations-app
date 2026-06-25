@@ -5,11 +5,13 @@ const BASE_URL = process.env.RAT_BASE_URL || 'https://reel-adventure-operations-
 const MODE = process.argv[2] || 'viator';
 const MODES = {
   latest: { label: 'latest bookings', maxResults: 50, q: 'newer_than:365d ("New booking" OR "Ext. booking ref" OR "Product booking ref" OR "Booking Reference" OR "Viator booking" OR "VIA-" OR "REE-T" OR reservation OR confirmation)' },
+  all: { label: 'all booking history', maxResults: 2000, q: '("New booking" OR "Updated booking" OR "Cancelled booking" OR "Ext. booking ref" OR "Product booking ref" OR "Booking Reference" OR "Viator booking" OR "Booking details" OR "VIA-" OR "REE-T" OR "BR-")' },
   june: { label: 'June tours', maxResults: 75, q: 'newer_than:365d (June OR Jun OR ".Jun" OR "6/" OR "06/" OR "2026-06" OR "Viator booking" OR "New booking" OR "Ext. booking ref" OR "REE-T")' },
   viator: { label: 'Viator booking refs', maxResults: 75, q: 'newer_than:365d ("New booking" OR "Ext. booking ref" OR "Product booking ref" OR "Viator booking" OR "Booking Reference" OR "VIA-" OR "REE-T" OR "BR-")' }
 };
 
 const mode = MODES[MODE] || MODES.viator;
+if (process.env.RAT_SYNC_MAX_RESULTS) mode.maxResults = Number(process.env.RAT_SYNC_MAX_RESULTS) || mode.maxResults;
 const appCode = fs.readFileSync(new URL('../app.js', import.meta.url), 'utf8');
 
 const elementStub = () => ({
@@ -103,7 +105,10 @@ const syncCode = `
     const current = existing.get(message.id);
     if (current) {
       const beforeMissing = missingGmailImportFields(current).length;
-      Object.entries(parsed.fields).forEach(([key, value]) => { if (value && !current[key]) current[key] = value; });
+      Object.entries(parsed.fields).forEach(([key, value]) => {
+        const currentValue = String(current[key] || '').trim();
+        if (value && (!currentValue || currentValue === 'erence' || currentValue === 'and' || currentValue === 'details' || currentValue === 'using')) current[key] = value;
+      });
       current.confidenceScores = { ...(current.confidenceScores || {}), ...parsed.confidenceScores };
       current.confidenceScore = Math.max(Number(current.confidenceScore || 0), parsed.confidenceScore);
       current.rawMessagePreview = String(message.rawText || message.snippet || current.rawMessagePreview || '').slice(0, 1200);
@@ -162,6 +167,7 @@ const syncCode = `
     gmailImports: (savePayload.store.gmailImports || []).length,
     trips: (savePayload.store.trips || []).length,
     juneTrips: (savePayload.store.trips || []).filter((trip) => String(trip.tripDate || '').startsWith('2026-06-')).length,
+    years: [...new Set((savePayload.store.trips || []).map((trip) => String(trip.tripDate || '').slice(0, 4)).filter(Boolean))].sort(),
     sampleTrips: (savePayload.store.trips || []).slice(0, 8).map((trip) => ({ date: trip.tripDate, time: trip.startTime, customer: trip.customer, ref: trip.bookingReference, source: trip.bookingSource }))
   };
 })()

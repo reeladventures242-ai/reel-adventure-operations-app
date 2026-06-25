@@ -4324,6 +4324,7 @@ function connectOwnerGmail() {
 
 const GMAIL_SYNC_MODES = {
   latest: { label: 'latest bookings', maxResults: 50, q: 'newer_than:365d ("New booking" OR "Ext. booking ref" OR "Product booking ref" OR "Booking Reference" OR "Viator booking" OR "VIA-" OR "REE-T" OR reservation OR confirmation)' },
+  all: { label: 'all booking history', maxResults: 2000, q: '("New booking" OR "Updated booking" OR "Cancelled booking" OR "Ext. booking ref" OR "Product booking ref" OR "Booking Reference" OR "Viator booking" OR "Booking details" OR "VIA-" OR "REE-T" OR "BR-")' },
   june: { label: 'June tours', maxResults: 75, q: 'newer_than:365d (June OR Jun OR ".Jun" OR "6/" OR "06/" OR "2026-06" OR "Viator booking" OR "New booking" OR "Ext. booking ref" OR "REE-T")' },
   viator: { label: 'Viator booking refs', maxResults: 75, q: 'newer_than:365d ("New booking" OR "Ext. booking ref" OR "Product booking ref" OR "Viator booking" OR "Booking Reference" OR "VIA-" OR "REE-T" OR "BR-")' }
 };
@@ -4781,9 +4782,9 @@ function extractViatorBookingFields(text = '', subject = '') {
   const rateText = gmailTableValue(source, 'Rate');
   const paxText = gmailTableValue(source, 'PAX');
   const extRef = pickGmailField(bodySource, /\bExt\.?\s*booking\s*ref\s*[:#-]?\s*([A-Z0-9-]{5,})/i) || gmailTableValue(source, 'Ext\\. booking ref');
-  const bookingRef = pickGmailField(bodySource, /\bBooking\s*ref\.?\s*[:#-]?\s*([A-Z0-9-]{5,})/i) || gmailTableValue(source, 'Booking ref\\.?');
+  const bookingRef = pickGmailField(source, /\bBooking\s*(?:Reference|ref\.?)\s*[:#-]?\s*([A-Z0-9-]{5,})/i, /\b(BR-\d{5,})\b/i) || gmailTableValue(source, 'Booking ref\\.?');
   const productRef = pickGmailField(bodySource, /\bProduct\s*booking\s*ref\.?\s*[:#-]?\s*([A-Z0-9-]{5,})/i) || gmailTableValue(source, 'Product booking ref\\.?');
-  const dateTime = parseBookingTitleDateTime(dateText, subject);
+  const dateTime = parseBookingTitleDateTime(subject, dateText);
   return {
     customerName: customer || conversationFields.customerName || '',
     phone: customerPhone || conversationFields.phone || '',
@@ -4827,7 +4828,7 @@ function inferGmailGuestCount(text = '') {
 
 function extractGmailBookingReference(text = '', subject = '') {
   const source = `${subject}\n${text}`;
-  const explicit = source.match(/\b(?:ext\.?\s*)?booking\s*ref(?:erence)?\s*[:#-]?\s*([A-Z0-9-]{5,})\b/i)
+  const explicit = source.match(/\b(?:ext\.?\s*)?booking\s*(?:reference|ref\.?)\s*[:#-]?\s*([A-Z0-9-]{5,})\b/i)
     || source.match(/\b(?:reservation|confirmation|booking)\s*(?:number|id|#)\s*[:#-]?\s*([A-Z0-9-]{5,})\b/i);
   if (explicit?.[1]) return explicit[1].trim();
   const platformCode = source.match(/\b([A-Z]{2,5}-[A-Z]?\d{5,})\b/i);
@@ -4965,7 +4966,7 @@ function renderGmailImport() {
   const canConnect = Boolean(store.integrationStatus?.gmailConfigured);
   const canSync = Boolean(store.integrationStatus?.gmailConnected);
   const syncButton = (mode, label, primary = false) => `<button class="btn ${primary ? 'btn-primary' : 'btn-outline'} btn-small" data-gmail-sync="${mode}" ${canSync ? '' : 'disabled'}>${label}</button>`;
-  page.innerHTML = `<div class="page-stack gmail-import-page"><section class="card gmail-import-hero"><div><p class="eyebrow">Owner Gmail sync - review required</p><h3>Import & Review</h3><p>Use a targeted sync so the app pulls the right booking emails without slowing down on unrelated messages.</p></div><div class="gmail-live-actions"><span class="badge ${canSync ? 'green' : canConnect ? 'gold' : 'red'}">${escapeHtml(store.gmailOAuthStatus)}</span><button class="btn btn-primary btn-small" data-gmail-connect ${canConnect ? '' : 'disabled'}>Connect Gmail</button>${syncButton('latest', 'Sync Latest')}${syncButton('june', 'Sync June Tours', true)}${syncButton('viator', 'Sync Viator Refs')}</div></section>
+  page.innerHTML = `<div class="page-stack gmail-import-page"><section class="card gmail-import-hero"><div><p class="eyebrow">Owner Gmail sync - review required</p><h3>Import & Review</h3><p>Use All Bookings to scan booking emails across all months and years. Targeted syncs remain available for faster spot checks.</p></div><div class="gmail-live-actions"><span class="badge ${canSync ? 'green' : canConnect ? 'gold' : 'red'}">${escapeHtml(store.gmailOAuthStatus)}</span><button class="btn btn-primary btn-small" data-gmail-connect ${canConnect ? '' : 'disabled'}>Connect Gmail</button>${syncButton('all', 'Sync All Bookings', true)}${syncButton('latest', 'Sync Latest')}${syncButton('june', 'Sync June Tours')}${syncButton('viator', 'Sync Viator Refs')}</div></section>
   <details class="card app-accordion gmail-import-card" open><summary><div><h3>1. Manual Import</h3><p>Paste email text or use existing local OCR / PDF intake.</p></div><span class="chevron">⌄</span></summary><form class="gmail-paste-form" onsubmit="parseManualGmailImport(event)"><label><strong>Paste Email Text</strong><textarea name="emailText" rows="12" placeholder="Paste sender, subject, booking confirmation, customer details, date, time, guests, and payment details here..." required></textarea></label><button class="btn btn-primary">Parse & Review</button></form><div class="gmail-upload-actions"><label class="btn btn-outline">Upload Email Screenshot<input type="file" accept="image/png,image/jpeg" capture="environment" onchange="handleGmailImportFile(event,'Email Screenshot')" hidden></label><label class="btn btn-outline">Upload PDF Confirmation<input type="file" accept="application/pdf,.pdf" onchange="handleGmailImportFile(event,'PDF Confirmation')" hidden></label></div></details>
   ${autoOpsStatusMarkup()}<div id="gmailReviewHost">${activeGmailImportId ? gmailReviewMarkup(imports.find((item) => item.id === activeGmailImportId)) : ''}</div>
   <details class="card app-accordion gmail-import-card" open><summary><div><h3>Import Queue</h3><p>${imports.length} email review record${imports.length === 1 ? '' : 's'}</p></div><span class="chevron">⌄</span></summary><div class="gmail-import-list">${imports.length ? imports.map((item) => `<article class="gmail-import-row"><div><span class="badge ${item.importStatus === 'Needs Review' ? 'gold' : item.importStatus.startsWith('Converted') ? 'green' : 'blue'}">${escapeHtml(item.importStatus)}</span><h4>${escapeHtml(item.customerName || item.subject || 'Untitled email')}</h4><p>${escapeHtml(item.source)} - ${escapeHtml(item.tourDate || 'Date missing')} - ${item.confidenceScore || 0}% confidence</p></div><button class="btn btn-outline btn-small" onclick="openGmailImportReview('${item.id}')">Review</button></article>`).join('') : '<p class="empty-state">No Gmail imports yet. Try Sync June Tours first.</p>'}</div></details></div>`;

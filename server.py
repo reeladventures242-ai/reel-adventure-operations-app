@@ -659,36 +659,48 @@ def gmail_payload_text(payload):
 def gmail_sync_payload(params=None):
     params = params or {}
     token = gmail_access_token()
-    max_results = params.get("maxResults", [os.environ.get("GMAIL_SYNC_MAX_RESULTS", "50")])[0]
+    max_results = int(params.get("maxResults", [os.environ.get("GMAIL_SYNC_MAX_RESULTS", "50")])[0] or 50)
+    max_results = max(1, min(max_results, 2000))
+    page_size = min(max_results, 500)
     default_query = os.environ.get(
         "GMAIL_SYNC_QUERY",
         'newer_than:365d ("New booking" OR "Ext. booking ref" OR "Product booking ref" OR "Booking Reference" OR "Viator booking" OR "VIA-" OR "REE-T" OR reservation OR confirmation)',
     )
     query_text = params.get("q", [default_query])[0]
-    query = urllib.parse.urlencode({
-        "maxResults": max_results,
-        "q": query_text,
-    })
-    listing = request_authed_json(f"{GMAIL_API_ROOT}/messages?{query}", token)
     messages = []
-    for item in listing.get("messages", []):
-        msg_id = item.get("id")
-        if not msg_id:
-            continue
-        meta_query = urllib.parse.urlencode({"format": "full", "metadataHeaders": ["From", "Subject", "Date"]}, doseq=True)
-        message = request_authed_json(f"{GMAIL_API_ROOT}/messages/{urllib.parse.quote(msg_id)}?{meta_query}", token)
-        headers = {header.get("name", ""): header.get("value", "") for header in message.get("payload", {}).get("headers", [])}
-        messages.append({
-            "id": msg_id,
-            "threadId": message.get("threadId", ""),
-            "source": "Live Gmail API",
-            "sender": headers.get("From", ""),
-            "subject": headers.get("Subject", ""),
-            "receivedDate": headers.get("Date", ""),
-            "snippet": message.get("snippet", ""),
-            "rawText": gmail_message_text(message),
+    result_estimate = 0
+    next_page_token = ""
+    while len(messages) < max_results:
+        query = urllib.parse.urlencode({
+            "maxResults": min(page_size, max_results - len(messages)),
+            "q": query_text,
+            **({"pageToken": next_page_token} if next_page_token else {}),
         })
-    return {"ok": True, "messages": messages, "resultSizeEstimate": listing.get("resultSizeEstimate", len(messages)), "updatedAt": iso_now()}
+        listing = request_authed_json(f"{GMAIL_API_ROOT}/messages?{query}", token)
+        result_estimate = max(result_estimate, int(listing.get("resultSizeEstimate", 0) or 0))
+        for item in listing.get("messages", []):
+            msg_id = item.get("id")
+            if not msg_id:
+                continue
+            meta_query = urllib.parse.urlencode({"format": "full", "metadataHeaders": ["From", "Subject", "Date"]}, doseq=True)
+            message = request_authed_json(f"{GMAIL_API_ROOT}/messages/{urllib.parse.quote(msg_id)}?{meta_query}", token)
+            headers = {header.get("name", ""): header.get("value", "") for header in message.get("payload", {}).get("headers", [])}
+            messages.append({
+                "id": msg_id,
+                "threadId": message.get("threadId", ""),
+                "source": "Live Gmail API",
+                "sender": headers.get("From", ""),
+                "subject": headers.get("Subject", ""),
+                "receivedDate": headers.get("Date", ""),
+                "snippet": message.get("snippet", ""),
+                "rawText": gmail_message_text(message),
+            })
+            if len(messages) >= max_results:
+                break
+        next_page_token = listing.get("nextPageToken", "")
+        if not next_page_token:
+            break
+    return {"ok": True, "messages": messages, "resultSizeEstimate": result_estimate or len(messages), "updatedAt": iso_now()}
 
 
 def whatsapp_send_message(payload):
