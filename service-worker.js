@@ -1,11 +1,11 @@
-const CACHE_NAME = 'rat-ops-pwa-v18-viator-sync';
+const CACHE_NAME = 'rat-ops-pwa-v19-viator-conversation';
 const APP_ASSETS = [
   '/',
   '/index.html',
   '/offline.html',
-  '/styles.css?v=20260624-viator-sync',
-  '/app.js?v=20260624-viator-sync',
-  '/upgrades.js?v=20260624-viator-sync',
+  '/styles.css?v=20260625-viator-conversation',
+  '/app.js?v=20260625-viator-conversation',
+  '/upgrades.js?v=20260625-viator-conversation',
   '/manifest.json',
   '/icons/icon-192.png',
   '/icons/icon-512.png',

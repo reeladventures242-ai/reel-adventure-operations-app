@@ -1403,7 +1403,7 @@ function findRelatedCustomerRecord(data = {}) {
 function createTripFromUpload(data, scheduleOnly = false) {
   const duplicate = findUploadDuplicate(data);
   const trip = duplicate && pendingDuplicateAction === 'update' ? duplicate : { id: makeId('trips') };
-  Object.assign(trip, normalizeTrip({ ...trip, customer: data.customerName || trip.customer || '', phone: data.phone || trip.phone || '', email: data.email || trip.email || '', bookingSource: data.bookingSource || trip.bookingSource || '', tripDate: data.tripDate || trip.tripDate || '', startTime: data.startTime || data.departureTime || trip.startTime || '', passengers: Number(data.guestCount || trip.passengers || 0), hours: Number.parseFloat(data.duration) || trip.hours || 4, tourType: data.tourType || trip.tourType || '', tourPrice: Number(data.tourPrice || trip.tourPrice || 0), depositPaid: Number(data.depositPaid || trip.depositPaid || 0), balanceDue: Number(data.balanceDue || trip.balanceDue || 0), vessel: data.vessel || trip.vessel || '', captain: data.captain || trip.captain || '', mate: data.mate || trip.mate || '', status: trip.status || 'Scheduled', notes: [data.pickupLocation && `Pickup Location: ${data.pickupLocation}`, data.cruiseShip && `Cruise Ship: ${data.cruiseShip}`, data.specialRequests, data.notes].filter(Boolean).join('\n') || trip.notes || '' }));
+  Object.assign(trip, normalizeTrip({ ...trip, customer: data.customerName || trip.customer || '', phone: data.phone || trip.phone || '', email: data.email || trip.email || '', bookingSource: data.bookingSource || trip.bookingSource || '', bookingReference: data.bookingReference || data.invoiceNumber || data.quoteNumber || trip.bookingReference || '', tripDate: data.tripDate || trip.tripDate || '', startTime: data.startTime || data.departureTime || trip.startTime || '', passengers: Number(data.guestCount || trip.passengers || 0), hours: Number.parseFloat(data.duration) || trip.hours || 4, tourType: data.tourType || trip.tourType || '', tourPrice: Number(data.tourPrice || trip.tourPrice || 0), depositPaid: Number(data.depositPaid || trip.depositPaid || 0), balanceDue: Number(data.balanceDue || trip.balanceDue || 0), vessel: data.vessel || trip.vessel || '', captain: data.captain || trip.captain || '', mate: data.mate || trip.mate || '', status: trip.status || 'Scheduled', notes: [data.pickupLocation && `Pickup Location: ${data.pickupLocation}`, data.cruiseShip && `Cruise Ship: ${data.cruiseShip}`, data.specialRequests, data.notes].filter(Boolean).join('\n') || trip.notes || '' }));
   trip.dispatchReadinessStatus = calculateDispatchReadiness(trip);
   if (!trip.vessel || !trip.captain || !trip.mate) trip.unassignedReason = 'Unassigned';
   if (!duplicate || pendingDuplicateAction !== 'update') store.trips.push(trip);
@@ -4745,9 +4745,34 @@ function gmailTableValue(source = '', labelPattern = '', stopPatterns = VIATOR_T
   return (compact.match(pattern)?.[1] || '').replace(/\s{2,}/g, ' ').trim();
 }
 
+function extractViatorConversationFields(text = '') {
+  const source = String(text || '').replace(/\u00a0/g, ' ');
+  const bookingDetails = source.match(/Booking details\s+([\s\S]{1,1400}?)(?:\(\s*c\s*\)\s*20\d{2}|All rights reserved|$)/i)?.[1] || '';
+  if (!bookingDetails) return {};
+  const productName = pickGmailField(bookingDetails, /Product\s+name\s*:\s*([^\n\r]+)/i);
+  const productOption = pickGmailField(bookingDetails, /Product\s+Option\s*:\s*([^\n\r]+)/i);
+  const leadTraveler = pickGmailField(bookingDetails, /Lead\s+Traveler\s*:\s*([^\n\r]+)/i);
+  const phone = pickGmailField(bookingDetails, /Phone\s+number\s*:\s*([^\n\r]+)/i);
+  const bookingReference = pickGmailField(bookingDetails, /Booking\s+Reference\s*:\s*([A-Z0-9-]+)/i);
+  const travel = pickGmailField(bookingDetails, /Travel\s+date\/Pax\s*:\s*([^\n\r]+)/i);
+  const optionTime = productOption.match(/\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*$/i);
+  const dateTime = parseBookingTitleDateTime(travel);
+  const guestCount = pickGmailField(travel, /-\s*(\d+)\s*(?:Adults?|Guests?|PAX|Passengers?)/i, /\b(\d+)\s*(?:Adults?|Guests?|PAX|Passengers?)\b/i);
+  return {
+    customerName: leadTraveler,
+    phone,
+    tourDate: dateTime.tourDate,
+    startTime: optionTime ? normalizeTimeInput(`${optionTime[1]}:${optionTime[2] || '00'} ${optionTime[3] || ''}`) : dateTime.startTime,
+    tourType: productName || productOption.replace(/\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?\s*$/i, '').trim(),
+    guestCount,
+    bookingReference
+  };
+}
+
 function extractViatorBookingFields(text = '', subject = '') {
   const bodySource = String(text || '').replace(/^Subject:\s*.*$/im, '');
   const source = `${subject}\n${bodySource}`;
+  const conversationFields = extractViatorConversationFields(source);
   const customer = gmailTableValue(source, 'Customer(?!\\s*(?:email|phone))');
   const customerEmail = gmailTableValue(source, 'Customer\\s+email');
   const customerPhone = gmailTableValue(source, 'Customer\\s+phone');
@@ -4760,14 +4785,14 @@ function extractViatorBookingFields(text = '', subject = '') {
   const productRef = pickGmailField(bodySource, /\bProduct\s*booking\s*ref\.?\s*[:#-]?\s*([A-Z0-9-]{5,})/i) || gmailTableValue(source, 'Product booking ref\\.?');
   const dateTime = parseBookingTitleDateTime(dateText, subject);
   return {
-    customerName: customer,
-    phone: customerPhone,
+    customerName: customer || conversationFields.customerName || '',
+    phone: customerPhone || conversationFields.phone || '',
     email: customerEmail,
-    tourDate: dateTime.tourDate,
-    startTime: dateTime.startTime,
-    tourType: rateText || productText,
-    guestCount: pickGmailField(paxText, /(\d+)\s*PAX\s*in\s*All/i, /\b(\d+)\s*(?:PAX|guests?|passengers?)\b/i),
-    bookingReference: extRef || bookingRef || productRef,
+    tourDate: dateTime.tourDate || conversationFields.tourDate || '',
+    startTime: dateTime.startTime || conversationFields.startTime || '',
+    tourType: rateText || productText || conversationFields.tourType || '',
+    guestCount: pickGmailField(paxText, /(\d+)\s*PAX\s*in\s*All/i, /\b(\d+)\s*(?:PAX|guests?|passengers?)\b/i) || conversationFields.guestCount || '',
+    bookingReference: extRef || bookingRef || productRef || conversationFields.bookingReference || '',
   };
 }
 
@@ -4952,7 +4977,7 @@ function createGmailImportReview(text, fileName, extractionMethod, warning = '')
 function openGmailImportReview(id) { activeGmailImportId = id; renderGmailImport(); document.getElementById('gmailReviewHost')?.scrollIntoView({behavior:'smooth'}); }
 
 function gmailReviewMarkup(item) { if (!item) return ''; enrichGmailImportAi(item); const duplicates = gmailDuplicateMatches(item), missing = missingGmailImportFields(item); return `<section class="card gmail-review-screen"><div class="card-header"><div><p class="eyebrow">2. AI-assisted review</p><h3>${escapeHtml(item.subject || item.source || 'Imported Email')}</h3></div><span class="badge blue">${item.aiConfidenceScore || item.confidenceScore || 0}% AI confidence</span></div><form onsubmit="saveGmailImportReview(event,'${item.id}')"><div class="gmail-review-summary"><div><small>Detected Source</small><strong>${escapeHtml(item.source)}</strong></div><div><small>AI Category</small><strong>${escapeHtml(item.aiCategory || 'Needs Review')}</strong></div><div><small>Input Method</small><strong>${escapeHtml(item.extractionMethod)}</strong></div></div>${item.extractionWarning ? `<p class="notice warning">${escapeHtml(item.extractionWarning)}</p>` : ''}<details class="gmail-review-section" open><summary><strong>Extracted Fields</strong><span>${GMAIL_REVIEW_FIELDS.length} fields</span></summary><div class="gmail-review-grid">${GMAIL_REVIEW_FIELDS.map(([key,label]) => gmailImportFieldInput(key,label,item)).join('')}</div></details><details class="gmail-review-section" open><summary><strong>Possible Duplicates</strong><span>${duplicates.length}</span></summary>${duplicates.length ? `<div class="notice warning"><strong>Possible Duplicate Booking Found</strong>${duplicates.map((duplicate) => `<p>${escapeHtml(duplicate.type)} · ${escapeHtml(duplicate.name || 'Unnamed')} · ${duplicate.matchCount} matching fields</p>`).join('')}<label>Duplicate decision<select name="duplicateDecision"><option value="">Choose…</option><option>Update Existing</option><option>Create New</option><option>Cancel</option></select></label></div>` : '<p class="notice success">No possible duplicates detected.</p>'}</details><details class="gmail-review-section" open><summary><strong>Missing Fields</strong><span>${missing.length}</span></summary><p>${missing.length ? escapeHtml(missing.join(' · ')) : 'No core fields are missing.'}</p></details><details class="gmail-review-section"><summary><strong>Raw Message Preview</strong><span>Local only</span></summary><pre>${escapeHtml(item.rawMessagePreview)}</pre></details>${gmailActionSelectMarkup(item)}</form></section>`; }
-function gmailImportToUploadData(item) { return { customerName:item.customerName, phone:item.phone, email:item.email, bookingSource:item.source, tripDate:item.tourDate, startTime:item.startTime, duration:item.duration, guestCount:item.guestCount, tourType:item.tourType, tourPrice:item.totalPrice, depositPaid:item.deposit, balanceDue:item.balance, paymentStatus:item.paymentStatus, invoiceNumber:item.bookingReference, quoteNumber:item.bookingReference, notes:`Imported from ${item.source} email ${item.emailId}.` }; }
+function gmailImportToUploadData(item) { return { customerName:item.customerName, phone:item.phone, email:item.email, bookingSource:item.source, bookingReference:item.bookingReference, tripDate:item.tourDate, startTime:item.startTime, duration:item.duration, guestCount:item.guestCount, tourType:item.tourType, tourPrice:item.totalPrice, depositPaid:item.deposit, balanceDue:item.balance, paymentStatus:item.paymentStatus, invoiceNumber:item.bookingReference, quoteNumber:item.bookingReference, notes:`Imported from ${item.source} email ${item.emailId}.` }; }
 function linkGmailImportCustomer(item) { const norm = (value) => String(value || '').toLowerCase().trim(); let profile = (store.customerProfiles || []).find((customer) => (item.email && norm(customer.email) === norm(item.email)) || (item.phone && normalizePhoneNumber(customer.phone) === normalizePhoneNumber(item.phone)) || (item.customerName && norm(customer.name) === norm(item.customerName))); if (!profile) { profile = { id:makeId('customer'), name:item.customerName || 'Imported Customer', phone:item.phone || '', email:item.email || '', source:item.source, createdAt:new Date().toISOString(), updatedAt:new Date().toISOString() }; store.customerProfiles.push(profile); } else { Object.assign(profile,{name:item.customerName || profile.name,phone:item.phone || profile.phone,email:item.email || profile.email,updatedAt:new Date().toISOString()}); } item.customerProfileId = profile.id; return profile; }
 function createGmailWhatsAppDraft(item, category) { const labels = { confirmation:'Customer Booking Confirmation', payment:'Invoice / Payment Reminder', meeting:'Meeting Point Message' }; const bodies = { confirmation:`Hi ${item.customerName || 'there'}, your ${item.tourType || 'tour'} is being reviewed for ${item.tourDate || 'your requested date'} at ${item.startTime || 'the requested time'}.`, payment:`Hi ${item.customerName || 'there'}, this is a payment reminder for your ${item.tourType || 'tour'}. Balance due: ${money(item.balance)}.`, meeting:`Hi ${item.customerName || 'there'}, we will confirm the meeting point for your ${item.tourType || 'tour'} on ${item.tourDate || 'your tour date'} shortly.` }; store.whatsappQueue.unshift({ id:makeId('wa-message'), category:labels[category], recipientName:item.customerName || 'Customer', recipientRole:'Customer', phoneNumber:item.phone || '', messageBody:bodies[category], status:'Draft', createdAt:new Date().toISOString(), createdBy:currentUserLabel(), linkedGmailImportId:item.id }); addNotification('WhatsApp draft created',`${labels[category]} created from reviewed email import.`, 'success',{category:'WhatsApp',emailId:item.emailId}); }
 function queueAutoWhatsAppDraft({ category, recipientName, recipientRole, phoneNumber, messageBody, relatedTrip = '', relatedBooking = '', relatedInvoice = '', linkedGmailImportId = '', linkedChatMessageId = '', createdBy = 'Auto Operations Engine' }) {
@@ -4988,7 +5013,10 @@ function autoOpsCanCreateCalendar(item) {
   const complete = missingGmailImportFields(item).length === 0;
   const confidence = Number(item.aiConfidenceScore || item.confidenceScore || 0);
   const noDuplicates = gmailDuplicateMatches(item).length === 0;
-  return !alreadyDone && complete && noDuplicates && ['Add to Calendar','Create Trip'].includes(item.recommendedAction) && confidence >= Number(store.autoOpsSettings.autoCalendarConfidence || 80);
+  const confirmedBookingSignal = /new booking|booking details|booking reference|ext\.?\s*booking ref|product booking ref|confirmed|confirmation/i.test(`${item.subject || ''}\n${item.rawMessagePreview || ''}`);
+  const hasRealReference = Boolean(item.bookingReference && !/^erence$/i.test(String(item.bookingReference)));
+  const isCancelled = /cancelled booking|canceled booking/i.test(`${item.subject || ''}\n${item.rawMessagePreview || ''}`);
+  return !alreadyDone && complete && noDuplicates && !isCancelled && confirmedBookingSignal && hasRealReference && ['Add to Calendar','Create Trip'].includes(item.recommendedAction) && confidence >= Number(store.autoOpsSettings.autoCalendarConfidence || 80);
 }
 function processGmailImportAutomatically(item) {
   if (!autoOpsCanCreateCalendar(item)) return null;
