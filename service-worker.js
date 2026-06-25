@@ -3,6 +3,7 @@ const APP_ASSETS = [
   '/',
   '/index.html',
   '/offline.html',
+  '/privacy-policy.html',
   '/styles.css?v=20260625-all-bookings',
   '/app.js?v=20260625-all-bookings',
   '/upgrades.js?v=20260625-all-bookings',
