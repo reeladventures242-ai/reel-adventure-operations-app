@@ -1449,7 +1449,7 @@ function visibleCalendarTrips() {
     if (isScopedVesselOwner(role)) return ownerForVesselName(trip.vessel) === person;
     if (role === 'Captain') return trip.captain === person;
     if (role === 'Mate') return trip.mate === person;
-    return true;
+    return false;
   });
 }
 function calendarTripStatus(trip) {
@@ -1637,16 +1637,22 @@ function renderOperationsSnapshot(metrics) {
 
 function dashboardMetrics() {
   const todayKey = new Date().toISOString().slice(0, 10);
-  const scheduledTrips = store.trips.filter((t) => t.status === 'Scheduled' && (!t.tripDate || String(t.tripDate) >= todayKey)).sort(byDate);
+  const visibleTrips = visibleCalendarTrips();
+  const visibleTripIds = new Set(visibleTrips.map((trip) => trip.id));
+  const visibleVessels = new Set(visibleTrips.map((trip) => trip.vessel).filter(Boolean));
+  const visibleCustomerNames = new Set(visibleTrips.map((trip) => trip.customer).filter(Boolean));
+  const visibleBookings = visibleRecordsForRoute('bookings', store.bookings || []);
+  const visibleInvoices = visibleRecordsForRoute('invoices', store.invoices || []).filter((invoice) => !invoice.tripId || visibleTripIds.has(invoice.tripId) || !invoice.vessel || visibleVessels.has(invoice.vessel) || !invoice.customer || visibleCustomerNames.has(invoice.customer));
+  const scheduledTrips = visibleTrips.filter((t) => t.status === 'Scheduled' && (!t.tripDate || String(t.tripDate) >= todayKey)).sort(byDate);
   const todayTrips = scheduledTrips.filter((trip) => trip.tripDate === todayKey);
   const readyTrips = scheduledTrips.filter((trip) => calculateDispatchReadiness(trip) === 'Dispatch Ready');
   const notReadyTrips = scheduledTrips.filter((trip) => calculateDispatchReadiness(trip) === 'Not Ready');
   const needsAttention = scheduledTrips.filter((trip) => !['Dispatch Ready', 'Completed'].includes(calculateDispatchReadiness(trip)));
-  const totalBalance = store.bookings.reduce((sum, b) => sum + Number(b.balance || 0), 0) + store.trips.reduce((sum, t) => sum + Number(t.balanceDue || 0), 0) + store.invoices.reduce((sum, invoice) => sum + Number(invoice.balanceDue || 0), 0);
+  const totalBalance = visibleBookings.reduce((sum, b) => sum + Number(b.balance || 0), 0) + visibleTrips.reduce((sum, t) => sum + Number(t.balanceDue || 0), 0) + visibleInvoices.reduce((sum, invoice) => sum + Number(invoice.balanceDue || 0), 0);
   const payrollOwed = payrollEntries().reduce((sum, entry) => sum + Number(entry.outstanding || 0), 0);
-  const expenseTotal = store.expenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
-  const revenue = store.trips.reduce((sum, trip) => sum + Number(trip.tourPrice || 0), 0) + store.invoices.reduce((sum, invoice) => sum + Number(invoice.tourPrice || 0), 0);
-  const incidents = store.incidentReports.filter((incident) => incident.status !== 'Resolved');
+  const expenseTotal = visibleRecordsForRoute('expenses', store.expenses || []).reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
+  const revenue = visibleTrips.reduce((sum, trip) => sum + Number(trip.tourPrice || 0), 0) + visibleInvoices.reduce((sum, invoice) => sum + Number(invoice.tourPrice || 0), 0);
+  const incidents = visibleRecordsForRoute('incident-reports', store.incidentReports || []).filter((incident) => incident.status !== 'Resolved');
   const cruise = (store.cruiseSchedule || []).filter((entry) => String(entry.arrivalDate || '') >= todayKey).sort((a, b) => String(a.arrivalDate + a.arrivalTime).localeCompare(String(b.arrivalDate + b.arrivalTime))).slice(0, 5);
   return { todayTrips, readyTrips, notReadyTrips, needsAttention, totalBalance, payrollOwed, expenseTotal, revenue, incidents, cruise, stock: canViewStockAlerts() ? inventoryAlerts() : [], urgentItems: dashboardUrgentItems(scheduledTrips).slice(0, 6), scheduledTrips };
 }
@@ -2095,7 +2101,8 @@ function visibleRecordsForRoute(route, records = []) {
   const role = activeRoleName(); const person = activeRolePerson(role);
   if (route === 'trips') return records.filter((trip) => role === 'Admin' || role === 'Bookkeeper' || isCompanyOwnerUser() || (isScopedVesselOwner(role) && ownerForVesselName(trip.vessel) === person) || (role === 'Captain' && trip.captain === person) || (role === 'Mate' && trip.mate === person));
   if (route === 'bookings' && (isVesselOwnerRole(role) || ['Captain','Mate'].includes(role))) { const visibleBookingIds = new Set(visibleRecordsForRoute('trips', store.trips).filter((trip) => trip.tripDate && trip.startTime).map((trip) => trip.bookingId)); return records.filter((booking) => visibleBookingIds.has(booking.id)); }
-  if (route === 'invoices' && isScopedVesselOwner(role)) return records.filter((invoice) => ownerForVesselName(invoice.vessel) === person);
+  if (route === 'invoices' && (isScopedVesselOwner(role) || ['Captain','Mate'].includes(role))) { const visibleTrips = visibleRecordsForRoute('trips', store.trips); const tripIds = new Set(visibleTrips.map((trip) => trip.id)); const bookingIds = new Set(visibleTrips.map((trip) => trip.bookingId).filter(Boolean)); const vessels = new Set(visibleTrips.map((trip) => trip.vessel).filter(Boolean)); return records.filter((invoice) => tripIds.has(invoice.tripId) || bookingIds.has(invoice.bookingId) || vessels.has(invoice.vessel)); }
+  if (['expenses','incident-reports'].includes(route) && (isScopedVesselOwner(role) || ['Captain','Mate'].includes(role))) { const visibleTrips = visibleRecordsForRoute('trips', store.trips); const tripIds = new Set(visibleTrips.map((trip) => trip.id)); const vessels = new Set(visibleTrips.map((trip) => trip.vessel).filter(Boolean)); return records.filter((item) => tripIds.has(item.tripId) || vessels.has(item.vessel) || (role === 'Captain' && item.captain === person) || (role === 'Mate' && item.mate === person)); }
   return records;
 }
 
@@ -4594,11 +4601,13 @@ function whatsAppRoleCanCreate(category = '', trip = {}) {
   const crewCategory = ['Captain Assignment','Mate Assignment','Owner Assignment Alert','Pre Trip Checklist Reminder','Post Trip Checklist Reminder','Incident Alert','Owner Payout Statement'].includes(category);
   if (crewCategory && !store.whatsappSettings.enableCrewActions) return false;
   if (!crewCategory && !store.whatsappSettings.enableCustomerActions) return false;
-  if (['Admin','Owner','Operations Manager'].includes(role)) return true;
-  if (role === 'Bookkeeper') return ['Invoice / Payment Reminder','Quote Follow Up','Payment Receipt','Owner Payout Statement'].includes(category);
+  if (!crewCategory) return role === 'Admin' || isCompanyOwnerUser();
+  if (role === 'Admin' || isCompanyOwnerUser()) return true;
+  if (role === VESSEL_OWNER_ROLE) return ['Owner Assignment Alert','Owner Payout Statement','Incident Alert'].includes(category) && (!trip.id || ownerForVesselName(trip.vessel) === activeRolePerson(role));
+  if (role === 'Bookkeeper') return category === 'Owner Payout Statement';
   const person = activeRolePerson(role);
-  if (role === 'Captain') return store.whatsappSettings.enableCustomerActions && (!trip.id || trip.captain === person);
-  if (role === 'Mate') return store.whatsappSettings.enableCustomerActions && (!trip.id || trip.mate === person);
+  if (role === 'Captain') return ['Captain Assignment','Pre Trip Checklist Reminder','Post Trip Checklist Reminder','Incident Alert'].includes(category) && (!trip.id || trip.captain === person);
+  if (role === 'Mate') return ['Mate Assignment','Pre Trip Checklist Reminder','Post Trip Checklist Reminder','Incident Alert'].includes(category) && (!trip.id || trip.mate === person);
   return false;
 }
 function whatsappDigits(phone = '') {
