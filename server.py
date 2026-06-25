@@ -125,8 +125,28 @@ def normalize_server_store(store):
     store["notificationRules"] = {key: {**value, **(rules.get(key) if isinstance(rules.get(key), dict) else {})} for key, value in DEFAULT_NOTIFICATION_RULES.items()}
     store["whatsappQueue"] = normalize_whatsapp_queue(store.get("whatsappQueue", []))
     store["whatsappDeliveryLog"] = store.get("whatsappDeliveryLog") if isinstance(store.get("whatsappDeliveryLog"), list) else []
+    store["whatsappInbox"] = normalize_whatsapp_inbox(store.get("whatsappInbox", []))
     store["users"] = store.get("users") if isinstance(store.get("users"), list) else []
     return store
+
+
+def normalize_whatsapp_inbox(inbox):
+    normalized = []
+    for item in inbox if isinstance(inbox, list) else []:
+        if not isinstance(item, dict):
+            continue
+        normalized.append({
+            "id": item.get("id") or server_id("wa-inbound"),
+            "messageId": item.get("messageId", ""),
+            "from": item.get("from", ""),
+            "profileName": item.get("profileName", ""),
+            "messageType": item.get("messageType", "text"),
+            "text": item.get("text", ""),
+            "receivedAt": item.get("receivedAt") or iso_now(),
+            "status": item.get("status", "New"),
+            "raw": item.get("raw") if isinstance(item.get("raw"), dict) else {},
+        })
+    return normalized[:200]
 
 
 def normalize_whatsapp_queue(queue):
@@ -161,6 +181,78 @@ def normalize_whatsapp_queue(queue):
             "linkedChatMessageId": item.get("linkedChatMessageId", ""),
         })
     return normalized
+
+
+def extract_whatsapp_inbound_messages(event):
+    messages = []
+    for entry in event.get("entry", []) if isinstance(event, dict) else []:
+        for change in entry.get("changes", []) if isinstance(entry, dict) else []:
+            value = change.get("value", {}) if isinstance(change, dict) else {}
+            contacts = {
+                contact.get("wa_id"): ((contact.get("profile") or {}).get("name") or "")
+                for contact in value.get("contacts", []) or []
+                if isinstance(contact, dict)
+            }
+            for message in value.get("messages", []) or []:
+                if not isinstance(message, dict):
+                    continue
+                message_type = message.get("type", "unknown")
+                text = ((message.get("text") or {}).get("body") or "").strip()
+                if not text and message_type != "text":
+                    text = f"[{message_type} message]"
+                sender = message.get("from", "")
+                timestamp = message.get("timestamp", "")
+                received_at = datetime.fromtimestamp(int(timestamp), timezone.utc).isoformat() if str(timestamp).isdigit() else iso_now()
+                messages.append({
+                    "id": server_id("wa-inbound"),
+                    "messageId": message.get("id", ""),
+                    "from": sender,
+                    "profileName": contacts.get(sender, ""),
+                    "messageType": message_type,
+                    "text": text,
+                    "receivedAt": received_at,
+                    "status": "New",
+                    "raw": message,
+                })
+    return messages
+
+
+def save_whatsapp_webhook_event(event):
+    saved = read_json_file(WHATSAPP_WEBHOOK_FILE) or []
+    if not isinstance(saved, list):
+        saved = []
+    inbound = extract_whatsapp_inbound_messages(event)
+    saved.append({"receivedAt": iso_now(), "event": event, "inboundCount": len(inbound)})
+    write_json_file(WHATSAPP_WEBHOOK_FILE, saved[-100:])
+    if inbound:
+        try:
+            state = load_operations_state()
+            store = state.get("store") if state.get("hasStore") else {}
+            if not isinstance(store, dict):
+                store = {}
+            normalize_server_store(store)
+            inbox = store.setdefault("whatsappInbox", [])
+            existing_ids = {item.get("messageId") for item in inbox if isinstance(item, dict)}
+            added = [item for item in inbound if item.get("messageId") not in existing_ids]
+            if added:
+                store["whatsappInbox"] = normalize_whatsapp_inbox(added + inbox)
+                latest = added[0]
+                ensure_notification(
+                    store,
+                    f"whatsapp-inbound:{latest.get('messageId') or latest.get('id')}",
+                    "WhatsApp message received",
+                    f"{latest.get('profileName') or latest.get('from') or 'Customer'}: {latest.get('text') or 'New WhatsApp message'}",
+                    "info",
+                    "Owner",
+                    "",
+                    "WhatsApp",
+                    {"whatsappMessageId": latest.get("messageId", "")},
+                )
+                save_operations_state(store)
+        except Exception as error:
+            append_event_log("whatsapp-webhook-store-error", {"error": str(error), "inboundCount": len(inbound)})
+    append_event_log("whatsapp-webhook", {"inboundCount": len(inbound)})
+    return inbound
 
 
 def load_app_state_record(record_id):
@@ -1258,12 +1350,8 @@ class AppHandler(SimpleHTTPRequestHandler):
                 return
             if self.path.startswith("/api/whatsapp/webhook"):
                 event = self.read_json_body()
-                saved = read_json_file(WHATSAPP_WEBHOOK_FILE) or []
-                if not isinstance(saved, list):
-                    saved = []
-                saved.append({"receivedAt": iso_now(), "event": event})
-                write_json_file(WHATSAPP_WEBHOOK_FILE, saved[-100:])
-                self.send_json({"ok": True, "updatedAt": iso_now()})
+                inbound = save_whatsapp_webhook_event(event)
+                self.send_json({"ok": True, "inboundCount": len(inbound), "updatedAt": iso_now()})
                 return
             if self.path.startswith("/api/woodstock/sync"):
                 body = self.read_json_body()
