@@ -907,7 +907,8 @@ function wireEvents() {
     if (event.target.closest('[data-download-backup]')) exportStoreData();
     if (event.target.closest('[data-refresh-integration-status]')) refreshIntegrationStatus();
     if (event.target.closest('[data-gmail-connect]')) connectOwnerGmail();
-    if (event.target.closest('[data-gmail-sync]')) syncOwnerGmail();
+    const gmailSync = event.target.closest('[data-gmail-sync]');
+    if (gmailSync) syncOwnerGmail(gmailSync.dataset.gmailSync || 'latest');
     if (event.target.closest('[data-run-auto-ops]')) runAutoOpsForGmailImports();
     if (event.target.closest('[data-whatsapp-process-queue]')) processWhatsAppQueue();
     const whatsappBusinessSend = event.target.closest('[data-whatsapp-business-send]');
@@ -4321,11 +4322,19 @@ function connectOwnerGmail() {
   toast('Gmail connection opened. Return here after approval.');
 }
 
-async function syncOwnerGmail() {
+const GMAIL_SYNC_MODES = {
+  latest: { label: 'latest bookings', maxResults: 50, q: 'newer_than:365d ("New booking" OR "Ext. booking ref" OR "Product booking ref" OR "Booking Reference" OR "Viator booking" OR "VIA-" OR "REE-T" OR reservation OR confirmation)' },
+  june: { label: 'June tours', maxResults: 75, q: 'newer_than:365d (June OR Jun OR ".Jun" OR "6/" OR "06/" OR "2026-06" OR "Viator booking" OR "New booking" OR "Ext. booking ref" OR "REE-T")' },
+  viator: { label: 'Viator booking refs', maxResults: 75, q: 'newer_than:365d ("New booking" OR "Ext. booking ref" OR "Product booking ref" OR "Viator booking" OR "Booking Reference" OR "VIA-" OR "REE-T" OR "BR-")' }
+};
+
+async function syncOwnerGmail(mode = 'latest') {
   if (!isCompanyOwnerUser()) return toast('Gmail sync is owner-only.');
+  const syncMode = GMAIL_SYNC_MODES[mode] || GMAIL_SYNC_MODES.latest;
   try {
-    toast('Syncing Gmail...');
-    const response = await fetch('api/gmail/sync?maxResults=200', { cache: 'no-store' });
+    toast(`Syncing Gmail ${syncMode.label}...`);
+    const params = new URLSearchParams({ maxResults: String(syncMode.maxResults), q: syncMode.q });
+    const response = await fetch(`api/gmail/sync?${params.toString()}`, { cache: 'no-store' });
     const payload = await response.json();
     if (!response.ok || payload.error) throw new Error(payload.error || `Gmail sync returned ${response.status}`);
     const existing = new Map((store.gmailImports || []).map((item) => [item.emailId || item.gmailMessageId, item]));
@@ -4353,9 +4362,9 @@ async function syncOwnerGmail() {
       created += 1;
     });
     store.lastSyncTime = payload.updatedAt || new Date().toISOString();
-    store.syncCursor = `Last Gmail sync imported ${created} new message${created === 1 ? '' : 's'} and refreshed ${refreshed} existing record${refreshed === 1 ? '' : 's'}`;
+    store.syncCursor = `Last Gmail ${syncMode.label} sync imported ${created} new message${created === 1 ? '' : 's'} and refreshed ${refreshed} existing record${refreshed === 1 ? '' : 's'}`;
     const autoResults = runAutoOpsForGmailImports({ silent:true });
-    addAudit('synced','Gmail Import',`Owner Gmail sync imported ${created} new message(s), refreshed ${refreshed}, and Auto Operations created ${autoResults.length} calendar item(s).`,{count:created,refreshed,autoCalendarCount:autoResults.length});
+    addAudit('synced','Gmail Import',`Owner Gmail ${syncMode.label} sync imported ${created} new message(s), refreshed ${refreshed}, and Auto Operations created ${autoResults.length} calendar item(s).`,{mode,count:created,refreshed,autoCalendarCount:autoResults.length});
     saveStore();
     renderGmailImport();
     toast(`Gmail sync complete: ${created} new, ${refreshed} refreshed, ${autoResults.length} auto-calendar item${autoResults.length === 1 ? '' : 's'}.`);
@@ -4888,6 +4897,18 @@ function renderGmailImport() {
   <details class="card app-accordion gmail-import-card" open><summary><div><h3>1. Manual Import</h3><p>Paste email text or use existing local OCR / PDF intake.</p></div><span class="chevron">⌄</span></summary><form class="gmail-paste-form" onsubmit="parseManualGmailImport(event)"><label><strong>Paste Email Text</strong><textarea name="emailText" rows="12" placeholder="Paste sender, subject, booking confirmation, customer details, date, time, guests, and payment details here…" required></textarea></label><button class="btn btn-primary">Parse & Review</button></form><div class="gmail-upload-actions"><label class="btn btn-outline">Upload Email Screenshot<input type="file" accept="image/png,image/jpeg" capture="environment" onchange="handleGmailImportFile(event,'Email Screenshot')" hidden></label><label class="btn btn-outline">Upload PDF Confirmation<input type="file" accept="application/pdf,.pdf" onchange="handleGmailImportFile(event,'PDF Confirmation')" hidden></label></div></details>
   ${autoOpsStatusMarkup()}<div id="gmailReviewHost">${activeGmailImportId ? gmailReviewMarkup(imports.find((item) => item.id === activeGmailImportId)) : ''}</div>
   <details class="card app-accordion gmail-import-card" open><summary><div><h3>Import Queue</h3><p>${imports.length} local email review record${imports.length === 1 ? '' : 's'}</p></div><span class="chevron">⌄</span></summary><div class="gmail-import-list">${imports.length ? imports.map((item) => `<article class="gmail-import-row"><div><span class="badge ${item.importStatus === 'Needs Review' ? 'gold' : item.importStatus.startsWith('Converted') ? 'green' : 'blue'}">${escapeHtml(item.importStatus)}</span><h4>${escapeHtml(item.customerName || item.subject || 'Untitled email')}</h4><p>${escapeHtml(item.source)} · ${escapeHtml(item.tourDate || 'Date missing')} · ${item.confidenceScore || 0}% confidence</p></div><button class="btn btn-outline btn-small" onclick="openGmailImportReview('${item.id}')">Review</button></article>`).join('') : '<p class="empty-state">No manual email imports yet.</p>'}</div></details></div>`;
+}
+
+function renderGmailImport() {
+  const page = document.getElementById('page-gmail-import');
+  const imports = store.gmailImports || [];
+  const canConnect = Boolean(store.integrationStatus?.gmailConfigured);
+  const canSync = Boolean(store.integrationStatus?.gmailConnected);
+  const syncButton = (mode, label, primary = false) => `<button class="btn ${primary ? 'btn-primary' : 'btn-outline'} btn-small" data-gmail-sync="${mode}" ${canSync ? '' : 'disabled'}>${label}</button>`;
+  page.innerHTML = `<div class="page-stack gmail-import-page"><section class="card gmail-import-hero"><div><p class="eyebrow">Owner Gmail sync - review required</p><h3>Import & Review</h3><p>Use a targeted sync so the app pulls the right booking emails without slowing down on unrelated messages.</p></div><div class="gmail-live-actions"><span class="badge ${canSync ? 'green' : canConnect ? 'gold' : 'red'}">${escapeHtml(store.gmailOAuthStatus)}</span><button class="btn btn-primary btn-small" data-gmail-connect ${canConnect ? '' : 'disabled'}>Connect Gmail</button>${syncButton('latest', 'Sync Latest')}${syncButton('june', 'Sync June Tours', true)}${syncButton('viator', 'Sync Viator Refs')}</div></section>
+  <details class="card app-accordion gmail-import-card" open><summary><div><h3>1. Manual Import</h3><p>Paste email text or use existing local OCR / PDF intake.</p></div><span class="chevron">⌄</span></summary><form class="gmail-paste-form" onsubmit="parseManualGmailImport(event)"><label><strong>Paste Email Text</strong><textarea name="emailText" rows="12" placeholder="Paste sender, subject, booking confirmation, customer details, date, time, guests, and payment details here..." required></textarea></label><button class="btn btn-primary">Parse & Review</button></form><div class="gmail-upload-actions"><label class="btn btn-outline">Upload Email Screenshot<input type="file" accept="image/png,image/jpeg" capture="environment" onchange="handleGmailImportFile(event,'Email Screenshot')" hidden></label><label class="btn btn-outline">Upload PDF Confirmation<input type="file" accept="application/pdf,.pdf" onchange="handleGmailImportFile(event,'PDF Confirmation')" hidden></label></div></details>
+  ${autoOpsStatusMarkup()}<div id="gmailReviewHost">${activeGmailImportId ? gmailReviewMarkup(imports.find((item) => item.id === activeGmailImportId)) : ''}</div>
+  <details class="card app-accordion gmail-import-card" open><summary><div><h3>Import Queue</h3><p>${imports.length} email review record${imports.length === 1 ? '' : 's'}</p></div><span class="chevron">⌄</span></summary><div class="gmail-import-list">${imports.length ? imports.map((item) => `<article class="gmail-import-row"><div><span class="badge ${item.importStatus === 'Needs Review' ? 'gold' : item.importStatus.startsWith('Converted') ? 'green' : 'blue'}">${escapeHtml(item.importStatus)}</span><h4>${escapeHtml(item.customerName || item.subject || 'Untitled email')}</h4><p>${escapeHtml(item.source)} - ${escapeHtml(item.tourDate || 'Date missing')} - ${item.confidenceScore || 0}% confidence</p></div><button class="btn btn-outline btn-small" onclick="openGmailImportReview('${item.id}')">Review</button></article>`).join('') : '<p class="empty-state">No Gmail imports yet. Try Sync June Tours first.</p>'}</div></details></div>`;
 }
 
 function parseManualGmailImport(event) { event.preventDefault(); createGmailImportReview(new FormData(event.target).get('emailText'), 'Pasted Email Text', 'Manual paste'); }

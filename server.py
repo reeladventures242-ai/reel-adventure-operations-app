@@ -659,7 +659,7 @@ def gmail_payload_text(payload):
 def gmail_sync_payload(params=None):
     params = params or {}
     token = gmail_access_token()
-    max_results = params.get("maxResults", [os.environ.get("GMAIL_SYNC_MAX_RESULTS", "200")])[0]
+    max_results = params.get("maxResults", [os.environ.get("GMAIL_SYNC_MAX_RESULTS", "50")])[0]
     default_query = os.environ.get(
         "GMAIL_SYNC_QUERY",
         'newer_than:365d ("New booking" OR "Ext. booking ref" OR "Product booking ref" OR "Booking Reference" OR "Viator booking" OR "VIA-" OR "REE-T" OR reservation OR confirmation)',
