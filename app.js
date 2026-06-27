@@ -7,10 +7,10 @@ const STORE_RECOVERY_KEY = `${STORE_KEY}_recovery`;
 const roleRouteVisibility = {
   Admin: null,
   Owner: new Set(['dashboard','operations-assistant','dispatch','calendar','chat','whatsapp','bookings','trips','vessels','maintenance','owner-dashboard','payroll','expenses','incident-reports','pre-trip-checklist','post-trip-checklist','cruise-schedule','reports','notifications','settings']),
-  'Vessel Owner': new Set(['dashboard','operations-assistant','dispatch','calendar','chat','bookings','trips','vessels','owner-dashboard','payroll','expenses','incident-reports','pre-trip-checklist','post-trip-checklist','cruise-schedule','reports','notifications','settings']),
-  Captain: new Set(['dashboard','operations-assistant','dispatch','calendar','chat','whatsapp','bookings','trips','vessels','maintenance','captain-dashboard','payroll','incident-reports','pre-trip-checklist','post-trip-checklist','cruise-schedule','notifications','settings']),
-  Mate: new Set(['dashboard','operations-assistant','dispatch','calendar','chat','whatsapp','bookings','trips','vessels','maintenance','mate-dashboard','payroll','incident-reports','pre-trip-checklist','post-trip-checklist','cruise-schedule','notifications','settings']),
-  Bookkeeper: new Set(['dashboard','operations-assistant','calendar','chat','whatsapp','gmail-import','invoices','bookings','trips','payroll','expenses','reports','notifications','audit','settings'])
+  'Vessel Owner': new Set(['dashboard','operations-assistant','dispatch','calendar','chat','bookings','trips','vessels','owner-dashboard','payroll','expenses','incident-reports','pre-trip-checklist','post-trip-checklist','cruise-schedule','reports','notifications','my-profile']),
+  Captain: new Set(['dashboard','operations-assistant','dispatch','calendar','chat','bookings','trips','vessels','maintenance','captain-dashboard','payroll','incident-reports','pre-trip-checklist','post-trip-checklist','cruise-schedule','notifications','my-profile']),
+  Mate: new Set(['dashboard','operations-assistant','dispatch','calendar','chat','bookings','trips','vessels','maintenance','mate-dashboard','payroll','incident-reports','pre-trip-checklist','post-trip-checklist','cruise-schedule','notifications','my-profile']),
+  Bookkeeper: new Set(['dashboard','operations-assistant','calendar','chat','invoices','bookings','trips','payroll','expenses','reports','notifications','audit','my-profile'])
 };
 const MAINTENANCE_VESSELS = ['Reel Adventure Tours I', 'Reel Adventure Tours II'];
 const MAINTENANCE_STATUSES = ['Good', 'Due Soon', 'Overdue', 'Needs Review', 'Out of Service'];
@@ -24,7 +24,7 @@ const navItems = [
   ['captain-dashboard', '🧢', 'Captain Dashboard'], ['mate-dashboard', '⚓', 'Mate Dashboard'], ['owner-dashboard', '👑', 'Owner Dashboard'],
   ['payroll', '💸', 'Payroll'], ['expenses', '💳', 'Expenses'], ['inventory', '📦', 'Inventory'], ['incident-reports', '🚨', 'Incident Reports'],
   ['pre-trip-checklist', '✅', 'Pre Trip Checklist'], ['post-trip-checklist', '🧽', 'Post Trip Checklist'],
-  ['reports', '📊', 'Reports'], ['notifications', '🔔', 'Notifications'], ['audit', '🧾', 'Audit Trail'], ['settings', '⚙️', 'Settings'],
+  ['reports', '📊', 'Reports'], ['notifications', '🔔', 'Notifications'], ['my-profile', '👤', 'My Profile'], ['audit', '🧾', 'Audit Trail'], ['settings', '⚙️', 'Settings'],
   ['cruise-schedule', '🚢', 'Cruise Schedule']
 ];
 
@@ -797,6 +797,7 @@ function renderLoginUsers() {
 }
 
 function canAccessRoute(route, role = activeRoleName()) {
+  if (route === 'settings') return activeRoleName() === 'Admin' || isCompanyOwnerUser();
   if (ownerOnlyIntegrationRoutes.has(route)) return isCompanyOwnerUser();
   const allowed = roleRouteVisibility[role];
   return allowed == null || allowed.has(route);
@@ -807,7 +808,7 @@ function visibleNavItems() { return navItems.filter(([route]) => canAccessRoute(
 function renderNav() {
   const groups = [
     ['Primary', ['dashboard', 'bookings', 'dispatch', 'calendar', 'chat']],
-    ['More', ['operations-assistant', 'invoices', 'crew', 'vessels', 'payroll', 'inventory', 'expenses', 'maintenance', 'reports', 'settings', 'notifications', 'incident-reports', 'pre-trip-checklist', 'post-trip-checklist', 'cruise-schedule', 'whatsapp', 'gmail-import', 'audit', 'owner-dashboard', 'captain-dashboard', 'mate-dashboard', 'trips']]
+    ['More', ['operations-assistant', 'invoices', 'crew', 'vessels', 'payroll', 'inventory', 'expenses', 'maintenance', 'reports', 'my-profile', 'settings', 'notifications', 'incident-reports', 'pre-trip-checklist', 'post-trip-checklist', 'cruise-schedule', 'whatsapp', 'gmail-import', 'audit', 'owner-dashboard', 'captain-dashboard', 'mate-dashboard', 'trips']]
   ];
   const visible = new Map(visibleNavItems().map((item) => [item[0], item]));
   document.getElementById('primaryNav').innerHTML = groups.map(([label, routes]) => {
@@ -828,7 +829,7 @@ function renderMobileNav() {
     const active = currentRoute === route;
     return `<button class="mobile-nav-link ${active ? 'active' : ''}" data-route="${route}" aria-label="${label}" ${active ? 'aria-current="page"' : ''}><span class="mobile-nav-icon" aria-hidden="true">${icon}${badge}</span><span class="mobile-nav-label">${label}</span></button>`;
   }).join('')}<button class="mobile-nav-link" data-mobile-more-toggle aria-label="More modules"><span class="mobile-nav-icon" aria-hidden="true">•••</span><span class="mobile-nav-label">More</span></button></div>`;
-  if (more) more.innerHTML = `<div class="mobile-more-sheet" role="dialog" aria-label="More modules"><div class="mobile-more-handle"></div><div class="mobile-more-grid">${mobileMoreNav.map(([route, icon, label]) => {
+  if (more) more.innerHTML = `<div class="mobile-more-sheet" role="dialog" aria-label="More modules"><div class="mobile-more-handle"></div><div class="mobile-more-grid">${mobileMoreNav.filter(([route]) => canAccessRoute(route)).map(([route, icon, label]) => {
     const badge = route === 'notifications' && unread ? `<em aria-label="${unread} unread notifications">${unread}</em>` : route === 'chat' ? chatBadgeMarkup('mobile-nav-badge') : '';
     return `<button class="mobile-more-item ${currentRoute === route ? 'active' : ''}" data-route="${route}"><span class="mobile-nav-icon">${icon}${badge}</span><span>${label}</span></button>`;
   }).join('')}</div></div>`;
@@ -839,6 +840,11 @@ function closeMobileMore() {
   if (menu) menu.hidden = true;
 }
 
+function refreshRoleChrome() {
+  const quick = document.getElementById('waQuickBtn');
+  if (quick) quick.hidden = !(activeRoleName() === 'Admin' || (typeof isCompanyOwnerUser === 'function' && isCompanyOwnerUser()));
+}
+
 function updateMobileChrome() {
   renderMobileNav();
   const offline = document.getElementById('offlineState');
@@ -847,13 +853,19 @@ function updateMobileChrome() {
 
 function wireEvents() {
   document.getElementById('enterAppBtn').addEventListener('click', () => {
-    document.getElementById('loginScreen').hidden = true;
-    document.getElementById('appShell').hidden = false;
     const selected = document.getElementById('userSelect')?.value;
     const user = store.users.find((item) => item.id === selected && item.active !== false) || currentUser();
+    const enteredPin = String(document.getElementById('userPin')?.value || '').trim();
+    const expectedPin = String(user.demoPin || '').trim();
+    if (!expectedPin) return toast('This profile needs a PIN before it can sign in. Ask Eugene or an Admin to set it in Team Access Setup.');
+    if (enteredPin !== expectedPin) return toast('PIN not recognized. Check the profile and try again.');
+    document.getElementById('loginScreen').hidden = true;
+    document.getElementById('appShell').hidden = false;
     store.activeUserId = user.id; user.lastLoginAt = new Date().toISOString(); saveStore();
     document.getElementById('roleSelect').value = user.role;
     document.getElementById('activeRole').textContent = `${user.name} · ${user.role}`;
+    document.getElementById('userPin').value = '';
+    refreshRoleChrome();
     renderNav(); renderRoute(currentRoute);
     toast(`Signed in as ${user.name}. Live operations workspace loaded.`);
   });
@@ -998,6 +1010,7 @@ function renderRoute(route) {
   page.classList.add('active');
   const nav = navItems.find(([key]) => key === route);
   document.getElementById('pageTitle').textContent = nav ? `${nav[1]} ${nav[2]}` : route === 'trips' ? '📘 Bookings / Trips — Dispatch Editor' : 'Legacy Tools';
+  refreshRoleChrome();
   if (route === 'incident-reports') renderIncidentLibrary();
   else if (crudConfig[route]) renderCrud(route);
   else if (route === 'dashboard') renderDashboard();
@@ -1007,6 +1020,7 @@ function renderRoute(route) {
   else if (route === 'chat') renderChat();
   else if (route === 'whatsapp') renderWhatsApp();
   else if (route === 'gmail-import') renderGmailImport();
+  else if (route === 'my-profile') renderMyProfile();
   else if (route === 'payroll') renderPayroll();
   else if (route === 'inventory') renderInventory();
   else if (route === 'captain-dashboard') renderCrewRoleDashboard('captain');
@@ -1568,7 +1582,32 @@ function openCalendarTrip(id) {
 function closeDispatchDrawer() { document.querySelector('.dispatch-drawer')?.remove(); document.querySelector('.dispatch-drawer-backdrop')?.remove(); }
 function handleDispatchDrawerAction(action, tripId) { const trip = store.trips.find((item) => item.id === tripId); if (!trip) return; closeDispatchDrawer(); if (action === 'trip') { renderRoute('trips'); showForm('trips', trip.id); } if (action === 'booking' && trip.bookingId) { renderRoute('bookings'); showForm('bookings', trip.bookingId); } if (action === 'invoice' && trip.invoiceId) { renderRoute('invoices'); showForm('invoices', trip.invoiceId); } }
 
+function roleHomeActions(role = activeRoleName()) {
+  const map = {
+    [VESSEL_OWNER_ROLE]: [['Open my vessel trips','owner-dashboard'], ['Review calendar','calendar'], ['View payouts','payroll'], ['Open chat','chat']],
+    Captain: [['Today assignments','captain-dashboard'], ['Open calendar','calendar'], ['Pre-trip checklist','pre-trip-checklist'], ['Report incident','incident-reports']],
+    Mate: [['Today assignments','mate-dashboard'], ['Open calendar','calendar'], ['Post-trip checklist','post-trip-checklist'], ['Open chat','chat']],
+    Bookkeeper: [['Open invoices','invoices'], ['Review balances','reports'], ['Payroll','payroll'], ['Expenses','expenses']]
+  };
+  return map[role] || [['Open dashboard','dashboard'], ['Open calendar','calendar']];
+}
+
+function renderRoleHomeDashboard() {
+  const page = document.getElementById('page-dashboard');
+  const role = activeRoleName();
+  const person = activeRolePerson(role) || currentUser().name;
+  const trips = visibleCalendarTrips().filter((trip) => !isCompletedTrip(trip)).sort(byDate);
+  const today = new Date().toISOString().slice(0, 10);
+  const todayTrips = trips.filter((trip) => trip.tripDate === today);
+  const notices = visibleNotifications().slice(0, 5);
+  page.innerHTML = `<div class="page-stack role-home-dashboard"><section class="card gmail-import-hero"><div><p class="eyebrow">${escapeHtml(role)} workspace</p><h3>${escapeHtml(person || currentUser().name || role)}</h3><p>${escapeHtml(roleDescription(role) || 'Start here for your assigned work and alerts.')}</p></div><span class="badge ${todayTrips.length ? 'gold' : 'green'}">${todayTrips.length} today</span></section><section class="operations-snapshot">${roleHomeActions(role).filter(([, route]) => canAccessRoute(route)).map(([label, route]) => `<button class="ops-snapshot-card blue" data-route="${route}"><span>${escapeHtml(label)}</span><strong>${escapeHtml((navItems.find(([key]) => key === route) || [,'',route])[2])}</strong><small>Open</small></button>`).join('')}</section><div class="grid dashboard-grid"><article class="card"><div class="card-header"><div><h3>My Upcoming Trips</h3><p class="muted-text">Only work assigned to you or your vessel appears here.</p></div><span class="badge blue">${trips.length}</span></div><div class="stat-list">${trips.slice(0, 8).map((trip) => `<button class="stat-row" data-route="calendar"><span>${escapeHtml(formatDate(trip.tripDate))} · ${escapeHtml(formatTime(trip.startTime))}<br><small>${escapeHtml(trip.vessel || 'No vessel')} · ${escapeHtml(trip.tourType || 'Tour')}</small></span><strong>${escapeHtml(trip.customer || 'Trip')}<br><small>${escapeHtml(calculateDispatchReadiness(trip))}</small></strong></button>`).join('') || '<p class="empty-state">No assigned upcoming trips.</p>'}</div></article><article class="card"><div class="card-header"><h3>My Alerts</h3><span class="badge ${notices.length ? 'gold' : 'green'}">${notices.length}</span></div><div class="notice-list card-pad">${notices.map((notice) => `<div class="notice-item ${notice.read ? '' : 'unread'}"><span class="badge ${statusColor(notice.category)}">${escapeHtml(notice.category || 'Alert')}</span><div><strong>${escapeHtml(notice.title)}</strong><p>${escapeHtml(notice.message)}</p></div></div>`).join('') || '<p class="empty-state">No current alerts for your profile.</p>'}</div></article></div><section class="card"><div class="card-header"><h3>How to Move Through the App</h3></div><div class="stat-list">${roleChecklist(role).map((item) => `<div class="stat-row"><span>${escapeHtml(item)}</span></div>`).join('')}</div></section></div>`;
+}
+
 function renderDashboard() {
+  if (!['Admin', 'Owner'].includes(activeRoleName()) || !isCompanyOwnerUser() && activeRoleName() !== 'Admin') {
+    renderRoleHomeDashboard();
+    return;
+  }
   store.dashboardPreferences = normalizeDashboardPreferences(store.dashboardPreferences);
   const metrics = dashboardMetrics();
   document.getElementById('page-dashboard').innerHTML = `
@@ -4230,19 +4269,102 @@ function renderChat() {
   page.innerHTML = `<div class="page-stack"><div class="chat-layout ${chatMobileThreadOpen ? 'thread-open' : ''}"><aside class="chat-sidebar card"><div class="chat-tools"><input data-chat-search type="search" placeholder="Search messages" value="${escapeHtml(chatFilters.search)}"><select data-chat-filter="role"><option value="">All roles</option>${['Admin','Owner',VESSEL_OWNER_ROLE,'Captain','Mate','Bookkeeper'].map((role) => `<option ${chatFilters.role === role ? 'selected' : ''}>${role}</option>`).join('')}</select><select data-chat-filter="person"><option value="">All people</option>${visibleChatUsers().map((user) => `<option value="${user.id}" ${chatFilters.person === user.id ? 'selected' : ''}>${escapeHtml(user.name)}</option>`).join('')}</select></div><div class="chat-section-label">Conversations</div><div class="chat-conversation-list">${conversations.map(renderChatConversationItem).join('') || '<p class="empty-state">Chat is disabled in Settings.</p>'}</div><div class="chat-section-label">New direct message</div><div class="chat-contact-list">${available.map((user) => `<button class="chat-contact" data-chat-direct-user="${user.id}"><span class="chat-avatar">${escapeHtml(user.name.slice(0, 1))}</span><span><strong>${escapeHtml(user.name)}</strong><small>${escapeHtml(user.role)}</small></span></button>`).join('') || '<p class="empty-state">No permitted contacts match.</p>'}</div></aside><section class="chat-thread card">${active ? `<header class="chat-thread-header"><button class="btn btn-outline btn-small chat-back" data-chat-back>← Back</button><div><h3>${escapeHtml(conversationLabel(active))}</h3><span>${active.type === 'general' ? 'All active users' : 'Private direct message'}</span></div><button class="btn btn-outline btn-small" data-chat-mark-read>Mark as read</button></header><div class="chat-message-list">${messages.map((message) => `<article class="chat-message ${message.senderUserId === currentUser().id ? 'sent' : 'received'}"><div class="chat-bubble"><div class="chat-message-meta"><strong>${escapeHtml(message.senderName)}</strong><span class="badge blue">${escapeHtml(message.senderRole)}</span></div><p>${escapeHtml(message.messageText)}</p><time>${new Date(message.createdAt).toLocaleString()}</time></div></article>`).join('') || '<p class="empty-state">No messages yet. Start the conversation.</p>'}</div><form class="chat-composer" data-chat-form><button class="btn btn-outline" type="button" title="Attachment placeholder">＋ Photo / File</button><input name="messageText" autocomplete="off" placeholder="Write a message…" required><button class="btn btn-primary" type="submit">Send</button></form>` : '<div class="empty-state">Choose a conversation.</div>'}</section></div></div>`;
 }
 
-function updateUserField(userId, field, value) { const user = store.users.find((item) => item.id === userId); if (!user) return; user[field] = value; saveStore(); renderLoginUsers(); toast('User updated.'); }
-function toggleUserActive(userId) { const user = store.users.find((item) => item.id === userId); if (!user || user.id === currentUser().id) return toast('The signed-in user cannot be deactivated.'); user.active = user.active === false; saveStore(); renderLoginUsers(); renderRoute('settings'); }
+function canManageTeamAccess() { return activeRoleName() === 'Admin' || isCompanyOwnerUser(); }
+function updateUserField(userId, field, value) { if (!canManageTeamAccess()) return toast('Only Eugene or an Admin can manage team access.'); const user = store.users.find((item) => item.id === userId); if (!user) return; user[field] = value; saveStore(); renderLoginUsers(); toast('User updated.'); }
+function toggleUserActive(userId) { if (!canManageTeamAccess()) return toast('Only Eugene or an Admin can manage team access.'); const user = store.users.find((item) => item.id === userId); if (!user || user.id === currentUser().id) return toast('The signed-in user cannot be deactivated.'); user.active = user.active === false; saveStore(); renderLoginUsers(); renderRoute('settings'); }
 function saveDemoPin(event) { event.preventDefault(); const form = event.target; updateUserField(form.dataset.demoPinForm, 'demoPin', String(new FormData(form).get('demoPin') || '')); }
-function createLinkedUsers() { store.users = migrateUsers(store.users, store.crew, store.vessels); saveStore(); renderLoginUsers(); renderRoute('settings'); toast('Crew and owner user links are up to date.'); }
+function createLinkedUsers() { if (!canManageTeamAccess()) return toast('Only Eugene or an Admin can manage team access.'); store.users = migrateUsers(store.users, store.crew, store.vessels); saveStore(); renderLoginUsers(); renderRoute('settings'); toast('Crew and owner user links are up to date.'); }
 function updateChatPreference(key, value) { store.chatPreferences[key] = value; saveStore(); renderNav(); renderRoute('settings'); }
 
+function renderTeamAccessSetup() {
+  const owners = [...new Set(store.vessels.map((vessel) => vessel.owner).filter(Boolean))];
+  return `<section class="legacy-tool settings-span team-access-setup"><div class="settings-card-head"><div><p class="eyebrow">Team onboarding</p><h3>Team Access Setup</h3><p>Create a profile, assign a role, link the person to crew or boat ownership, and give them a first-login PIN.</p></div><span class="badge green">Owner/Admin</span></div><form onsubmit="saveTeamAccessSetup(event)"><div class="form-grid"><label>Name<input name="name" required placeholder="Team member name"></label><label>Role<select name="role">${['Captain','Mate',VESSEL_OWNER_ROLE,'Bookkeeper','Admin','Owner'].map((role) => `<option>${escapeHtml(role)}</option>`).join('')}</select></label><label>Phone / WhatsApp<input name="phone" type="tel" placeholder="1242..."></label><label>Email<input name="email" type="email"></label><label>First-login PIN<input name="demoPin" inputmode="numeric" required placeholder="Example: 0424"></label><label>Linked crew profile<select name="linkedCrewProfileId"><option value="">Not linked</option>${store.crew.map((crew) => `<option value="${escapeHtml(crew.id)}">${escapeHtml(crew.name)}</option>`).join('')}</select></label><label>Linked boat owner<select name="linkedVesselOwnerProfileId"><option value="">Not linked</option>${owners.map((owner) => `<option>${escapeHtml(owner)}</option>`).join('')}</select></label><label class="toggle-row"><input name="whatsappOptIn" type="checkbox"> WhatsApp notifications approved</label><label class="toggle-row"><input name="scheduleNotifications" type="checkbox" checked> Scheduling and assignment notifications</label></div><p class="notice success"><strong>Suggested rollout:</strong> after saving, tell the team member to open the app, choose their profile, enter their PIN, then open My Profile to confirm phone and WhatsApp opt-in.</p><button class="btn btn-primary">Save Team Access</button></form></section>`;
+}
+
+function saveTeamAccessSetup(event) {
+  event.preventDefault();
+  if (!canManageTeamAccess()) return toast('Only Eugene or an Admin can manage team access.');
+  const data = Object.fromEntries(new FormData(event.target).entries());
+  const name = String(data.name || '').trim();
+  if (!name) return toast('Team member name is required.');
+  let role = data.role || 'Captain';
+  if (role === 'Owner' && name !== COMPANY_OWNER_NAME && data.linkedVesselOwnerProfileId !== COMPANY_OWNER_NAME) role = VESSEL_OWNER_ROLE;
+  const id = `user-${name.toLowerCase().replace(/[^a-z0-9]+/g, '-') || Date.now()}`;
+  let user = store.users.find((item) => item.name.toLowerCase() === name.toLowerCase()) || store.users.find((item) => item.id === id);
+  if (!user) {
+    user = { id, name, role, phone: '', email: '', active: true, linkedCrewProfileId: '', linkedVesselOwnerProfileId: '', demoPin: '', lastLoginAt: '', metadata: { source: 'teamSetup' } };
+    store.users.push(user);
+  }
+  Object.assign(user, {
+    name,
+    role,
+    phone: data.phone || user.phone || '',
+    email: data.email || user.email || '',
+    active: true,
+    linkedCrewProfileId: data.linkedCrewProfileId || '',
+    linkedVesselOwnerProfileId: data.linkedVesselOwnerProfileId || '',
+    demoPin: String(data.demoPin || '').trim(),
+    metadata: { ...(user.metadata || {}), source: user.metadata?.source || 'teamSetup', whatsappOptIn: Boolean(data.whatsappOptIn), scheduleNotifications: Boolean(data.scheduleNotifications), accessConfiguredAt: new Date().toISOString(), accessConfiguredBy: currentUserLabel() }
+  });
+  addAudit('updated', 'Team Access', `${user.name} configured as ${user.role}.`, { userId: user.id, role: user.role });
+  saveStore();
+  renderLoginUsers();
+  renderRoute('settings');
+  toast(`Team access saved for ${user.name}.`);
+}
+
 function renderUserSettings() {
+  if (!canManageTeamAccess()) return '';
   const owners = [...new Set(store.vessels.map((vessel) => vessel.owner).filter(Boolean))];
   return `<div class="legacy-tool settings-span"><div class="card-header"><h3>Users</h3><button class="btn btn-outline btn-small" data-create-linked-users>Sync Crew & Owners</button></div><div class="responsive-table-wrap"><table><thead><tr><th>User</th><th>Role</th><th>Active</th><th>Linked crew</th><th>Linked owner</th><th>Access PIN</th><th>Last login</th></tr></thead><tbody>${store.users.map((user) => `<tr><td><strong>${escapeHtml(user.name)}</strong><br><small>${escapeHtml(user.email || user.phone || user.id)}</small></td><td><select data-user-role="${user.id}">${['Admin','Owner',VESSEL_OWNER_ROLE,'Captain','Mate','Bookkeeper'].map((role) => `<option ${user.role === role ? 'selected' : ''}>${role}</option>`).join('')}</select></td><td><button class="btn btn-small ${user.active === false ? 'btn-danger' : 'btn-outline'}" data-user-active-toggle="${user.id}">${user.active === false ? 'Inactive' : 'Active'}</button></td><td><select data-user-link-crew="${user.id}"><option value="">Not linked</option>${store.crew.map((crew) => `<option value="${crew.id}" ${user.linkedCrewProfileId === crew.id ? 'selected' : ''}>${escapeHtml(crew.name)}</option>`).join('')}</select></td><td><select data-user-link-owner="${user.id}"><option value="">Not linked</option>${owners.map((owner) => `<option ${user.linkedVesselOwnerProfileId === owner ? 'selected' : ''}>${escapeHtml(owner)}</option>`).join('')}</select></td><td><form data-demo-pin-form="${user.id}"><input name="demoPin" value="${escapeHtml(user.demoPin || '')}" placeholder="Access PIN"><button class="btn btn-outline btn-small">Save</button></form></td><td>${user.lastLoginAt ? new Date(user.lastLoginAt).toLocaleString() : 'Never'}</td></tr>`).join('')}</tbody></table></div></div>`;
 }
 
 function renderRoleSettings() { return `<div class="legacy-tool"><h3>Roles</h3><div class="stat-list">${['Admin — all users and participating chats','Owner — admin and assigned vessel crews','Captain — admin, assigned mates, permitted owners','Mate — admin and assigned captains','Bookkeeper — general chat and admin direct messages'].map((text) => `<div class="stat-row"><span>${escapeHtml(text)}</span></div>`).join('')}</div></div>`; }
 function renderChatPreferences() { const p = store.chatPreferences; return `<div class="legacy-tool"><h3>Chat Preferences</h3><div class="settings-toggle-list">${[['generalEnabled','Enable general chat'],['directEnabled','Enable direct messages'],['showUnreadBadges','Show unread chat badges']].map(([key,label]) => `<label><input type="checkbox" data-chat-preference="${key}" ${p[key] ? 'checked' : ''}> ${label}</label>`).join('')}</div></div>`; }
+
+function roleFeatureList(role = activeRoleName()) {
+  const routes = (roleRouteVisibility[role] ? [...roleRouteVisibility[role]] : navItems.map(([route]) => route)).filter((route) => canAccessRoute(route, role));
+  return routes.map((route) => (navItems.find(([key]) => key === route) || [route, '', route])[2]);
+}
+
+function roleChecklist(role = activeRoleName()) {
+  const map = {
+    Owner: ['Review all bookings and calendar changes', 'Assign vessels and crew', 'Monitor WhatsApp and Gmail imports', 'Review payroll, owner payouts, incidents, and reports'],
+    Admin: ['Manage users and roles', 'Set up team access', 'Review bookings, dispatch, payroll, reports, and settings'],
+    [VESSEL_OWNER_ROLE]: ['Review only your vessel trips', 'Watch owner payout status', 'Check vessel readiness and incidents', 'Use chat for operations questions'],
+    Captain: ['Review assigned trips', 'Accept or review assignments', 'Complete pre-trip and post-trip checklist work', 'Report incidents or readiness issues'],
+    Mate: ['Review assigned trips', 'Coordinate with captain', 'Complete assigned checklist work', 'Report incidents or supplies needed'],
+    Bookkeeper: ['Review invoices and balances', 'Track payroll and expenses', 'Use reports for financial follow-up', 'Avoid customer WhatsApp unless owner approves']
+  };
+  return map[role] || ['Use Dashboard first', 'Open Calendar for scheduled work', 'Use Chat for help'];
+}
+
+function renderMyProfile() {
+  const page = document.getElementById('page-my-profile');
+  const user = currentUser();
+  const role = activeRoleName();
+  const features = roleFeatureList(role);
+  const checklist = roleChecklist(role);
+  const ownerLink = user.linkedVesselOwnerProfileId ? `<span><small>Linked owner</small><strong>${escapeHtml(user.linkedVesselOwnerProfileId)}</strong></span>` : '';
+  const crewLink = user.linkedCrewProfileId ? `<span><small>Linked crew</small><strong>${escapeHtml(store.crew.find((crew) => crew.id === user.linkedCrewProfileId)?.name || user.linkedCrewProfileId)}</strong></span>` : '';
+  page.innerHTML = `<div class="page-stack my-profile-page"><section class="card gmail-import-hero"><div><p class="eyebrow">Signed in profile</p><h3>${escapeHtml(user.name || 'Team Member')}</h3><p>${escapeHtml(roleDescription(role) || 'Use your assigned dashboard and visible modules for your daily work.')}</p></div><span class="badge blue">${escapeHtml(role)}</span></section><section class="card"><div class="card-header"><div><h3>My Access</h3><p class="muted-text">These are the app areas available to your profile.</p></div></div><div class="integration-readiness-grid"><span><small>Role</small><strong>${escapeHtml(role)}</strong></span>${crewLink}${ownerLink}<span><small>WhatsApp customer messaging</small><strong>${isCompanyOwnerUser() || role === 'Admin' ? 'Allowed' : 'Not allowed'}</strong></span></div><div class="settings-toggle-list">${features.map((feature) => `<span class="badge blue">${escapeHtml(feature)}</span>`).join('')}</div></section><section class="card"><div class="card-header"><h3>How to Work From Here</h3></div><div class="stat-list">${checklist.map((item) => `<div class="stat-row"><span>${escapeHtml(item)}</span></div>`).join('')}</div></section><form class="card record-form" onsubmit="saveMyProfile(event)"><div class="card-header"><h3>Contact & Notifications</h3></div><div class="form-grid"><label>Name<input name="name" value="${escapeHtml(user.name || '')}" required></label><label>Email<input name="email" type="email" value="${escapeHtml(user.email || '')}"></label><label>Phone / WhatsApp<input name="phone" type="tel" value="${escapeHtml(user.phone || '')}"></label><label>Access PIN<input name="demoPin" type="password" inputmode="numeric" value="${escapeHtml(user.demoPin || '')}" required></label><label class="toggle-row"><input name="whatsappOptIn" type="checkbox" ${user.metadata?.whatsappOptIn ? 'checked' : ''}> I agree to receive relevant WhatsApp operations notifications.</label><label class="toggle-row"><input name="scheduleNotifications" type="checkbox" ${user.metadata?.scheduleNotifications !== false ? 'checked' : ''}> Send me schedule and assignment notifications.</label></div><div class="form-actions"><button class="btn btn-primary">Save My Profile</button></div></form></div>`;
+}
+
+function saveMyProfile(event) {
+  event.preventDefault();
+  const data = Object.fromEntries(new FormData(event.target).entries());
+  const user = currentUser();
+  user.name = data.name || user.name;
+  user.email = data.email || '';
+  user.phone = data.phone || '';
+  user.demoPin = String(data.demoPin || '').trim();
+  user.metadata = { ...(user.metadata || {}), whatsappOptIn: Boolean(data.whatsappOptIn), scheduleNotifications: Boolean(data.scheduleNotifications), profileCompletedAt: new Date().toISOString() };
+  saveStore();
+  renderLoginUsers();
+  document.getElementById('activeRole').textContent = `${user.name} · ${user.role}`;
+  renderMyProfile();
+  toast('Profile saved.');
+}
 
 function renderLegacy() { renderRoute('settings'); }
 
@@ -4385,7 +4507,7 @@ async function syncOwnerGmail(mode = 'latest') {
 
 function settingsMarkup() {
   const ownerIntegrationTools = isCompanyOwnerUser() ? `${integrationReadinessMarkup()}${gmailImportSettingsMarkup()}` : '';
-  return `<div class="grid settings-grid" style="margin-top:18px">${appDownloadSettingsMarkup()}${sharedDatabaseStatusMarkup()}${ownerIntegrationTools}${renderUserSettings()}${renderRoleSettings()}${renderChatPreferences()}<div class="legacy-tool dashboard-preferences-settings"><h3>Dashboard Preferences</h3>${renderDashboardCustomizer()}</div><div class="legacy-tool"><h3>Workspace Data</h3><p>${store.vessels.length} vessels, ${store.crew.length} crew members, and ${store.users.length} user profiles are loaded from the shared operations workspace.</p></div><div class="legacy-tool"><h3>Data Management</h3><div class="legacy-actions"><button class="btn btn-outline" data-export-store>Export JSON</button><label class="btn btn-outline" for="importStoreFileSettings">Import JSON<input id="importStoreFileSettings" data-import-store type="file" accept="application/json" hidden></label></div><p class="notice success">Production mode is active. Shared records sync through the backend database.</p></div><div class="legacy-tool archived-legacy-tools"><h3>Archived Legacy Tools</h3><p>Legacy tools are retained for reference only. Active operations should be completed through the main application tabs.</p><div class="legacy-list">${legacyTools.map((tool) => `<div class="legacy-tool"><h3>${tool.title}</h3><p>${tool.desc}</p><div class="legacy-actions"><a class="btn btn-outline btn-small" href="${tool.file}" target="_blank" rel="noopener">Open reference</a></div></div>`).join('')}</div></div></div>`;
+  return `<div class="grid settings-grid" style="margin-top:18px">${appDownloadSettingsMarkup()}${sharedDatabaseStatusMarkup()}${ownerIntegrationTools}${renderTeamAccessSetup()}${renderUserSettings()}${renderRoleSettings()}${renderChatPreferences()}<div class="legacy-tool dashboard-preferences-settings"><h3>Dashboard Preferences</h3>${renderDashboardCustomizer()}</div><div class="legacy-tool"><h3>Workspace Data</h3><p>${store.vessels.length} vessels, ${store.crew.length} crew members, and ${store.users.length} user profiles are loaded from the shared operations workspace.</p></div><div class="legacy-tool"><h3>Data Management</h3><div class="legacy-actions"><button class="btn btn-outline" data-export-store>Export JSON</button><label class="btn btn-outline" for="importStoreFileSettings">Import JSON<input id="importStoreFileSettings" data-import-store type="file" accept="application/json" hidden></label></div><p class="notice success">Production mode is active. Shared records sync through the backend database.</p></div><div class="legacy-tool archived-legacy-tools"><h3>Archived Legacy Tools</h3><p>Legacy tools are retained for reference only. Active operations should be completed through the main application tabs.</p><div class="legacy-list">${legacyTools.map((tool) => `<div class="legacy-tool"><h3>${tool.title}</h3><p>${tool.desc}</p><div class="legacy-actions"><a class="btn btn-outline btn-small" href="${tool.file}" target="_blank" rel="noopener">Open reference</a></div></div>`).join('')}</div></div></div>`;
 }
 
 function toast(message) {

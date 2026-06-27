@@ -30,7 +30,18 @@ const WA_QUICK_CATEGORIES = [
 let _waCurrentCategory = '';
 let _waCurrentRole = 'Customer';
 
+function waQuickCanUse(category = 'Customer Booking Confirmation', tripId = '') {
+  if (typeof whatsAppRoleCanCreate !== 'function') return false;
+  const trip = typeof whatsappTrip === 'function' ? whatsappTrip(tripId) : (store?.trips || []).find(t => t.id === tripId) || {};
+  return whatsAppRoleCanCreate(category, trip);
+}
+
 function openWhatsAppQuickSend(category = null, tripId = '', invoiceId = '') {
+  const requested = category || 'Customer Booking Confirmation';
+  if (!waQuickCanUse(requested, tripId)) {
+    toast('Your profile cannot send that WhatsApp message.');
+    return;
+  }
   document.getElementById('waQuickModal')?.remove();
 
   const apiLive = store?.integrationStatus?.whatsappConfigured;
@@ -38,7 +49,7 @@ function openWhatsAppQuickSend(category = null, tripId = '', invoiceId = '') {
     ? '<span class="wa-status-pill wa-live">🟢 Business API Live</span>'
     : '<span class="wa-status-pill wa-manual">🟡 Opens in WhatsApp</span>';
 
-  const tripOptions = (store?.trips || [])
+  const tripOptions = (typeof visibleCalendarTrips === 'function' ? visibleCalendarTrips() : (store?.trips || []))
     .filter(t => t.status !== 'Cancelled')
     .sort((a, b) => String(a.tripDate || '').localeCompare(String(b.tripDate || '')))
     .map(t => `<option value="${escapeHtml(t.id)}" ${t.id === tripId ? 'selected' : ''}>
@@ -46,7 +57,7 @@ function openWhatsAppQuickSend(category = null, tripId = '', invoiceId = '') {
     </option>`)
     .join('');
 
-  const categoryGrid = WA_QUICK_CATEGORIES.map(cat => `
+  const categoryGrid = WA_QUICK_CATEGORIES.filter(cat => waQuickCanUse(cat.template, tripId)).map(cat => `
     <button type="button" class="wa-cat-btn ${category === cat.template ? 'wa-cat-selected' : ''}"
       onclick="waSelectCategory('${escapeHtml(cat.template)}','${escapeHtml(cat.role)}')">
       <span class="wa-cat-icon">${cat.icon}</span>
@@ -110,6 +121,11 @@ function waBackdropClose(e) {
 }
 
 function waSelectCategory(template, role, scroll = true) {
+  const tripId = document.getElementById('waQuickTrip')?.value || '';
+  if (!waQuickCanUse(template, tripId)) {
+    toast('Your profile cannot send that WhatsApp message.');
+    return;
+  }
   _waCurrentCategory = template;
   _waCurrentRole = role || 'Customer';
   document.querySelectorAll('.wa-cat-btn').forEach(btn => {
@@ -143,6 +159,10 @@ async function waFireSend() {
   const recipient = document.getElementById('waQuickRecipient')?.value?.trim() || 'Customer';
   const tripId = document.getElementById('waQuickTrip')?.value || '';
 
+  if (!waQuickCanUse(_waCurrentCategory || 'Customer Booking Confirmation', tripId)) {
+    toast('Your profile cannot send that WhatsApp message.');
+    return;
+  }
   if (!body) { toast('Add a message before sending.'); return; }
   if (!phone) { toast('Enter a phone number.'); return; }
 
@@ -206,6 +226,7 @@ async function waCopyMsg() {
 
 // Card-level WhatsApp button — call from any trip/booking card
 function renderCardWaButton(tripId, category = 'Customer Booking Confirmation') {
+  if (!waQuickCanUse(category, tripId)) return '';
   return `<button type="button" class="card-wa-btn"
     onclick="event.stopPropagation();openWhatsAppQuickSend('${escapeHtml(category)}','${escapeHtml(tripId)}')">
     📲 WhatsApp

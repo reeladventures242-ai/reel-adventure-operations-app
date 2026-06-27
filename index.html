@@ -29,6 +29,8 @@
       <p class="login-copy">Select your operations profile to open the live shared workspace.</p>
       <label for="userSelect">User</label>
       <select id="userSelect"></select>
+      <label for="userPin">Access PIN</label>
+      <input id="userPin" type="password" inputmode="numeric" autocomplete="current-password" placeholder="Enter your PIN">
       <select id="roleSelect" hidden aria-hidden="true">
         <option value="Owner / Admin">Owner / Admin</option>
         <option value="Owner">Owner</option>
@@ -65,8 +67,7 @@
         </div>
         <div class="topbar-actions">
           <span id="activeRole" class="role-pill">Owner / Admin</span>
-          <!-- UPGRADE: WhatsApp Quick-Send button always visible in topbar -->
-          <button id="waQuickBtn" class="btn btn-whatsapp btn-small" onclick="openWhatsAppQuickSend()" title="Send WhatsApp message">
+          <button id="waQuickBtn" class="btn btn-whatsapp btn-small" onclick="openWhatsAppQuickSend()" title="Send WhatsApp message" hidden>
             📲 WhatsApp
           </button>
           <button id="installBtn" class="btn btn-outline btn-small" hidden>Install</button>
@@ -99,6 +100,7 @@
         <div id="page-cruise-schedule" class="page"></div>
         <div id="page-reports" class="page"></div>
         <div id="page-notifications" class="page"></div>
+        <div id="page-my-profile" class="page"></div>
         <div id="page-audit" class="page"></div>
         <div id="page-settings" class="page"></div>
         <div id="page-legacy" class="page"></div>
