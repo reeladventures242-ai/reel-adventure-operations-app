@@ -536,15 +536,15 @@ function weatherDetailsCard(trip, compact = false) {
   return `<details class="weather-details-card ${weatherRiskClass(level)}" ${compact ? '' : 'open'}><summary>${weatherRiskBadge(trip)}<span>Nassau, Bahamas · ${escapeHtml(formatDate(trip.tripDate))}</span></summary><div class="weather-detail-grid"><span><small>Wind range</small><strong>${daily?.windMin ?? condition.windSpeed}–${daily?.windMax ?? condition.windSpeed} kt</strong></span><span><small>Maximum gust</small><strong>${daily?.gustMax ?? condition.windGusts} kt</strong></span><span><small>Rain chance</small><strong>Up to ${daily?.rainMax ?? condition.rainChance}%</strong></span><span><small>Sea conditions</small><strong>${escapeHtml(daily?.seas || condition.seaConditions)}</strong></span></div><small>${escapeHtml(condition.weatherSource)} · Updated ${escapeHtml(new Date(condition.lastUpdated).toLocaleString())}</small></details>`;
 }
 function weatherSummaryCards(trips = store.trips || []) {
-  const counts = { Green: 0, Yellow: 0, Red: 0 }; trips.filter((trip) => trip.status !== 'Cancelled').forEach((trip) => counts[tripWeatherRisk(trip)]++);
+  const counts = { Green: 0, Yellow: 0, Red: 0 }; currentWeatherTrips(trips).forEach((trip) => counts[tripWeatherRisk(trip)]++);
   return `<div class="grid kpi-grid weather-summary-cards">${kpi('Trips Safe', counts.Green, 'Green weather risk')}${kpi('Trips To Monitor', counts.Yellow, 'Yellow weather risk')}${kpi('High Risk Trips', counts.Red, 'Red weather risk')}</div>`;
 }
 function renderWeatherAlertPanel(trips = store.trips || []) {
-  const risks = trips.filter((trip) => ['Yellow','Red'].includes(tripWeatherRisk(trip)));
+  const risks = currentWeatherTrips(trips).filter((trip) => ['Yellow','Red'].includes(tripWeatherRisk(trip)));
   return `<details class="card weather-alert-panel app-accordion" open><summary><h3>Weather Alerts</h3><span class="badge ${risks.some((trip) => tripWeatherRisk(trip) === 'Red') ? 'red' : risks.length ? 'gold' : 'green'}">${risks.length} review</span></summary><div class="stat-list">${risks.length ? risks.slice(0, 8).map((trip) => `<div class="stat-row"><span>${escapeHtml(formatDate(trip.tripDate))} · ${escapeHtml(trip.customer || 'Trip')}</span><strong>${weatherRiskBadge(trip)}</strong></div>`).join('') : '<p class="empty-state">No Yellow or Red trip weather risks.</p>'}</div></details>`;
 }
 function generateWeatherAlerts() {
-  (store.trips || []).filter((trip) => ['Yellow','Red'].includes(tripWeatherRisk(trip))).forEach((trip) => {
+  currentWeatherTrips(store.trips || []).filter((trip) => ['Yellow','Red'].includes(tripWeatherRisk(trip))).forEach((trip) => {
     const level = tripWeatherRisk(trip), key = `weather-${trip.id}-${level}`;
     if ((store.notifications || []).some((notice) => notice.metadata?.weatherAlertKey === key)) return;
     addNotification(`Weather ${weatherRiskLabel(level)}: ${trip.customer || 'Trip'}`, `${formatDate(trip.tripDate)} ${formatTime(trip.startTime)} · ${weatherForTrip(trip)?.notes || 'Review conditions before departure.'}`, level === 'Red' ? 'critical' : 'warning', { category: 'Weather', tripId: trip.id, weatherAlertKey: key, vessel: trip.vessel });
@@ -605,7 +605,7 @@ async function mountBoatBookerWeatherWidget() {
   }
 }
 function renderDashboardWeatherWidget() {
-  const days = [...new Set((store.weatherRecords || []).map((record) => record.date).filter(Boolean))].sort().slice(0, 7).map(dailyWeatherSummary).filter(Boolean);
+  const days = [...new Set((store.weatherRecords || []).map((record) => record.date).filter(isDateTodayOrFuture))].sort().slice(0, 7).map(dailyWeatherSummary).filter(Boolean);
   return `<div class="card boatbooker-weather-card dashboard-weather-widget"><div class="card-header"><div><p class="eyebrow">Live Nassau weather</p><h3>7-Day Marine Forecast</h3><p>Nassau, Bahamas · Date-based operating outlook</p></div><div class="weather-header-actions"><span class="integration-status">${escapeHtml(store.weatherIntegration.status)}</span><button class="btn btn-outline btn-small" type="button" onclick="refreshLiveWeather()">Refresh</button></div></div><div class="native-weather-forecast">${days.length ? days.map((day, index) => `<article class="native-weather-day ${weatherRiskClass(day.risk)}"><div><span>${index === 0 ? 'Today' : escapeHtml(new Date(`${day.date}T12:00:00`).toLocaleDateString([], { weekday: 'short' }))}</span><strong>${escapeHtml(formatDate(day.date))}</strong></div><b class="weather-condition-icon">${day.risk === 'Red' ? '!' : day.risk === 'Yellow' ? '~' : '✓'}</b><dl><div><dt>Wind</dt><dd>${day.windMin}–${day.windMax} kt</dd></div><div><dt>Gusts</dt><dd>${day.gustMax} kt</dd></div><div><dt>Rain</dt><dd>${day.rainMax}%</dd></div><div><dt>Sea</dt><dd>${escapeHtml(day.seas || 'Review')}</dd></div></dl><span class="badge ${weatherRiskClass(day.risk)}">${escapeHtml(weatherRiskLabel(day.risk))}</span></article>`).join('') : '<div class="weather-loading-state"><strong>Loading Nassau forecast</strong><span>Live marine conditions will appear here when the weather service responds.</span><button class="btn btn-outline btn-small" type="button" onclick="refreshLiveWeather()">Load Forecast</button></div>'}</div><footer class="weather-source-footer"><span>Forecast: ${escapeHtml(store.weatherIntegration.provider || 'Live Nassau Weather')}</span><a href="https://boatbooker.com" target="_blank" rel="noopener">BoatBooker weather source</a></footer></div>`;
 }
 function activateDashboardWeatherWidget() {
@@ -725,7 +725,8 @@ function isStockAlertNotice(notice = {}) {
 }
 
 function visibleNotifications(notices = store.notifications || []) {
-  return canViewStockAlerts() ? notices : notices.filter((notice) => !isStockAlertNotice(notice));
+  const current = notices.filter(isCurrentOperationalNotice);
+  return canViewStockAlerts() ? current : current.filter((notice) => !isStockAlertNotice(notice));
 }
 
 function unreadNotificationCount() {
@@ -734,6 +735,18 @@ function unreadNotificationCount() {
 
 function money(value) { return Number(value || 0).toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: Number(value || 0) % 1 ? 2 : 0, maximumFractionDigits: 2 }); }
 function byDate(a, b) { return String(a.date || a.tripDate).localeCompare(String(b.date || b.tripDate)); }
+function todayKey() { const now = new Date(); return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`; }
+function isDateTodayOrFuture(value) { return Boolean(value) && String(value) >= todayKey(); }
+function isCurrentOrFutureTrip(trip = {}) { return !['Completed', 'Cancelled'].includes(trip.status) && (!trip.tripDate || isDateTodayOrFuture(trip.tripDate)); }
+function isFutureWeatherTrip(trip = {}) { return !['Completed', 'Cancelled'].includes(trip.status) && isDateTodayOrFuture(trip.tripDate); }
+function currentOperationalTrips(trips = store.trips || []) { return trips.filter(isCurrentOrFutureTrip); }
+function currentWeatherTrips(trips = store.trips || []) { return trips.filter(isFutureWeatherTrip); }
+function isCurrentOperationalNotice(notice = {}) {
+  const tripId = notice.metadata?.tripId;
+  if (!tripId || !['Weather', 'Assignment', 'Checklist'].includes(notice.category)) return true;
+  const trip = (store.trips || []).find((item) => item.id === tripId);
+  return !trip || isCurrentOrFutureTrip(trip);
+}
 function escapeHtml(value) { return String(value ?? '').replace(/[&<>'"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[c])); }
 function makeId(prefix) { return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2, 7)}`; }
 function getOptions(kind) {
@@ -1596,7 +1609,7 @@ function renderRoleHomeDashboard() {
   const page = document.getElementById('page-dashboard');
   const role = activeRoleName();
   const person = activeRolePerson(role) || currentUser().name;
-  const trips = visibleCalendarTrips().filter((trip) => !isCompletedTrip(trip)).sort(byDate);
+  const trips = currentOperationalTrips(visibleCalendarTrips()).sort(byDate);
   const today = new Date().toISOString().slice(0, 10);
   const todayTrips = trips.filter((trip) => trip.tripDate === today);
   const notices = visibleNotifications().slice(0, 5);
@@ -1835,9 +1848,9 @@ function renderCrewRoleDashboard(role) {
   const selected = dashboardFilters[role] || page.querySelector('[data-role-person]')?.value || getOptions('crew')[0] || '';
   dashboardFilters[role] = '';
   const assigned = store.trips.filter((trip) => trip[role] === selected && trip.status !== 'Cancelled').sort((a, b) => tripSortValue(a).localeCompare(tripSortValue(b)));
-  const upcoming = assigned.filter((trip) => !isCompletedTrip(trip));
+  const upcoming = currentOperationalTrips(assigned);
   const completed = assigned.filter(isCompletedTrip);
-  page.innerHTML = `<div class="page-stack"><div class="module-actions"><select data-role-person onchange="renderCrewRoleDashboard('${role}')">${getOptions('crew').map((name) => `<option value="${escapeHtml(name)}" ${name === selected ? 'selected' : ''}>${escapeHtml(name)}</option>`).join('')}</select></div>${renderDashboardWeatherWidget()}<div class="grid kpi-grid dashboard-kpis">${kpi('Assigned', assigned.length, `${roleLabel} trip cards`)}${kpi('Upcoming', upcoming.length, 'Not completed or cancelled')}${kpi('Accepted', assigned.filter((trip) => normalizeAssignmentStatus(trip)[role] === 'Accepted').length, 'Accepted status')}${kpi('Completed archive', completed.length, 'Archived completed trips')}</div><div class="role-trip-list">${upcoming.length ? upcoming.map((trip) => renderRoleTripCard(trip, role)).join('') : '<div class="card card-pad empty-state">No upcoming assignments for this crew member.</div>'}</div><div class="card"><div class="card-header"><h3>Completed Trip Archive</h3><span class="badge green">${completed.length} completed</span></div><div class="role-archive-list">${completed.length ? completed.map((trip) => renderRoleArchiveTrip(trip, role)).join('') : '<p class="empty-state">Completed trips will archive here.</p>'}</div></div>${renderPhotoNotePanel(route)}</div>`;
+  page.innerHTML = `<div class="page-stack"><div class="module-actions"><select data-role-person onchange="renderCrewRoleDashboard('${role}')">${getOptions('crew').map((name) => `<option value="${escapeHtml(name)}" ${name === selected ? 'selected' : ''}>${escapeHtml(name)}</option>`).join('')}</select></div>${renderDashboardWeatherWidget()}<div class="grid kpi-grid dashboard-kpis">${kpi('Assigned', upcoming.length, `${roleLabel} current trip cards`)}${kpi('Upcoming', upcoming.length, 'Today forward only')}${kpi('Accepted', upcoming.filter((trip) => normalizeAssignmentStatus(trip)[role] === 'Accepted').length, 'Accepted current status')}${kpi('Completed archive', completed.length, 'Archived completed trips')}</div><div class="role-trip-list">${upcoming.length ? upcoming.map((trip) => renderRoleTripCard(trip, role)).join('') : '<div class="card card-pad empty-state">No upcoming assignments for this crew member.</div>'}</div><div class="card"><div class="card-header"><h3>Completed Trip Archive</h3><span class="badge green">${completed.length} completed</span></div><div class="role-archive-list">${completed.length ? completed.map((trip) => renderRoleArchiveTrip(trip, role)).join('') : '<p class="empty-state">Completed trips will archive here.</p>'}</div></div>${renderPhotoNotePanel(route)}</div>`;
   activateDashboardWeatherWidget();
 }
 
@@ -1903,7 +1916,7 @@ function renderCrud(route) {
   page.querySelector('.search-input').addEventListener('input', () => renderTable(route));
   renderForm(route);
   if (route === 'bookings') renderUnifiedBookingsTrips();
-  if (route === 'trips') { renderAssignmentBoard(); page.querySelector('.page-stack')?.insertAdjacentHTML('beforeend', renderFuelTrackingOverview()); page.querySelector('.page-stack')?.insertAdjacentHTML('beforeend', `<div class="card card-pad trip-weather-overview"><div class="card-header"><h3>Trip Weather Risk</h3><button class="btn btn-outline btn-small" type="button" onclick="refreshLiveWeather()">Refresh Forecast</button></div>${weatherSummaryCards(store.trips)}${store.trips.map((trip) => `<div class="weather-trip-row"><strong>${escapeHtml(formatDate(trip.tripDate))} · ${escapeHtml(trip.customer || 'Trip')}</strong>${weatherRiskBadge(trip)}</div>`).join('') || '<p class="empty-state">No scheduled trips.</p>'}</div>`); }
+  if (route === 'trips') { renderAssignmentBoard(); page.querySelector('.page-stack')?.insertAdjacentHTML('beforeend', renderFuelTrackingOverview()); page.querySelector('.page-stack')?.insertAdjacentHTML('beforeend', `<div class="card card-pad trip-weather-overview"><div class="card-header"><h3>Trip Weather Risk</h3><button class="btn btn-outline btn-small" type="button" onclick="refreshLiveWeather()">Refresh Forecast</button></div>${weatherSummaryCards(currentWeatherTrips(visibleCalendarTrips()))}${currentWeatherTrips(visibleCalendarTrips()).sort(byDate).map((trip) => `<div class="weather-trip-row"><strong>${escapeHtml(formatDate(trip.tripDate))} · ${escapeHtml(trip.customer || 'Trip')}</strong>${weatherRiskBadge(trip)}</div>`).join('') || '<p class="empty-state">No scheduled trips from today forward.</p>'}</div>`); }
   if (route === 'crew') renderCrewDashboard();
   if (route === 'vessels') { renderVesselManagementPanel(); renderEntityIncidentHistory('vessel'); }
   if (route === 'crew') renderEntityIncidentHistory('crew');
@@ -2089,7 +2102,7 @@ function saveRecord(event, route) {
   if (route === 'bookings') synchronizeBookingWorkflow({ ...data, id: savedId });
   addAudit(action, config.title, `${config.title.slice(0, -1)} ${summarizeRecord(data)} ${action}.`, { route });
   if (route === 'trips') syncFuelExpense({ ...data, id: savedId });
-  if (route === 'trips') {
+  if (route === 'trips' && isCurrentOrFutureTrip(data)) {
     addNotification('Trip saved', `${data.customer || 'A trip'} is ${data.status || 'Scheduled'} for ${formatDate(data.tripDate)}.`, 'success', { route, category: 'Assignment' });
     if (data.captain) addRoleNotification('Captain', data.captain, 'New captain assignment', `${data.customer || 'A trip'} is assigned for ${formatDate(data.tripDate)}.`, 'info', 'Assignment', { route, tripId: savedId });
     if (data.mate && data.mate !== 'None') addRoleNotification('Mate', data.mate, 'New mate assignment', `${data.customer || 'A trip'} is assigned for ${formatDate(data.tripDate)}.`, 'info', 'Assignment', { route, tripId: savedId });
@@ -2706,13 +2719,12 @@ function renderAssignmentBoard(host = document.getElementById('page-trips')) {
 }
 
 function sortedDispatchTrips() {
-  return [...store.trips]
-    .filter((trip) => trip.status !== 'Cancelled')
+  return currentOperationalTrips(store.trips || [])
     .sort((a, b) => String((a.tripDate || '') + (a.startTime || '') + (a.customer || '')).localeCompare(String((b.tripDate || '') + (b.startTime || '') + (b.customer || ''))));
 }
 
 function renderEmptyDispatchState() {
-  return '<div class="empty-state">No trips assigned yet. Create a trip with a vessel, captain, mate, date, and start time to populate the dispatch tree.</div>';
+  return '<div class="empty-state">No current or upcoming trips need assignment. Create a trip with a vessel, captain, mate, date, and start time to populate the dispatch tree.</div>';
 }
 
 function groupByValue(items, getKey) {
@@ -3981,7 +3993,7 @@ function recordReminderHistory(key, trip, role, name, type, message) {
   store.reminderHistory = store.reminderHistory.slice(0, 250);
 }
 function generateChecklistReminders(now = new Date()) {
-  (store.trips || []).filter((trip) => trip.status !== 'Cancelled').forEach((trip) => {
+  currentOperationalTrips(store.trips || []).forEach((trip) => {
     const crew = crewAssignmentsForTrip(trip);
     const start = tripDateTime(trip);
     if (start && now <= start && latestChecklistStatus(trip, 'Pre Trip') !== 'Completed') {
@@ -4014,7 +4026,7 @@ function renderVesselManagementPanel() {
   panel.className = 'card vessel-management-panel app-accordion';
   panel.dataset.vesselManagementPanel = 'true';
   panel.open = true;
-  panel.innerHTML = `<summary><div><h3>Vessel Management Summary</h3><p class="muted-text">All vessels remain visible here. Detailed maintenance tracking and service records apply only to Reel Adventure Tours I and Reel Adventure Tours II. Checklist Yes / No controls live only inside Pre Trip and Post Trip checklist vessel sections.</p></div><span class="chevron" aria-hidden="true">⌄</span></summary><div class="readiness-grid">${store.vessels.map((vessel) => { const assigned = (store.trips || []).filter((trip) => trip.vessel === vessel.name && !['Completed','Cancelled'].includes(trip.status)); return `<article class="readiness-card"><strong>${escapeHtml(vessel.name)}</strong>${isMaintenanceVessel(vessel.name) ? `<span class="badge ${maintenanceStatusColor(maintenanceStatusForVessel(vessel.name))}">Maintenance: ${escapeHtml(maintenanceStatusForVessel(vessel.name))}</span>` : `<span class="badge gray">Maintenance tracking not required</span>`}<span>${escapeHtml(vessel.model || 'No model')} · ${escapeHtml(vessel.owner || 'No owner')} · Capacity ${escapeHtml(vessel.capacity || '—')}</span><p><strong>Status:</strong> ${escapeHtml(vessel.status || 'Active')}</p><p><strong>Assigned Trips:</strong> ${assigned.length ? assigned.map((trip) => `${formatDate(trip.tripDate)} ${trip.customer || 'Trip'}`).join(', ') : escapeHtml(vessel.assignedTrips || 'No active assignments')}</p><p><strong>Maintenance Notes:</strong> ${escapeHtml(vessel.maintenanceNotes || 'None')}</p><p><strong>Readiness Summary:</strong> ${escapeHtml(vessel.readinessSummary || vessel.status || 'Use checklist records and dispatch readiness for operational readiness.')}</p></article>`; }).join('')}</div>`;
+  panel.innerHTML = `<summary><div><h3>Vessel Management Summary</h3><p class="muted-text">All vessels remain visible here. Detailed maintenance tracking and service records apply only to Reel Adventure Tours I and Reel Adventure Tours II. Checklist Yes / No controls live only inside Pre Trip and Post Trip checklist vessel sections.</p></div><span class="chevron" aria-hidden="true">⌄</span></summary><div class="readiness-grid">${store.vessels.map((vessel) => { const assigned = currentOperationalTrips(store.trips || []).filter((trip) => trip.vessel === vessel.name); return `<article class="readiness-card"><strong>${escapeHtml(vessel.name)}</strong>${isMaintenanceVessel(vessel.name) ? `<span class="badge ${maintenanceStatusColor(maintenanceStatusForVessel(vessel.name))}">Maintenance: ${escapeHtml(maintenanceStatusForVessel(vessel.name))}</span>` : `<span class="badge gray">Maintenance tracking not required</span>`}<span>${escapeHtml(vessel.model || 'No model')} · ${escapeHtml(vessel.owner || 'No owner')} · Capacity ${escapeHtml(vessel.capacity || '—')}</span><p><strong>Status:</strong> ${escapeHtml(vessel.status || 'Active')}</p><p><strong>Assigned Trips:</strong> ${assigned.length ? assigned.map((trip) => `${formatDate(trip.tripDate)} ${trip.customer || 'Trip'}`).join(', ') : escapeHtml(vessel.assignedTrips || 'No active assignments')}</p><p><strong>Maintenance Notes:</strong> ${escapeHtml(vessel.maintenanceNotes || 'None')}</p><p><strong>Readiness Summary:</strong> ${escapeHtml(vessel.readinessSummary || vessel.status || 'Use checklist records and dispatch readiness for operational readiness.')}</p></article>`; }).join('')}</div>`;
   table.before(panel);
 }
 
@@ -4024,8 +4036,8 @@ function renderOwnerDashboard() {
   const selected = dashboardFilters.owner || page.querySelector('[data-owner-select]')?.value || getOptions('owners')[0] || '';
   dashboardFilters.owner = '';
   const ownerVessels = store.vessels.filter((vessel) => vessel.owner === selected).map((vessel) => vessel.name);
-  const trips = store.trips.filter((trip) => ownerVessels.includes(trip.vessel)).sort(byDate);
-  const notices = (store.notifications || []).filter((notice) => selected === COMPANY_OWNER_NAME ? notice.recipientRole === 'Owner' || ownerVessels.includes(notice.metadata?.vessel) : (notice.recipientRole === VESSEL_OWNER_ROLE && notice.recipientName === selected) || ownerVessels.includes(notice.metadata?.vessel));
+  const trips = currentOperationalTrips(store.trips.filter((trip) => ownerVessels.includes(trip.vessel))).sort(byDate);
+  const notices = visibleNotifications(store.notifications || []).filter((notice) => selected === COMPANY_OWNER_NAME ? notice.recipientRole === 'Owner' || ownerVessels.includes(notice.metadata?.vessel) : (notice.recipientRole === VESSEL_OWNER_ROLE && notice.recipientName === selected) || ownerVessels.includes(notice.metadata?.vessel));
   const ownerPayroll = payrollEntries().filter((entry) => entry.role === 'Owner' && entry.person === selected);
   const outstanding = ownerPayroll.reduce((sum, entry) => sum + entry.outstanding, 0);
   const checklistDone = trips.filter((trip) => latestChecklistStatus(trip, 'Pre Trip') === 'Completed').length;
@@ -5138,6 +5150,7 @@ function queueAutoWhatsAppDraft({ category, recipientName, recipientRole, phoneN
 }
 function queueTripWhatsAppDrafts(trip, source = {}) {
   if (!trip || !store.autoOpsSettings?.createWhatsAppDrafts) return 0;
+  if (!isCurrentOrFutureTrip(trip)) return 0;
   let count = 0;
   const queueFromTemplate = (category) => {
     const defaults = whatsappContextDefaults(category, trip.id, '');
@@ -5256,7 +5269,7 @@ function assistantDateRange(period = 'week') {
   else { start.setDate(now.getDate() - now.getDay()); end.setDate(start.getDate() + 6); }
   return [start.toISOString().slice(0,10), end.toISOString().slice(0,10)];
 }
-function assistantScopedTrips() { return visibleCalendarTrips(); }
+function assistantScopedTrips() { return currentOperationalTrips(visibleCalendarTrips()); }
 function assistantScopedInvoices() {
   const role = activeRoleName(), trips = assistantScopedTrips(), tripIds = new Set(trips.map((trip) => trip.id)), vessels = new Set(trips.map((trip) => trip.vessel));
   if (['Admin','Bookkeeper'].includes(role)) return store.invoices || [];
