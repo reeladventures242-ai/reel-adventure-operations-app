@@ -57,6 +57,12 @@ WHATSAPP_AUTO_SEND_LIMIT = max(1, int(os.environ.get("WHATSAPP_AUTO_SEND_LIMIT",
 WHATSAPP_CUSTOMER_AUTO_SEND = os.environ.get("WHATSAPP_CUSTOMER_AUTO_SEND", "0").strip().lower() in ("1", "true", "yes", "on")
 COMPANY_OWNER_NAME = os.environ.get("COMPANY_OWNER_NAME", "Eugene").strip() or "Eugene"
 VESSEL_OWNER_ROLE = "Vessel Owner"
+PROTECTED_STORE_ARRAYS = (
+    "bookings", "trips", "invoices", "weatherRecords", "cruiseSchedule",
+    "whatsappInbox", "whatsappQueue", "whatsappDeliveryLog", "gmailImports",
+    "customerProfiles", "chatConversations", "chatMessages", "notifications",
+    "auditTrail", "users", "crew", "vessels",
+)
 
 DEFAULT_NOTIFICATION_RULES = {
     "tripAssignments": {"enabled": True, "autoSendWhatsApp": True, "roles": ["Owner", "Vessel Owner", "Captain", "Mate"]},
@@ -116,6 +122,32 @@ def load_operations_state():
     store = json.loads(payload)
     normalize_server_store(store)
     return {"hasStore": True, "store": store, "updatedAt": updated_at}
+
+
+def protect_shared_store_update(previous_store, incoming_store):
+    if not isinstance(previous_store, dict) or not isinstance(incoming_store, dict):
+        return []
+    preserved = []
+    for key in PROTECTED_STORE_ARRAYS:
+        previous_value = previous_store.get(key)
+        incoming_value = incoming_store.get(key)
+        if isinstance(previous_value, list) and previous_value and isinstance(incoming_value, list) and not incoming_value:
+            incoming_store[key] = previous_value
+            preserved.append(key)
+    if preserved:
+        now = iso_now()
+        incoming_store["updatedAt"] = now
+        incoming_store["serverSyncedAt"] = now
+    return preserved
+
+
+def backup_operations_state(store, reason="store-sync"):
+    if not isinstance(store, dict) or not store:
+        return
+    try:
+        save_app_state_record("main_previous", {"reason": reason, "backedUpAt": iso_now(), "store": store})
+    except Exception as error:
+        append_event_log("store-backup-error", {"reason": reason, "error": str(error)})
 
 
 def normalize_server_store(store):
@@ -258,6 +290,34 @@ def save_whatsapp_webhook_event(event):
             append_event_log("whatsapp-webhook-store-error", {"error": str(error), "inboundCount": len(inbound)})
     append_event_log("whatsapp-webhook", {"inboundCount": len(inbound)})
     return inbound
+
+
+def recover_whatsapp_inbox_from_webhook_cache():
+    saved = read_json_file(WHATSAPP_WEBHOOK_FILE) or []
+    if not isinstance(saved, list):
+        saved = []
+    recovered = []
+    for item in saved:
+        event = item.get("event") if isinstance(item, dict) else None
+        recovered.extend(extract_whatsapp_inbound_messages(event or {}))
+    if not recovered:
+        return {"ok": True, "recovered": 0, "updatedAt": iso_now()}
+    state = load_operations_state()
+    store = state.get("store") if state.get("hasStore") else {}
+    if not isinstance(store, dict):
+        store = {}
+    normalize_server_store(store)
+    inbox = store.setdefault("whatsappInbox", [])
+    existing_ids = {item.get("messageId") for item in inbox if isinstance(item, dict)}
+    added = [item for item in recovered if item.get("messageId") not in existing_ids]
+    if added:
+        now = iso_now()
+        store["whatsappInbox"] = normalize_whatsapp_inbox(added + inbox)
+        store["updatedAt"] = now
+        store["serverSyncedAt"] = now
+        save_operations_state(store)
+    append_event_log("whatsapp-inbox-recover", {"available": len(recovered), "recovered": len(added)})
+    return {"ok": True, "available": len(recovered), "recovered": len(added), "updatedAt": iso_now()}
 
 
 def load_app_state_record(record_id):
@@ -1385,12 +1445,14 @@ class AppHandler(SimpleHTTPRequestHandler):
                 existing = load_operations_state()
                 previous_store = existing.get("store") if existing.get("hasStore") else None
                 incoming["updatedAt"] = incoming.get("updatedAt") or iso_now()
+                preserved = protect_shared_store_update(previous_store, incoming)
                 rule_changes = apply_notification_rules(previous_store, incoming)
                 incoming["serverSyncedAt"] = iso_now()
-                incoming["notificationRulesLastRun"] = {"at": iso_now(), "changes": rule_changes}
+                incoming["notificationRulesLastRun"] = {"at": iso_now(), "changes": rule_changes, "preserved": preserved}
+                backup_operations_state(previous_store, "before-store-sync")
                 updated_at = save_operations_state(incoming)
-                append_event_log("store-sync", {"user": body.get("user", ""), "ruleChanges": rule_changes, "clientUpdatedAt": body.get("clientUpdatedAt", "")})
-                self.send_json({"ok": True, "store": incoming, "updatedAt": updated_at, "ruleChanges": rule_changes})
+                append_event_log("store-sync", {"user": body.get("user", ""), "ruleChanges": rule_changes, "preserved": preserved, "clientUpdatedAt": body.get("clientUpdatedAt", "")})
+                self.send_json({"ok": True, "store": incoming, "updatedAt": updated_at, "ruleChanges": rule_changes, "preserved": preserved})
                 return
             if self.path.startswith("/api/whatsapp/send"):
                 self.send_json(whatsapp_send_message(self.read_json_body()))
@@ -1398,6 +1460,9 @@ class AppHandler(SimpleHTTPRequestHandler):
             if self.path.startswith("/api/whatsapp/process-queue"):
                 body = self.read_json_body()
                 self.send_json(process_whatsapp_queue(body.get("limit"), bool(body.get("includeManual"))))
+                return
+            if self.path.startswith("/api/whatsapp/recover-inbox"):
+                self.send_json(recover_whatsapp_inbox_from_webhook_cache())
                 return
             if self.path.startswith("/api/whatsapp/webhook"):
                 event = self.read_json_body()
