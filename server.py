@@ -237,7 +237,10 @@ def save_whatsapp_webhook_event(event):
             existing_ids = {item.get("messageId") for item in inbox if isinstance(item, dict)}
             added = [item for item in inbound if item.get("messageId") not in existing_ids]
             if added:
+                updated_at = iso_now()
                 store["whatsappInbox"] = normalize_whatsapp_inbox(added + inbox)
+                store["updatedAt"] = updated_at
+                store["serverSyncedAt"] = updated_at
                 latest = added[0]
                 ensure_notification(
                     store,
