@@ -38,6 +38,19 @@ When `SUPABASE_DATABASE_URL` is set, it takes priority over `DATABASE_URL`. The 
 
 Do not commit Supabase passwords or service keys to GitHub. Use Render environment variables or GitHub repository secrets only.
 
+## Gmail OAuth persistence
+
+Gmail sync needs a Google refresh token to stay connected after the short-lived access token expires. The app requests offline access during the owner Gmail connection flow, preserves an existing refresh token when Google only returns a new access token, and reports the token state in Settings.
+
+Recommended Render environment variables:
+
+- `GMAIL_CLIENT_ID`
+- `GMAIL_CLIENT_SECRET`
+- `GMAIL_REDIRECT_URI`
+- `GMAIL_REFRESH_TOKEN` optional fallback, only if you are deliberately storing the owner refresh token in Render.
+
+If Settings says `Reconnect required` or `Refresh token: Missing`, reconnect Gmail from the Owner profile. If Google still does not return a refresh token, revoke the app from the Google Account security page and connect again so Google prompts for fresh consent.
+
 ## WhatsApp notification automation
 
 The app stores WhatsApp queue items, delivery logs, and notification rules in the shared database. Owner, captain, and mate operational alerts can be marked for automatic WhatsApp Business delivery when the Meta credentials are configured.

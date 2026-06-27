@@ -689,9 +689,35 @@ def save_gmail_token(payload):
 
 def gmail_token_status():
     token = gmail_token_payload()
-    connected = bool(token.get("refresh_token") or token.get("access_token"))
+    now = datetime.now(timezone.utc)
+    access_token = token.get("access_token", "")
+    refresh_token = token.get("refresh_token", "")
+    expires_at = parse_iso(token.get("expiresAt"))
+    access_token_valid = bool(access_token and expires_at and expires_at > now)
+    expired = bool(access_token and expires_at and expires_at <= now)
+    refreshable = bool(refresh_token)
+    connected = bool(refreshable or access_token_valid)
+    if refreshable:
+        status = "Connected + auto-refresh"
+        reason = "Refresh token saved. Gmail can refresh automatically after redeploys."
+    elif access_token_valid:
+        status = "Connected until token expires"
+        reason = "Access token is valid now, but no refresh token is saved. Reconnect Gmail to prevent future disconnects."
+    elif expired:
+        status = "Reconnect required"
+        reason = "Access token expired and no Gmail refresh token is saved."
+    else:
+        status = "Not connected"
+        reason = "No Gmail owner token is saved."
     return {
         "connected": connected,
+        "refreshable": refreshable,
+        "hasRefreshToken": refreshable,
+        "accessTokenValid": access_token_valid,
+        "expired": expired,
+        "needsReconnect": not connected,
+        "status": status,
+        "reason": reason,
         "email": token.get("email", ""),
         "expiresAt": token.get("expiresAt", ""),
         "updatedAt": token.get("updatedAt", ""),
@@ -706,13 +732,21 @@ def gmail_access_token():
         return access_token
     refresh_token = token.get("refresh_token")
     if not refresh_token:
-        raise ValueError("Gmail owner account is not connected")
-    refreshed = request_form_json(GMAIL_TOKEN_URL, {
-        "client_id": os.environ.get("GMAIL_CLIENT_ID", ""),
-        "client_secret": os.environ.get("GMAIL_CLIENT_SECRET", ""),
-        "refresh_token": refresh_token,
-        "grant_type": "refresh_token",
-    })
+        if access_token:
+            raise ValueError("Gmail reconnect required: access token expired and no refresh token is saved")
+        raise ValueError("Gmail reconnect required: owner account is not connected")
+    try:
+        refreshed = request_form_json(GMAIL_TOKEN_URL, {
+            "client_id": os.environ.get("GMAIL_CLIENT_ID", ""),
+            "client_secret": os.environ.get("GMAIL_CLIENT_SECRET", ""),
+            "refresh_token": refresh_token,
+            "grant_type": "refresh_token",
+        })
+    except urllib.error.HTTPError as error:
+        detail = error.read().decode("utf-8", errors="replace").strip()
+        raise ValueError(f"Gmail refresh failed: {detail or error.reason or error.code}") from error
+    except urllib.error.URLError as error:
+        raise ValueError(f"Gmail refresh failed: {error.reason}") from error
     refreshed["updatedAt"] = iso_now()
     return save_gmail_token(refreshed)["access_token"]
 
