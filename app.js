@@ -870,13 +870,14 @@ function updateMobileChrome() {
 }
 
 function wireEvents() {
+  const pinField = document.getElementById('userPin');
+  if (pinField) { pinField.hidden = true; const pinLabel = document.querySelector('label[for="userPin"]'); if (pinLabel) pinLabel.hidden = true; }
   document.getElementById('enterAppBtn').addEventListener('click', () => {
     const selected = document.getElementById('userSelect')?.value;
     const user = store.users.find((item) => item.id === selected && item.active !== false) || currentUser();
-    const enteredPin = String(document.getElementById('userPin')?.value || '').trim();
-    const expectedPin = String(user.demoPin || '').trim();
-    if (!expectedPin) return toast('This profile needs a PIN before it can sign in. Ask Eugene or an Admin to set it in Team Access Setup.');
-    if (enteredPin !== expectedPin) return toast('PIN not recognized. Check the profile and try again.');
+    // PIN requirement removed (owner request, 2026-07-20): any active profile signs in directly.
+    const pinInput = document.getElementById('userPin');
+    if (pinInput) pinInput.value = '';
     document.getElementById('loginScreen').hidden = true;
     document.getElementById('appShell').hidden = false;
     store.activeUserId = user.id; user.lastLoginAt = new Date().toISOString(); saveStore();
